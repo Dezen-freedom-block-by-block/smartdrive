@@ -1,5 +1,5 @@
-# Smartdrive
-Welcome to the Smartdrive subnet, a pioneering initiative designed to provide secure and distributed information storage solutions. Our mission is to harness the power of Commune's decentralized incentive markets to deliver robust, reliable, and highly secure storage services at scale.
+# SmartDrive
+Welcome to the SmartDrive subnet, a pioneering initiative designed to provide secure and distributed information storage solutions. Our mission is to harness the power of Commune's decentralized incentive markets to deliver robust, reliable, and highly secure storage services at scale.
 
 ## Installation
 ### Manually, on Ubuntu 22.04
@@ -10,7 +10,7 @@ Welcome to the Smartdrive subnet, a pioneering initiative designed to provide se
 - Install the Python dependencies with poetry install
 
 ## Running a Validator
-Validators play a crucial role in maintaining the integrity and security of the Smartdrive storage network. Their responsibilities include:
+Validators play a crucial role in maintaining the integrity and security of the SmartDrive storage network. Their responsibilities include:
 
 - Distributing Information: Ensuring data is distributed evenly and securely among miners to prevent single points of failure. Validators manage the distribution process to maintain redundancy and reliability.
 - Validating Data: Checking the integrity and availability of stored data by validating sub-chunks across miners. This ensures that the data remains consistent and uncorrupted throughout the network.
@@ -18,7 +18,7 @@ Validators play a crucial role in maintaining the integrity and security of the 
 - Incentivizing Miners: Providing rewards to miners based on their performance in storing and maintaining data integrity. Validators assess miners' contributions and distribute rewards accordingly, encouraging high standards of reliability and performance.
 - Performance-Based Rewards and Penalties: Miners are rewarded based on the speed of their responses and penalized if they fail to respond or if their responses do not meet the required standards. This ensures that only the most reliable miners are incentivized, maintaining the overall health of the network.
 
-Validators need to run continuously to monitor and validate data, ensuring the network remains robust and secure. Their ongoing efforts are critical in maintaining a high standard of data integrity and availability across the Smartdrive subnet.
+Validators need to run continuously to monitor and validate data, ensuring the network remains robust and secure. Their ongoing efforts are critical in maintaining a high standard of data integrity and availability across the SmartDrive subnet.
 
 ### Hardware Requirements
 #### Minimum Requirements
@@ -34,9 +34,9 @@ Validators need to run continuously to monitor and validate data, ensuring the n
 - Network: High-speed internet connection
 
 ### Launching a Validator
-1. Register the validator on the Smartdrive subnet
+1. Register the validator on the SmartDrive subnet
 ````
-comx module register <your_validator_name> <your_commune_key> --ip <your-ip-address> --port <port> --netuid <smartdrive netuid>  
+comx module register <your_validator_name> <your_commune_key> --ip <your-ip-address> --port <port> --netuid <SmartDrive netuid>  
 ````
 
 2. Launch the validator
@@ -52,15 +52,15 @@ Note: There is no need to specify your IP address as the system will automatical
 
 
 ## Running a Miner
-The miner is the muscle of the Smartdrive subnet, playing a crucial role in securely and distributedly storing user information. As an essential component of the system, miners ensure that data remains accessible and protected against loss or corruption. Thanks to the miners, the network can offer a robust decentralized storage solution, where data is efficiently distributed across multiple nodes. In addition to storing data, miners are also responsible for maintaining the integrity of the information, quickly responding to requests for data retrieval and removal. Their performance is continuously evaluated and rewarded, incentivizing a high level of reliability and efficiency in data storage and management. In summary, miners provide the physical and operational infrastructure that enables the Smartdrive subnet to operate with security, efficiency, and resilience.
+The miner is the muscle of the SmartDrive subnet, playing a crucial role in securely and distributedly storing user information. As an essential component of the system, miners ensure that data remains accessible and protected against loss or corruption. Thanks to the miners, the network can offer a robust decentralized storage solution, where data is efficiently distributed across multiple nodes. In addition to storing data, miners are also responsible for maintaining the integrity of the information, quickly responding to requests for data retrieval and removal. Their performance is continuously evaluated and rewarded, incentivizing a high level of reliability and efficiency in data storage and management. In summary, miners provide the physical and operational infrastructure that enables the SmartDrive subnet to operate with security, efficiency, and resilience.
 
 ### Hardware Requirements
 There is not a strict requirements in order to run a miner. However, as a miner, you will be rewarded in base on your speed processing the requests and your available space.
 
 ### Launching a Miner
-1. Register the miner on the Smartdrive subnet
+1. Register the miner on the SmartDrive subnet
 ````
-comx module register <your_miner_name> <your_commune_key> --ip <your-ip-address> --port <port> --netuid <smartdrive netuid>  
+comx module register <your_miner_name> <your_commune_key> --ip <your-ip-address> --port <port> --netuid <SmartDrive netuid>  
 ````
 
 2. Launch the miner
@@ -85,10 +85,10 @@ You can check the current subnet uid running:
 ```
 comx subnet list
 ```
-And look for the name smartdrive
+And look for the name SmartDrive
 
 ## Running the Subnet Client
-The Smartdrive subnet client allows users to interact with the smartdrive network using three main commands: **store**, **retrieve**, and **remove**. Below are the instructions on how to use each command.
+The SmartDrive subnet client allows users to interact with the SmartDrive network using three main commands: **store**, **retrieve**, and **remove**. Below are the instructions on how to use each command.
 
 ### Installing the cli
 
