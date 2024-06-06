@@ -1,0 +1,37 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# poetry
+poetry.lock
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Database
+*.db
+
+# Virtual environments
+.idea/poetry/Virtualenvs/
+
+# File-based project format
+*.pyc
+
+# Miscellaneous
+.DS_Store
+*.swp
+*.orig
+*.zip
