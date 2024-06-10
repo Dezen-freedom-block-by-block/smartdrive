@@ -245,7 +245,7 @@ class Miner(Module):
 if __name__ == "__main__":
     config = get_config()
     miner = Miner(config)
-    comx_client = CommuneClient(get_node_url())
+    comx_client = CommuneClient(get_node_url(use_testnet=config.testnet))
     key = classic_load_key(config.key)
     registered_modules = get_modules(comx_client, config.netuid)
 
@@ -262,5 +262,5 @@ if __name__ == "__main__":
         raise Exception(f"Your key: {key.ss58_address} is not registered.")
 
     dir = os.path.dirname(os.path.abspath(__file__))
-    server = ModuleServer(miner, key, subnets_whitelist=[config.netuid], limiter=IpLimiterParams())
+    server = ModuleServer(miner, key, subnets_whitelist=[config.netuid], limiter=IpLimiterParams(), use_testnet=config.testnet)
     uvicorn.run(server.get_fastapi_app(), host="0.0.0.0", port=config.port, ssl_keyfile=f"{dir}/cert/key.pem", ssl_certfile=f"{dir}/cert/cert.pem", log_level="info")

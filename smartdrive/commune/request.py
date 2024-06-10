@@ -30,7 +30,7 @@ from smartdrive.commune.module.client import ModuleClient
 from communex.types import Ss58Address
 from communex.client import CommuneClient
 
-PING_TIMEOUT = 1
+PING_TIMEOUT = 5
 CALL_TIMEOUT = 60
 
 
@@ -181,7 +181,7 @@ async def get_active_miners(key: Keypair, comx_client: CommuneClient, netuid: in
    Returns:
        List[ModuleInfo]: A list of `ModuleInfo` objects representing active miners.
    """
-    modules_uid_ss58_address_connection = get_modules(comx_client, netuid)
+    modules_uid_ss58_address_connection = get_miners(comx_client, netuid)
 
     active_miners = [
         module for module in modules_uid_ss58_address_connection

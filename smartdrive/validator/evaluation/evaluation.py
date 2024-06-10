@@ -31,8 +31,8 @@ from smartdrive.commune.request import vote
 from smartdrive.validator.evaluation.sigmoid import threshold_sigmoid_reward_distribution
 
 # TODO: Set with the subnet production value
-MAX_ALLOWED_WEIGHTS = 1000
-MAX_ALLOWED_UIDS = 100
+MAX_ALLOWED_WEIGHTS = 420
+MAX_ALLOWED_UIDS = 820
 MAX_RESPONSE_TIME = 8
 
 # Miner weights
@@ -90,7 +90,7 @@ def score_miner(successful_store_responses: int, total_store_responses: int, avg
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-def set_weights(score_dict: dict[int, float], netuid: int, client: CommuneClient, key: Keypair):
+def set_weights(score_dict: dict[int, float], netuid: int, client: CommuneClient, key: Keypair, testnet: bool = False):
     """
     Set weights for miners based on their scores.
 
@@ -132,7 +132,7 @@ def set_weights(score_dict: dict[int, float], netuid: int, client: CommuneClient
         sleep(sleep_time)
 
         # Try another client just in case the first one fails
-        client = CommuneClient(get_node_url())
+        client = CommuneClient(get_node_url(use_testnet=testnet))
         vote(key, client, uids, weights, netuid)
 
 

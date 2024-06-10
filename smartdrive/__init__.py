@@ -3,4 +3,4 @@ from . import cli, miner, validator
 
 # TODO: Change when deploy
 NETUID = 19
-TESTNET_NETUID = 19
+TESTNET_NETUID = 25

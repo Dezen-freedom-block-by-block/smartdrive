@@ -220,7 +220,7 @@ def _get_validator_url(key: Keypair, testnet: bool = False) -> str:
         url = _get_validator_url(key, testnet=True)
     """
     loop = asyncio.get_event_loop()
-    comx_client = CommuneClient(get_node_url())
+    comx_client = CommuneClient(get_node_url(use_testnet=testnet))
     netuid = smartdrive.TESTNET_NETUID if testnet else smartdrive.NETUID
     validators = loop.run_until_complete(get_active_validators(key, comx_client, netuid))
 
