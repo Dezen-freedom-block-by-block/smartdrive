@@ -28,6 +28,7 @@ from substrateinterface import Keypair
 from communex.client import CommuneClient
 
 import smartdrive
+from smartdrive.validator.api.middleware.subnet_middleware import SubnetMiddleware
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.api.retrieve_api import RetrieveAPI
 from smartdrive.validator.api.remove_api import RemoveAPI
@@ -56,6 +57,8 @@ class API:
         self.store_api = StoreAPI(config, key, database, comx_client)
         self.retrieve_api = RetrieveAPI(config, key, database, comx_client)
         self.remove_api = RemoveAPI(config, key, database, comx_client)
+
+        self.app.add_middleware(SubnetMiddleware, key=key, comx_client=comx_client, netuid=self._config.netuid)
 
         self.app.add_api_route("/method/ping", self.ping_endpoint, methods=["POST"])
         self.app.add_api_route("/database-version", self.database_api.database_version_endpoint, methods=["GET"])

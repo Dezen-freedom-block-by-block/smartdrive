@@ -8,10 +8,8 @@ import aiohttp.web_exceptions
 from substrateinterface import Keypair
 
 from ._protocol import create_method_endpoint, create_request_data
-from ._signer import TESTING_MNEMONIC
 
 from communex.errors import NetworkTimeoutError
-from communex.key import check_ss58_address
 from communex.types import Ss58Address
 
 
@@ -38,10 +36,10 @@ class ModuleClient:
         try:
             async with aiohttp.ClientSession(timeout=out) as session:
                 async with session.post(
-                    create_method_endpoint(self.host, self.port, fn),
-                    json=json.loads(serialized_data),
-                    headers=headers,
-                    ssl=False
+                        create_method_endpoint(self.host, self.port, fn),
+                        json=json.loads(serialized_data),
+                        headers=headers,
+                        ssl=False
                 ) as response:
                     match response.status:
                         case 200:
@@ -61,14 +59,3 @@ class ModuleClient:
         except asyncio.exceptions.TimeoutError as e:
             raise NetworkTimeoutError(
                 f"The call took longer than the timeout of {timeout} second(s)").with_traceback(e.__traceback__)
-
-
-if __name__ == "__main__":
-    keypair = Keypair.create_from_mnemonic(
-        TESTING_MNEMONIC
-    )
-    client = ModuleClient("localhost", 8000, keypair)
-    ss58_address = check_ss58_address(keypair.ss58_address)
-    result = asyncio.run(client.call("do_the_thing", ss58_address, {
-                         "awesomness": 45, "extra": "hi"}))
-    print(result)
