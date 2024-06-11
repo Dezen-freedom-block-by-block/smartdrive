@@ -19,9 +19,11 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+import json
+from urllib.parse import parse_qs
 
 from starlette.middleware.base import BaseHTTPMiddleware
-from fastapi import Request, Response
+from fastapi import Request, Response, UploadFile
 from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp
 from typing import Awaitable, Callable, Optional
@@ -32,7 +34,10 @@ from substrateinterface.utils.ss58 import ss58_encode
 from communex.client import CommuneClient
 from communex.types import Ss58Address
 
+from smartdrive.validator.api.middleware.sign import verify_json_signature
+
 Callback = Callable[[Request], Awaitable[Response]]
+exclude_paths = ["/method/ping"]
 
 
 class SubnetMiddleware(BaseHTTPMiddleware):
@@ -43,27 +48,30 @@ class SubnetMiddleware(BaseHTTPMiddleware):
         self._netuid = netuid
 
     async def dispatch(self, request: Request, call_next: Callback) -> Response:
+        if request.url.path in exclude_paths:
+            return await call_next(request)
+
         if request.client is None:
             response = JSONResponse(
                 status_code=401,
                 content={
-                    "error": "Address should be present in request"
+                    "detail": "Address should be present in request"
                 }
             )
             return response
-        key = request.headers.get('x-key')
+        key = request.headers.get('X-Key')
         if not key:
             response = JSONResponse(
                 status_code=401,
-                content={"error": "Valid X-Key not provided on headers"}
+                content={"detail": "Valid X-Key not provided on headers"}
             )
             return response
 
-        ss58_address = get_ss58_address_from_public_key(request.headers["x-key"])
+        ss58_address = get_ss58_address_from_public_key(request.headers.get('X-Key'))
         if not ss58_address:
             response = JSONResponse(
                 status_code=401,
-                content={"error": "Not a valid public key provided"}
+                content={"detail": "Not a valid public key provided"}
             )
             return response
 
@@ -72,10 +80,40 @@ class SubnetMiddleware(BaseHTTPMiddleware):
         if not staketo_addresses:
             response = JSONResponse(
                 status_code=401,
-                content={"error": "You must stake to at least one active validator in the subnet"}
+                content={"detail": "You must stake to at least one active validator in the subnet"}
             )
             return response
 
+        signature = request.headers.get('X-Signature')
+        if request.method == "GET":
+            body = dict(request.query_params)
+        else:
+            content_type = request.headers.get("Content-Type")
+            if "multipart/form-data" in content_type:
+                body_bytes = await request.body()
+                request._body = body_bytes
+                form = await request.form()
+                body = {key: form[key] for key in form}
+                if "file" in form:
+                    file = form["file"]
+                    body["file"] = str(await file.read())
+                request._body = body_bytes
+            elif content_type and "application/json" in content_type:
+                body = await request.json()
+            else:
+                body = await request.body()
+                try:
+                    body = {key: value[0] if isinstance(value, list) else value for key, value in parse_qs(body.decode("utf-8")).items()}
+                except UnicodeDecodeError:
+                    body = body
+
+        is_verified_signature = verify_json_signature(body, signature, ss58_address)
+        if not is_verified_signature:
+            response = JSONResponse(
+                status_code=401,
+                content={"detail": "Valid X-Signature not provided on headers"}
+            )
+            return response
         response = await call_next(request)
 
         return response

@@ -21,14 +21,16 @@ def iso_timestamp_now() -> str:
     return iso_now
 
 
-def create_headers(signature: bytes, my_key: Keypair, timestamp_iso: str):
+def create_headers(signature: bytes, my_key: Keypair, timestamp_iso: str = iso_timestamp_now(), content_type: str = "application/json", show_content_type: bool = True):
     headers = {
-        "Content-Type": "application/json",
         "X-Signature": signature.hex(),
         "X-Key": my_key.public_key.hex(),
         "X-Crypto": str(my_key.crypto_type),
         "X-Timestamp": timestamp_iso,
     }
+    if show_content_type:
+        headers["Content-Type"] = content_type
+
     return headers
 
 

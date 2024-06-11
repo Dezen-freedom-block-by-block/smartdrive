@@ -39,6 +39,8 @@ from communex.compat.key import classic_load_key
 from communex.types import Ss58Address
 
 import smartdrive
+from smartdrive.commune.module._protocol import create_headers
+from smartdrive.validator.api.middleware.sign import sign_json
 from smartdrive.validator.api.utils import get_miner_info_with_chunk
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
@@ -315,8 +317,9 @@ class Validator(Module):
         active_validators = [validator for validator in active_validators if validator.ss58_address != self._key.ss58_address]
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+            headers = create_headers(sign_json({}, self._key), self._key)
             futures = [
-                executor.submit(fetch_validator, "database-version", validator.connection, 10)
+                executor.submit(fetch_validator, "database-version", validator.connection, 10, headers)
                 for validator in active_validators
             ]
             answers = [future.result() for future in concurrent.futures.as_completed(futures)]
@@ -332,7 +335,7 @@ class Validator(Module):
                             "ip": validator.connection.ip,
                             "port": validator.connection.port
                         },
-                        "database_version": int(response.json()["version"])
+                        "database_version": int(response.json()["version"] or 0)
                     })
                 except Exception as e:
                     print(e)
@@ -349,7 +352,8 @@ class Validator(Module):
         validator = max_version_validators[0]
 
         connection = ConnectionInfo(validator["connection"]["ip"], validator["connection"]["port"])
-        answer = fetch_validator("database", connection)
+        headers = create_headers(sign_json({}, self._key), self._key)
+        answer = fetch_validator("database", connection, headers=headers)
 
         if answer and answer.status_code == 200:
             with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_zip:

@@ -27,6 +27,8 @@ import zipfile
 from typing import Optional
 import requests
 
+from starlette.datastructures import Headers
+
 from smartdrive.commune.request import ConnectionInfo
 
 
@@ -61,7 +63,7 @@ def extract_sql_file(zip_filename: str) -> Optional[str]:
         return None
 
 
-def fetch_validator(action: str, connection: ConnectionInfo, timeout=60) -> Optional[requests.Response]:
+def fetch_validator(action: str, connection: ConnectionInfo, timeout=60, headers: Headers = None) -> Optional[requests.Response]:
     """
     Sends a request to a specified validator action endpoint.
 
@@ -78,7 +80,7 @@ def fetch_validator(action: str, connection: ConnectionInfo, timeout=60) -> Opti
         Optional[requests.Response]: The response object if the request is successful, otherwise None.
     """
     try:
-        response = requests.get(f"https://{connection.ip}:{connection.port}/{action}", timeout=timeout)
+        response = requests.get(f"https://{connection.ip}:{connection.port}/{action}", headers=headers, timeout=timeout, verify=False)
         response.raise_for_status()
         return response
     except Exception as e:
