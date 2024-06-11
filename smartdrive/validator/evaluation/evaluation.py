@@ -90,7 +90,7 @@ def score_miner(successful_store_responses: int, total_store_responses: int, avg
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-def set_weights(score_dict: dict[int, float], netuid: int, client: CommuneClient, key: Keypair, testnet: bool = False):
+async def set_weights(score_dict: dict[int, float], netuid: int, client: CommuneClient, key: Keypair, testnet: bool = False):
     """
     Set weights for miners based on their scores.
 
@@ -125,7 +125,7 @@ def set_weights(score_dict: dict[int, float], netuid: int, client: CommuneClient
     weights = list(weighted_scores.values())
 
     try:
-        vote(key, client, uids, weights, netuid)
+        await vote(key, client, uids, weights, netuid)
     except Exception as e:
         print(f"Failed to set weights with exception: {e}. Will retry.")
         sleep_time = random.uniform(1, 2)
@@ -133,7 +133,7 @@ def set_weights(score_dict: dict[int, float], netuid: int, client: CommuneClient
 
         # Try another client just in case the first one fails
         client = CommuneClient(get_node_url(use_testnet=testnet))
-        vote(key, client, uids, weights, netuid)
+        await vote(key, client, uids, weights, netuid)
 
 
 def _cut_to_max_allowed_uids(score_dict: dict[int, float]) -> dict[int, float]:

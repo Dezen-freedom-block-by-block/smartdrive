@@ -21,14 +21,14 @@
 # SOFTWARE.
 
 import re
+import asyncio
 from typing import Dict, Any, Optional, List
-
 from substrateinterface import Keypair
-
-from smartdrive.commune.module.client import ModuleClient
 
 from communex.types import Ss58Address
 from communex.client import CommuneClient
+
+from smartdrive.commune.module.client import ModuleClient
 
 PING_TIMEOUT = 5
 CALL_TIMEOUT = 60
@@ -98,7 +98,7 @@ def get_modules(comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
     return modules_info
 
 
-def vote(key: Keypair, comx_client: CommuneClient, uids: list[int], weights: list[int], netuid: int):
+async def vote(key: Keypair, comx_client: CommuneClient, uids: list[int], weights: list[int], netuid: int):
     """
     Perform a vote on the network.
 
@@ -113,7 +113,11 @@ def vote(key: Keypair, comx_client: CommuneClient, uids: list[int], weights: lis
         netuid (int): Network identifier used for the votes.
     """
     print(f"Voting uids: {uids} - weights: {weights}")
-    comx_client.vote(key=key, uids=uids, weights=weights, netuid=netuid)
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, comx_client.vote, key, uids, weights, netuid)
+    except Exception as e:
+        print(e)
 
 
 async def get_active_validators(key: Keypair, comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:

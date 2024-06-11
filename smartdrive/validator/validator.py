@@ -97,7 +97,7 @@ class Validator(Module):
         self._config = config
         self._key = classic_load_key(config.key)
         self._database = Database(config.database_file, config.database_export_file)
-        self._comx_client = CommuneClient(get_node_url(use_testnet=self._config.testnet))
+        self._comx_client = CommuneClient(url=get_node_url(use_testnet=self._config.testnet), num_connections=5)
         self.api = API(self._config, self._key, self._database, self._comx_client)
 
     async def validation_loop(self):
@@ -162,7 +162,7 @@ class Validator(Module):
             print("Skipping set weights")
             return
 
-        set_weights(score_dict, self._config.netuid, self._comx_client, self._key, self._config.testnet)
+        await set_weights(score_dict, self._config.netuid, self._comx_client, self._key, self._config.testnet)
 
     async def _handle_expired_files(self, expired_files_dict: list[File], active_miners: list[ModuleInfo]):
         """
