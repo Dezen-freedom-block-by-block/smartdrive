@@ -67,7 +67,7 @@ def get_config() -> Namespace:
     parser.add_argument("--name", required=True, help="Name of miner.")
     parser.add_argument("--max_size", type=float, default=100, required=False, help="Size (in GB) of path to fill.")
     parser.add_argument("--port", type=int, default=8000, required=False, help="Default api port.")
-    parser.add_argument("--testnet", type=bool, default=False, help="Use testnet or not.")
+    parser.add_argument("--testnet", action='store_true', help="Use testnet or not.")
 
     config = parser.parse_args()
     config.data_path = os.path.expanduser(config.data_path)

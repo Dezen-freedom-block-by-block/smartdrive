@@ -67,7 +67,7 @@ def get_config():
     parser.add_argument("--name", required=True, help="Name of validator.")
     parser.add_argument("--database_path", default=db_path, required=False, help="Path to the database.")
     parser.add_argument("--port", type=int, default=8001, required=False, help="Default remote api port.")
-    parser.add_argument("--testnet", type=bool, default=False, help="Use testnet or not.")
+    parser.add_argument("--testnet", action='store_true', help="Use testnet or not.")
 
     config = parser.parse_args()
     config.netuid = smartdrive.TESTNET_NETUID if config.testnet else smartdrive.NETUID
@@ -75,6 +75,12 @@ def get_config():
     config.database_path = os.path.expanduser(config.database_path)
     config.database_file = os.path.join(config.database_path, "smartdrive.db")
     config.database_export_file = os.path.join(config.database_path, "export.zip")
+
+    print(f"Key: {config.key}")
+    print(f"Name: {config.name}")
+    print(f"Database Path: {config.database_path}")
+    print(f"Port: {config.port}")
+    print(f"Testnet: {config.testnet}")
 
     return config
 
