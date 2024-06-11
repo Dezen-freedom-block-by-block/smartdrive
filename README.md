@@ -4,10 +4,17 @@ Welcome to the SmartDrive subnet, a pioneering initiative designed to provide se
 ## Installation
 ### Manually, on Ubuntu 22.04
 - Install Python 3
-- sudo apt install python3
+  ```sh
+  sudo apt install python3
 - Install Poetry
-- Enter the Python environment with poetry shell
-- Install the Python dependencies with poetry install
+  ```sh
+  pip install poetry
+- Enter the Python environment
+  ```sh
+  poetry shell
+- Install the Python dependencies
+  ```sh 
+  poetry install
 
 ## Running a Validator
 Validators play a crucial role in maintaining the integrity and security of the SmartDrive storage network. Their responsibilities include:
@@ -68,7 +75,7 @@ comx module register <your_miner_name> <your_commune_key> --ip <your-ip-address>
 python3 -m smartdrive.miner.miner --key <your_commune_key> --name <your_miner_name>
 ````
 Other useful parameters:
-- --database_path: Path to the database.
+- --data_path: Path to the data.
 - --max_size: Size (in GB) of path to fill.
 - --port: Default remote api port (Defaults 8000).
 - --testnet: Use testnet or not.
