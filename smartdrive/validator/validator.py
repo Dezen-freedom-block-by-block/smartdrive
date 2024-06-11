@@ -72,15 +72,12 @@ def get_config():
     config = parser.parse_args()
     config.netuid = smartdrive.TESTNET_NETUID if config.testnet else smartdrive.NETUID
 
+    if config.database_path:
+        os.makedirs(config.database_path, exist_ok=True)
+
     config.database_path = os.path.expanduser(config.database_path)
     config.database_file = os.path.join(config.database_path, "smartdrive.db")
     config.database_export_file = os.path.join(config.database_path, "export.zip")
-
-    print(f"Key: {config.key}")
-    print(f"Name: {config.name}")
-    print(f"Database Path: {config.database_path}")
-    print(f"Port: {config.port}")
-    print(f"Testnet: {config.testnet}")
 
     return config
 

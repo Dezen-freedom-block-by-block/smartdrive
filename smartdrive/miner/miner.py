@@ -70,6 +70,10 @@ def get_config() -> Namespace:
     parser.add_argument("--testnet", action='store_true', help="Use testnet or not.")
 
     config = parser.parse_args()
+
+    if config.data_path:
+        os.makedirs(config.data_path, exist_ok=True)
+
     config.data_path = os.path.expanduser(config.data_path)
     config.netuid = smartdrive.TESTNET_NETUID if config.testnet else smartdrive.NETUID
 
