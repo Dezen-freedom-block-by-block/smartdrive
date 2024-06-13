@@ -20,6 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from enum import Enum
 from typing import List, Optional
 import time
 import random
@@ -159,3 +160,8 @@ class Block:
 
     def __repr__(self):
         return f"Block(block_number={self.block_number}, events={self.events.__repr__}, signature={self.signature})"
+
+
+class ModuleType(Enum):
+    MINER = "miner"
+    VALIDATOR = "validator"

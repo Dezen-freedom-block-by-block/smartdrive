@@ -32,9 +32,10 @@ from communex.client import CommuneClient
 from communex.compat.key import classic_load_key
 from substrateinterface import Keypair
 
-from smartdrive.commune.request import get_validators
+from smartdrive.commune.request import get_filtered_modules
 from smartdrive.validator.api.middleware.sign import verify_json_signature, sign_json
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
+from smartdrive.validator.models import ModuleType
 from smartdrive.validator.node.server.client import Client
 from smartdrive.validator.node.server.connection_pool import ConnectionPool
 from smartdrive.validator.node.server.util import packing
@@ -80,7 +81,7 @@ class Server(multiprocessing.Process):
         # TODO: Each connection try in for loop should be async and we should wait for all of them
         try:
             if validators is None:
-                validators = get_validators(self.comx_client, self.netuid)
+                validators = get_filtered_modules(self.comx_client, self.netuid, ModuleType.VALIDATOR)
                 validators = [validator for validator in validators if validator.ss58_address != self.keypair.ss58_address]
 
             for validator in validators:
@@ -138,7 +139,7 @@ class Server(multiprocessing.Process):
                     client_socket.close()
                     return
 
-                validators = get_validators(self.comx_client, self.netuid)
+                validators = get_filtered_modules(self.comx_client, self.netuid, ModuleType.VALIDATOR)
 
                 if validators:
                     is_connection_validator = next((validator for validator in validators if validator.ss58_address == connection_identifier), None)
@@ -173,7 +174,7 @@ class Server(multiprocessing.Process):
     def check_connections_process(self):
         while True:
             time.sleep(10)
-            validators = get_validators(self.comx_client, self.netuid)
+            validators = get_filtered_modules(self.comx_client, self.netuid, ModuleType.VALIDATOR)
             active_ss58_addresses = {validator.ss58_address for validator in validators}
             to_remove = [ss58_address for ss58_address in self.connection_pool.get_identifiers() if ss58_address not in active_ss58_addresses]
             for ss58_address in to_remove:

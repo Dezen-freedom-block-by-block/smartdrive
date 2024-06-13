@@ -47,7 +47,7 @@ from smartdrive.validator.database.database import Database
 from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
 from smartdrive.validator.evaluation.utils import generate_data
 from smartdrive.validator.api.api import API
-from smartdrive.validator.models import SubChunk, Chunk, File, MinerWithSubChunk, Event, Block
+from smartdrive.validator.models import SubChunk, Chunk, File, MinerWithSubChunk, Event, Block, ModuleType
 from smartdrive.validator.utils import extract_sql_file, fetch_validator, encode_bytes_to_b64
 from smartdrive.commune.request import get_modules, get_active_validators, get_active_miners, ConnectionInfo, ModuleInfo, execute_miner_request, get_truthful_validators, ping_leader_validator, get_filtered_modules
 
@@ -152,7 +152,7 @@ class Validator(Module):
 
         # Set weights to miners
         score_dict = {}
-        for miner in get_filtered_modules(self._comx_client, self._config.netuid, "miner"):
+        for miner in get_filtered_modules(self._comx_client, self._config.netuid, ModuleType.MINER):
             if miner.ss58_address == key.ss58_address:
                 continue
             avg_miner_response_time = self._database.get_avg_miner_response_time(miner.ss58_address)
@@ -439,7 +439,7 @@ class Validator(Module):
             start_time = time.time()
 
             truthful_validators = await get_truthful_validators(self._key, self._comx_client, self._config.netuid)
-            all_validators = get_filtered_modules(self._comx_client, self._config.netuid, "validator")
+            all_validators = get_filtered_modules(self._comx_client, self._config.netuid, ModuleType.VALIDATOR)
 
             leader_active_validator = max(truthful_validators, key=lambda v: v.stake or 0)
             leader_validator = max(all_validators, key=lambda v: v.stake or 0)

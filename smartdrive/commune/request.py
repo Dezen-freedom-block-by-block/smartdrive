@@ -30,6 +30,7 @@ from communex.client import CommuneClient
 
 from smartdrive.commune.module.client import ModuleClient
 from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
+from smartdrive.validator.models import ModuleType
 
 PING_TIMEOUT = 5
 CALL_TIMEOUT = 60
@@ -164,7 +165,7 @@ async def ping_leader_validator(key: Keypair, module: ModuleInfo, retries: int =
     return False
 
 
-def get_filtered_modules(comx_client: CommuneClient, netuid: int, type: str = "Miner") -> List[ModuleInfo]:
+def get_filtered_modules(comx_client: CommuneClient, netuid: int, type: ModuleType = ModuleType.MINER) -> List[ModuleInfo]:
     """
     Retrieve a list of miners or validators.
 
@@ -183,8 +184,8 @@ def get_filtered_modules(comx_client: CommuneClient, netuid: int, type: str = "M
     result = []
 
     for module in modules:
-        condition = module.incentive > module.dividends if type == "miner" else module.incentive < module.dividends
-        if (module.incentive == module.dividends == 0) or condition:
+        condition = module.incentives > module.dividends if type == ModuleType.MINER else module.incentives < module.dividends
+        if (module.incentives == module.dividends == 0) or condition:
             result.append(module)
 
     return result
