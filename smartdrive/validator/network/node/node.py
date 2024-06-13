@@ -23,10 +23,8 @@
 import multiprocessing
 from multiprocessing import Queue
 
-from communex.client import CommuneClient
 from substrateinterface import Keypair
 
-from smartdrive.validator.database.database import Database
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.server import Server
 
@@ -34,8 +32,6 @@ from smartdrive.validator.network.node.server import Server
 class Node:
 
     _key: Keypair = None
-    _database: Database = None
-    _comx_client = None
     _ip = None
     _netuid = None
 
@@ -43,26 +39,14 @@ class Node:
     _connection_pool = ConnectionPool(cache_size=Server.MAX_N_CONNECTIONS)
     mempool = Queue()
 
-    def __init__(self, keypair: Keypair, database: Database, comx_client: CommuneClient, ip: str, netuid: int):
+    def __init__(self, keypair: Keypair, ip: str, netuid: int):
         self._keypair = keypair
-        self._database = database
-        self._comx_client = comx_client
         self._ip = ip
         self._netuid = netuid
 
-        self.mempool_process = multiprocessing.Process(target=self.listen_mempool)
-        self.mempool_process.start()
         self._server_process = multiprocessing.Process(target=self.run_server)
         self._server_process.start()
 
     def run_server(self):
         server = Server(self._ip, self._connection_pool, self._keypair, self._netuid, self.mempool)
         server.run()
-
-    def listen_mempool(self):
-        try:
-            while True:
-                message = self.mempool.get()
-                print(f"Main process received notification: {message}")
-        except Exception as e:
-            print(e)

@@ -48,7 +48,7 @@ from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
 from smartdrive.validator.evaluation.utils import generate_data
 from smartdrive.validator.api.api import API
 from smartdrive.validator.models import SubChunk, Chunk, File, MinerWithSubChunk, Event, Block, ModuleType
-from smartdrive.validator.network import Node
+from smartdrive.validator.network.network import Network
 from smartdrive.validator.utils import extract_sql_file, fetch_validator, encode_bytes_to_b64
 from smartdrive.commune.request import get_modules, get_active_validators, get_active_miners, ConnectionInfo, ModuleInfo, execute_miner_request, get_truthful_validators, ping_leader_validator, get_filtered_modules
 
@@ -94,7 +94,7 @@ class Validator(Module):
     _database: Database = None
     api: API = None
     _comx_client: CommuneClient = None
-    _node: Node = None
+    _network: Network = None
 
     def __init__(self, config):
         super().__init__()
@@ -104,7 +104,7 @@ class Validator(Module):
         self._database = Database(config.database_file, config.database_export_file)
         self.api = API(self._config, self._key, self._database, self._comx_client)
         self._comx_client = CommuneClient(url=get_node_url(use_testnet=self._config.testnet), num_connections=5)
-        self._node = Node(keypair=self._key, database=self._database, comx_client=self._comx_client, ip=self._config.ip, netuid=self._config.netuid)
+        self._network = Network(keypair=self._key, ip=self._config.ip, netuid=self._config.netuid)
 
     async def validation_loop(self):
         """
