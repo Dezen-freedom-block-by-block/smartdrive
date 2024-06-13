@@ -25,7 +25,6 @@ import sys
 import os
 import lzma
 import random
-import base64
 import asyncio
 from pathlib import Path
 from getpass import getpass
@@ -44,6 +43,7 @@ import smartdrive
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_active_validators
 from smartdrive.validator.api.middleware.sign import sign_json
+from smartdrive.validator.utils import decode_b64_to_bytes
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -130,7 +130,7 @@ def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testn
 
     else:
         # TODO: Receive bytes directly, not base64 data.
-        data_bytes = base64.b64decode(response.content)
+        data_bytes = decode_b64_to_bytes(response.content)
         data = io.BytesIO(data_bytes)
         try:
             with py7zr.SevenZipFile(data, 'r', password=key.private_key.hex()) as archive:

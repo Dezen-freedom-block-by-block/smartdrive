@@ -59,6 +59,7 @@ class SubnetMiddleware(BaseHTTPMiddleware):
                 }
             )
             return response
+
         key = request.headers.get('X-Key')
         if not key:
             response = JSONResponse(
@@ -67,7 +68,7 @@ class SubnetMiddleware(BaseHTTPMiddleware):
             )
             return response
 
-        ss58_address = get_ss58_address_from_public_key(request.headers.get('X-Key'))
+        ss58_address = get_ss58_address_from_public_key(key)
         if not ss58_address:
             response = JSONResponse(
                 status_code=401,

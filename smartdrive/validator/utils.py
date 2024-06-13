@@ -88,7 +88,7 @@ def fetch_validator(action: str, connection: ConnectionInfo, timeout=60, headers
         return None
 
 
-def encode_bytes(data: bytes) -> str:
+def encode_bytes_to_b64(data: bytes) -> str:
     """
     Encodes bytes into a base64 string.
 
@@ -99,3 +99,16 @@ def encode_bytes(data: bytes) -> str:
         str: The base64 encoded string.
     """
     return base64.b64encode(data).decode("utf-8")
+
+
+def decode_b64_to_bytes(data: str) -> bytes:
+    """
+    Decodes a base64 string into bytes.
+
+    Params:
+        data (str): The base64 encoded string.
+
+    Returns:
+        bytes: The decoded bytes.
+    """
+    return base64.b64decode(data)

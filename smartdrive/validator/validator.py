@@ -47,7 +47,7 @@ from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
 from smartdrive.validator.evaluation.utils import generate_data
 from smartdrive.validator.api.api import API
 from smartdrive.validator.models import SubChunk, Chunk, File, MinerWithSubChunk
-from smartdrive.validator.utils import extract_sql_file, fetch_validator, encode_bytes
+from smartdrive.validator.utils import extract_sql_file, fetch_validator, encode_bytes_to_b64
 from smartdrive.commune.request import get_modules, get_active_validators, get_active_miners, ConnectionInfo, ModuleInfo, execute_miner_request, get_miners
 
 
@@ -254,7 +254,7 @@ class Validator(Module):
         """
         # TODO: Set max value for chunk
         file_data = generate_data(5)
-        data_encoded = encode_bytes(file_data)
+        data_encoded = encode_bytes_to_b64(file_data)
         # TODO: Fix this, currently an early stage of what it should be
         end = random.randint(51, len(data_encoded) - 1)
         start = end - 50
@@ -435,7 +435,7 @@ if __name__ == "__main__":
         _comx_client.update_module(
             key=key,
             name=config.name,
-            address=f"{external_ip}:{config.port}",
+            address=f"127.0.0.1:{config.port}",
             netuid=config.netuid
         )
     else:

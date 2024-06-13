@@ -29,6 +29,7 @@ from communex.types import Ss58Address
 from communex.client import CommuneClient
 
 from smartdrive.commune.module.client import ModuleClient
+from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 
 PING_TIMEOUT = 5
 CALL_TIMEOUT = 60
@@ -44,15 +45,16 @@ class ConnectionInfo:
 
 
 class ModuleInfo:
-    def __init__(self, uid: str, ss58_address: Ss58Address, connection: ConnectionInfo, incentive: Optional[int] = None, dividends: Optional[int] = None):
+    def __init__(self, uid: str, ss58_address: Ss58Address, connection: ConnectionInfo, incentives: Optional[int] = None, dividends: Optional[int] = None, stake: Optional[int] = None):
         self.uid = uid
         self.ss58_address = ss58_address
         self.connection = connection
-        self.incentive = incentive
+        self.incentives = incentives
         self.dividends = dividends
+        self.stake = stake
 
     def __repr__(self):
-        return f"ModuleInfo(uid={self.uid}, ss58_address={self.ss58_address}, connection={self.connection}, incentive={self.incentive}, dividends={self.dividends})"
+        return f"ModuleInfo(uid={self.uid}, ss58_address={self.ss58_address}, connection={self.connection}, incentives={self.incentives}, dividends={self.dividends}, stake={self.stake})"
 
 
 def get_modules(comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
@@ -76,7 +78,8 @@ def get_modules(comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
             ("Keys", [netuid]),
             ("Address", [netuid]),
             ("Incentive", []),
-            ("Dividends", [])
+            ("Dividends", []),
+            ("StakeFrom", [netuid])
         ]
     }
 
@@ -88,36 +91,23 @@ def get_modules(comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
 
     for uid, ss58_address in keys_map.items():
         address = address_map.get(uid)
+        total_stake = 0
+        stake = result["StakeFrom"].get(ss58_address, [])
+        for _, stake in stake:
+            total_stake += stake
+
         if address:
             connection = _get_ip_port(address)
             if connection:
                 modules_info.append(
-                    ModuleInfo(uid, ss58_address, connection, result["Incentive"][netuid][uid], result["Dividends"][netuid][uid])
+                    ModuleInfo(uid, ss58_address, connection, result["Incentive"][netuid][uid], result["Dividends"][netuid][uid], total_stake)
                 )
-
     return modules_info
 
 
-async def vote(key: Keypair, comx_client: CommuneClient, uids: list[int], weights: list[int], netuid: int):
-    """
-    Perform a vote on the network.
-
-    This function sends a voting transaction to the network using the provided key for authentication.
-    Each UID in the `uids` list is voted for with the corresponding weight from the `weights` list.
-
-    Params:
-        key (Keypair): Key used to authenticate the vote.
-        comx_client (CommuneClient): Client to perform the vote.
-        uids (list[int]): List of unique identifiers (UIDs) of the nodes to vote for.
-        weights (list[int]): List of weights associated with each UID.
-        netuid (int): Network identifier used for the votes.
-    """
-    print(f"Voting uids: {uids} - weights: {weights}")
-    try:
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, comx_client.vote, key, uids, weights, netuid)
-    except Exception as e:
-        print(e)
+def get_validators(comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
+    modules = get_modules(comx_client, netuid)
+    return list(filter(lambda module: module.incentives < module.dividends, modules))
 
 
 async def get_active_validators(key: Keypair, comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
@@ -144,6 +134,11 @@ async def get_active_validators(key: Keypair, comx_client: CommuneClient, netuid
     return active_validators
 
 
+async def get_truthful_validators(key: Keypair, comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
+    active_validators = await get_active_validators(key, comx_client, netuid)
+    return list(filter(lambda validator: validator.stake > TRUTHFUL_STAKE_AMOUNT, active_validators))
+
+
 def get_miners(comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
     """
     Retrieve a list of miners.
@@ -163,7 +158,7 @@ def get_miners(comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
     miners = []
 
     for module in modules:
-        if (module.incentive == module.dividends == 0) or module.incentive > module.dividends:
+        if (module.incentives == module.dividends == 0) or module.incentives > module.dividends:
             miners.append(module)
 
     return miners
@@ -192,6 +187,28 @@ async def get_active_miners(key: Keypair, comx_client: CommuneClient, netuid: in
         if (response := await execute_miner_request(key, module.connection, module.ss58_address, "ping", timeout=PING_TIMEOUT)) and response["type"] == "miner"
     ]
     return active_miners
+
+
+async def vote(key: Keypair, comx_client: CommuneClient, uids: list[int], weights: list[int], netuid: int):
+    """
+    Perform a vote on the network.
+
+    This function sends a voting transaction to the network using the provided key for authentication.
+    Each UID in the `uids` list is voted for with the corresponding weight from the `weights` list.
+
+    Params:
+        key (Keypair): Key used to authenticate the vote.
+        comx_client (CommuneClient): Client to perform the vote.
+        uids (list[int]): List of unique identifiers (UIDs) of the nodes to vote for.
+        weights (list[int]): List of weights associated with each UID.
+        netuid (int): Network identifier used for the votes.
+    """
+    print(f"Voting uids: {uids} - weights: {weights}")
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, comx_client.vote, key, uids, weights, netuid)
+    except Exception as e:
+        print(e)
 
 
 async def execute_miner_request(validator_key: Keypair, connection: ConnectionInfo, miner_key: Ss58Address, action: str, params: Dict[str, Any] = None, timeout: int = CALL_TIMEOUT):
