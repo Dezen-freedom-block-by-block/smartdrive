@@ -34,7 +34,7 @@ from substrateinterface.utils.ss58 import ss58_encode
 from communex.client import CommuneClient
 from communex.types import Ss58Address
 
-from smartdrive.validator.api.middleware.sign import verify_json_signature
+from smartdrive.validator.api.middleware.sign import verify_data_signature
 
 Callback = Callable[[Request], Awaitable[Response]]
 exclude_paths = ["/method/ping"]
@@ -108,7 +108,7 @@ class SubnetMiddleware(BaseHTTPMiddleware):
                 except UnicodeDecodeError:
                     body = body
 
-        is_verified_signature = verify_json_signature(body, signature, ss58_address)
+        is_verified_signature = verify_data_signature(body, signature, ss58_address)
         if not is_verified_signature:
             response = JSONResponse(
                 status_code=401,

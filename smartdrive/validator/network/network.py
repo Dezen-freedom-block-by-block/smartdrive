@@ -24,6 +24,7 @@ import asyncio
 
 from substrateinterface import Keypair
 
+from smartdrive.validator.models.block import Event
 from smartdrive.validator.network.node.node import Node
 
 
@@ -46,3 +47,7 @@ class Network:
         loop = asyncio.get_running_loop()
         loop.create_task(self.periodic_task())
         await asyncio.Event().wait()
+
+    def emit_event(self, event: Event):
+        identifiers_connections = self._node.get_identifiers_connections()
+        # TODO: Emit event

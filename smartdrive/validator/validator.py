@@ -41,16 +41,20 @@ from communex.types import Ss58Address
 
 import smartdrive
 from smartdrive.commune.module._protocol import create_headers
-from smartdrive.validator.api.middleware.sign import sign_json, verify_json_signature, verify_block
+from smartdrive.validator.api.middleware.sign import sign_data, verify_data_signature, verify_block
+from smartdrive.validator.api.remove_api import _remove_chunk_request, remove_files
 from smartdrive.validator.api.utils import get_miner_info_with_chunk
+from smartdrive.validator.api.validate_api import validate_miners
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
 from smartdrive.validator.evaluation.utils import generate_data
 from smartdrive.validator.api.api import API
-from smartdrive.validator.models.models import SubChunk, Chunk, File, MinerWithSubChunk, Event, Block, ModuleType
+from smartdrive.validator.models.block import Event, Block
+from smartdrive.validator.models.models import SubChunk, Chunk, File, MinerWithSubChunk, ModuleType
 from smartdrive.validator.network.network import Network
 from smartdrive.validator.utils import extract_sql_file, fetch_validator, encode_bytes_to_b64
-from smartdrive.commune.request import get_modules, get_active_validators, get_active_miners, ConnectionInfo, ModuleInfo, execute_miner_request, get_truthful_validators, ping_leader_validator, get_filtered_modules
+from smartdrive.commune.request import (get_modules, get_active_validators, get_active_miners, ConnectionInfo, ModuleInfo,
+                                        execute_miner_request, get_truthful_validators, ping_leader_validator, get_filtered_modules)
 
 
 def get_config():
@@ -141,11 +145,21 @@ class Validator(Module):
 
         # Remove expired files
         if expired_files:
-            await self._handle_expired_files(expired_files, active_miners)
+            remove_events = await remove_files(
+                files=expired_files,
+                keypair=self._key,
+                comx_client=self._comx_client,
+                netuid=self._config.netuid
+            )
 
         # Validate non expired files
         if non_expired_files:
-            await self.validate_miners(non_expired_files)
+            validate_events = await validate_miners(
+                files=non_expired_files,
+                keypair=self._key,
+                comx_client=self._comx_client,
+                netuid=self._config.netuid
+            )
 
         # TODO: Move store before validate to check the new files
         # Store new files
@@ -169,37 +183,6 @@ class Validator(Module):
             return
 
         await set_weights(score_dict, self._config.netuid, self._comx_client, self._key, self._config.testnet)
-
-    async def _handle_expired_files(self, expired_files_dict: list[File], active_miners: list[ModuleInfo]):
-        """
-        Handles the removal of expired files from active miners.
-
-        This method processes a list of expired files, sending remove requests to the
-        respective active miners that store these files. It logs the response times
-        and success status of each removal request in the database. After all removal
-        requests are completed, it removes the expired files' records from the database.
-
-        Params:
-            expired_files_dict (list[File]): A list of expired file objects to be removed.
-            active_miners (list[ModuleInfo]): A list of active miner objects.
-
-        """
-        async def handle_remove_request(miner_info: ModuleInfo, chunk_uuid: str):
-            start_time = time.time()
-            remove_request_succeed = await self.api.remove_api.remove_request(Ss58Address(self._key.ss58_address), miner_info, chunk_uuid)
-            final_time = time.time() - start_time
-            self._database.insert_miner_response(miner_info.ss58_address, "remove", remove_request_succeed, final_time)
-
-        futures = [
-            handle_remove_request(miner, file.chunks[0].chunk_uuid)
-            for file in expired_files_dict
-            for miner in active_miners
-            if miner.ss58_address == file.chunks[0].miner_owner_ss58address
-        ]
-        await asyncio.gather(*futures)
-
-        for file in expired_files_dict:
-            self._database.remove_file(file.file_uuid)
 
     def _determine_miners_to_store(self, files: list[File], expired_files_dict: list[File], active_miners: list[ModuleInfo]):
         """
@@ -326,7 +309,7 @@ class Validator(Module):
         active_validators = [validator for validator in active_validators if validator.ss58_address != self._key.ss58_address]
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
-            headers = create_headers(sign_json({}, self._key), self._key)
+            headers = create_headers(sign_data({}, self._key), self._key)
             futures = [
                 executor.submit(fetch_validator, "database-block", validator.connection, 10, headers)
                 for validator in active_validators
@@ -339,7 +322,7 @@ class Validator(Module):
                 try:
                     active_validators_database.append({
                         "uid": validator.uid,
-                        "ss58_address": validator.ss58_address,
+                        "ss58_address": validator.miner_ss58_address,
                         "connection": {
                             "ip": validator.connection.ip,
                             "port": validator.connection.port
@@ -361,7 +344,7 @@ class Validator(Module):
         validator = max_block_validators[0]
 
         connection = ConnectionInfo(validator["connection"]["ip"], validator["connection"]["port"])
-        headers = create_headers(sign_json({}, self._key), self._key)
+        headers = create_headers(sign_data({}, self._key), self._key)
         answer = fetch_validator("database", connection, headers=headers)
 
         if answer and answer.status_code == 200:
@@ -384,50 +367,6 @@ class Validator(Module):
         else:
             print("Failed to fetch the database.")
             return None
-
-    async def validate_miners(self, files: list[File]):
-        """
-        Validates the stored sub-chunks across active miners.
-
-        This method checks the integrity of sub-chunks stored across various active miners
-        by comparing the stored data with the original data. It logs the response times and
-        success status of each validation request in the database.
-
-        Params:
-            files (list[File]): A list of files containing chunks to be validated.
-        """
-        sub_chunks = []
-        for file in files:
-            for chunk in file.chunks:
-                sub_chunks.append(MinerWithSubChunk(Ss58Address(chunk.miner_owner_ss58address), chunk.chunk_uuid, chunk.sub_chunk))
-
-        if not sub_chunks:
-            print("Skipping validate miners: Currently no sub-chunks")
-            return
-
-        active_miners = await get_active_miners(self._key, self._comx_client, self._config.netuid)
-        if not active_miners:
-            print("Skipping validate miners: Currently there are no active miners")
-            return
-
-        miner_info_with_sub_chunk = get_miner_info_with_chunk(active_miners, sub_chunks)
-
-        for miner in miner_info_with_sub_chunk:
-            start_time = time.time()
-            miner_answer = await execute_miner_request(
-                self._key, ConnectionInfo(miner["connection"]["ip"], miner["connection"]["port"]), miner["ss58_address"], "validation",
-                {
-                    "folder": self._key.ss58_address,
-                    "chunk_uuid": miner["chunk_uuid"],
-                    "start": miner["sub_chunk"].start,
-                    "end": miner["sub_chunk"].end
-                }
-            )
-
-            final_time = time.time() - start_time
-            succeed = True if miner_answer and miner["sub_chunk"].data == miner_answer["sub_chunk"] else False
-
-            self._database.insert_miner_response(miner["ss58_address"], "validation", succeed, final_time)
 
     async def create_blocks(self):
         # TODO: retrieve real block events
@@ -480,7 +419,7 @@ class Validator(Module):
         processed_events = []
         if verify_block(block, leader_validator.ss58_address, block.proposer_signature):
             for event in block.events:
-                if verify_json_signature(event.params, event.signature, event.params.get("user_ss58_address")):
+                if verify_data_signature(event.params, event.signature, event.params.get("user_ss58_address")):
                     processed_events.append(event)
 
             await self.process_events(processed_events)

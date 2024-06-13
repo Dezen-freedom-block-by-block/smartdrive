@@ -35,80 +35,82 @@ class Action(Enum):
 
 
 class MinerProcess:
-    def __init__(self, chunk_uuid: str, ss58_address: Ss58Address, succeed: bool = False, processing_time: Optional[float] = None):
+    def __init__(self, chunk_uuid: Optional[str], miner_ss58_address: Ss58Address, succeed: Optional[bool] = None, processing_time: Optional[float] = None):
         self.chunk_uuid = chunk_uuid
-        self.ss58_address = ss58_address
+        self.miner_ss58_address = miner_ss58_address
         self.succeed = succeed
         self.processing_time = processing_time
 
     def __repr__(self):
-        return f"MinerProcess(chunk_uuid={self.chunk_uuid}, ss58_address={self.ss58_address}, succeed={self.processing_time}, processing_time={self.processing_time})"
+        return f"MinerProcess(chunk_uuid={self.chunk_uuid}, miner_ss58_address={self.miner_ss58_address}, succeed={self.processing_time}, processing_time={self.processing_time})"
 
 
-class Params:
-    def __init__(self, file_uuid: str, miners_processes: List[MinerProcess]):
+class EventParams:
+    def __init__(self, file_uuid: Optional[str], miners_processes: List[MinerProcess]):
         self.file_uuid = file_uuid
         self.miners_processes = miners_processes
 
     def __repr__(self):
-        return f"Params(file_uuid={self.file_uuid}, miners_processes={self.miners_processes})"
+        return f"EventParams(file_uuid={self.file_uuid}, miners_processes={self.miners_processes})"
 
 
 class Event:
-    def __init__(self, params: Params, validator_signature: Ss58Address):
+    def __init__(self, params: EventParams, signed_params: str, validator_ss58_address: Ss58Address):
         self.params = params
-        self.validator_signature = validator_signature
+        self.signed_params = signed_params
+        self.validator_ss58_address = validator_ss58_address
 
     def __repr__(self):
-        return f"Event(params={self.params}, validator_signature={self.validator_signature})"
+        return f"Event(params={self.params}, signed_params={self.signed_params}, validator_ss58_address={self.validator_ss58_address})"
 
 
 class StoreEvent(Event):
-    def __init__(self, params: Params, validator_signature: Ss58Address):
-        super().__init__(params, validator_signature)
+    def __init__(self, params: EventParams, signed_params: str, validator_ss58_address: Ss58Address):
+        super().__init__(params, signed_params, validator_ss58_address)
 
     def __repr__(self):
-        return f"StoreEvent(params={self.params}, validator_signature={self.validator_signature})"
+        return f"StoreEvent(params={self.params}, signed_params={self.signed_params}, validator_ss58_address={self.validator_ss58_address})"
 
 
 class RemoveEvent(Event):
-    def __init__(self, params: Params, validator_signature: Ss58Address):
-        super().__init__(params, validator_signature)
+    def __init__(self, params: EventParams, signed_params: str, validator_ss58_address: Ss58Address):
+        super().__init__(params, signed_params, validator_ss58_address)
 
     def __repr__(self):
-        return f"RemoveEvent(params={self.params}, validator_signature={self.validator_signature})"
+        return f"RemoveEvent(params={self.params}, signed_params={self.signed_params}, validator_ss58_address={self.validator_ss58_address})"
 
 
 class RetrieveEvent(Event):
-    def __init__(self, params: Params, validator_signature: Ss58Address):
-        super().__init__(params, validator_signature)
+    def __init__(self, params: EventParams, signed_params: str, validator_ss58_address: Ss58Address):
+        super().__init__(params, signed_params, validator_ss58_address)
 
     def __repr__(self):
-        return f"RetrieveEvent(params={self.params}, validator_signature={self.validator_signature})"
+        return f"RetrieveEvent(params={self.params}, signed_params={self.signed_params}, validator_ss58_address={self.validator_ss58_address})"
 
 
-class ValidationEvent(Event):
-    def __init__(self, params: Params, validator_signature: Ss58Address):
-        super().__init__(params, validator_signature)
+class ValidateEvent(Event):
+    def __init__(self, params: EventParams, signed_params: str, validator_ss58_address: Ss58Address):
+        super().__init__(params, signed_params, validator_ss58_address)
 
     def __repr__(self):
-        return f"ValidationEvent(params={self.params}, validator_signature={self.validator_signature})"
+        return f"ValidationEvent(params={self.params}, signed_params={self.signed_params}, validator_ss58_address={self.validator_ss58_address})"
 
 
 def parse_event(json_data: str) -> Event:
     data = json.loads(json_data)
     action = Action(data['action'])
     params = data['params']
-    validator_signature = data['validator_signature']
+    signed_params = data['signed_params']
+    validator_ss58_address = data['validator_ss58_address']
 
     if action == Action.STORE:
-        return StoreEvent(params, validator_signature)
+        return StoreEvent(params, signed_params, validator_ss58_address)
     elif action == Action.REMOVE:
-        return RemoveEvent(params, validator_signature)
+        return RemoveEvent(params, signed_params, validator_ss58_address)
     elif action == Action.RETRIEVE:
-        return RetrieveEvent(params, validator_signature)
+        return RetrieveEvent(params, signed_params, validator_ss58_address)
     elif action == Action.VALIDATION:
-        return ValidationEvent(params, validator_signature)
+        return ValidateEvent(params, signed_params, validator_ss58_address)
     else:
         raise ValueError(f"Unknown action: {action}")
 

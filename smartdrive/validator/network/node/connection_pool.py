@@ -72,5 +72,11 @@ class ConnectionPool:
         self._pool_lock.release()
         return identifiers
 
+    def get_identifiers_connections(self):
+        self._pool_lock.acquire()
+        identifiers_connections = self._connections
+        self._pool_lock.release()
+        return identifiers_connections
+
     def get_remaining_capacity(self):
         return self._cache_size - len(self._connections)

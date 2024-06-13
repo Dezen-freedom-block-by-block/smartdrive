@@ -19,19 +19,22 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
+import asyncio
 import time
-from typing import Dict
-
+from typing import List
 from fastapi import HTTPException, Form
 from substrateinterface import Keypair
 
 from communex.client import CommuneClient
 from communex.types import Ss58Address
 
-from smartdrive.commune.request import get_active_miners, execute_miner_request, ConnectionInfo, ModuleInfo
+from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo, get_filtered_modules
+from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.utils import get_miner_info_with_chunk
 from smartdrive.validator.database.database import Database
+from smartdrive.validator.models.block import RemoveEvent, EventParams, MinerProcess, Event
+from smartdrive.validator.models.models import File, ModuleType
+from smartdrive.validator.network.network import Network
 
 
 class RemoveAPI:
@@ -39,16 +42,18 @@ class RemoveAPI:
     _key: Keypair = None
     _database: Database = None
     _comx_client: CommuneClient = None
+    _network: Network = None
 
-    def __init__(self, config, key, database, comx_client):
+    def __init__(self, config, key, database, comx_client, network: Network):
         self._config = config
         self._key = key
         self._database = database
         self._comx_client = comx_client
+        self._network = network
 
     async def remove_endpoint(self, user_ss58_address: Ss58Address = Form(), file_uuid: str = Form()) -> dict[str, bool]:
         """
-        Remove a file and its chunks from the database and notify active miners to delete their copies.
+        Send an event with the user's purpose to remove a specific file.
 
         Params:
             user_ss58_address: The address of the user who owns the file.
@@ -75,55 +80,115 @@ class RemoveAPI:
         if not active_miners:
             raise HTTPException(status_code=404, detail="Currently there are no active miners")
 
-        miners = get_miner_info_with_chunk(active_miners, miner_chunks)
+        miners_with_chunks = get_miner_info_with_chunk(active_miners, miner_chunks)
 
-        # Notify miners to delete their chunks
-        miner_answers = []
-        for miner in miners:
-            start_time = time.time()
-            connection = ConnectionInfo(miner["connection"]["ip"], miner["connection"]["port"])
-            miner_info = ModuleInfo(
-                miner["uid"],
-                miner["ss58_address"],
-                connection
+        # Create event
+        miners_processes: List[MinerProcess] = []
+        for miner_chunk in miners_with_chunks:
+            miner_process = MinerProcess(
+                chunk_uuid=miner_chunk["chunk_uuid"],
+                miner_ss58_address=miner_chunk["ss58_address"]
             )
-            remove_request_succeed = await self.remove_request(user_ss58_address, miner_info, miner["chunk_uuid"])
-            final_time = time.time() - start_time
-            if remove_request_succeed:
-                miner_answers.append(miner["ss58_address"])
-                
-            self._database.insert_miner_response(miner["ss58_address"], "remove", remove_request_succeed, final_time)
+            miners_processes.append(miner_process)
 
-        # Check if all miners successfully deleted the file
-        if len(miner_answers) == len(miners):
-            return {"removed": self._database.remove_file(file_uuid)}
-
-        else:
-            raise HTTPException(status_code=404, detail="Some miners have not deleted the file, please try again.")
-
-            # TODO: sync with other validators
-
-    async def remove_request(self, user_ss58_address: Ss58Address, miner: ModuleInfo, chunk_uuid: str) -> bool:
-        """
-        Sends a request to a miner to remove a specific data chunk.
-
-        This method sends an asynchronous request to a specified miner to remove a data chunk
-        identified by its UUID. The request is executed using the miner's connection and
-        address information.
-
-        Params:
-            user_ss58_address (Ss58Address): The SS58 address of the user associated with the data chunk.
-            miner (ModuleInfo): The miner's module information.
-            chunk_uuid (str): The UUID of the data chunk to be removed.
-
-        Returns:
-            bool: Returns True if the miner confirms the removal request, otherwise False.
-        """
-        miner_answer = await execute_miner_request(
-            self._key, miner.connection, miner.ss58_address, "remove",
-            {
-                "folder": user_ss58_address,
-                "chunk_uuid": chunk_uuid
-            }
+        event_params = EventParams(
+            file_uuid=file_uuid,
+            miners_processes=miners_processes,
         )
-        return True if miner_answer else False
+
+        signed_params = sign_data(event_params.__dict__, self._key)
+
+        event = RemoveEvent(
+            params=event_params,
+            signed_params=signed_params.hex(),
+            validator_ss58_address=Ss58Address(self._key.ss58_address)
+        )
+
+        # Emit event
+        self._network.emit_event(event)
+
+
+async def remove_files(files: List[File], keypair: Keypair, comx_client: CommuneClient, netuid: int):
+    """
+    Handles the removal of multiple files.
+
+    This function iterates over a list of files and handles the removal of each file's chunks from the associated miners.
+    For each file, it gathers all related miner processes and creates a RemoveEvent that records the removal operation's details.
+
+    Args:
+        files (list[File]): A list of file objects to be removed. Each File object contains information about its chunks.
+        keypair (Keypair): The validator key used to authorize the request.
+        comx_client (CommuneClient): The client used to interact with the commune network.
+        netuid (int): The network UID used to filter the miners.
+
+    Returns:
+        List[Event]: A list of RemoveEvent objects, each representing the removal operation for a file.
+    """
+    miners = get_filtered_modules(comx_client, netuid, ModuleType.MINER)
+    events: List[Event] = []
+
+    async def handle_remove_request(miner_info: ModuleInfo, chunk_uuid: str):
+        start_time = time.time()
+        remove_request_succeed = await _remove_chunk_request(keypair, Ss58Address(keypair.ss58_address), miner_info, chunk_uuid)
+        final_time = time.time() - start_time
+
+        return MinerProcess(
+            chunk_uuid=chunk_uuid,
+            miner_ss58_address=miner_info.ss58_address,
+            succeed=remove_request_succeed,
+            processing_time=final_time
+        )
+
+    async def process_file(file: File):
+        miner_processes = []
+        for chunk in file.chunks:
+            for miner in miners:
+                if miner.ss58_address == chunk.miner_owner_ss58address:
+                    miner_process = await handle_remove_request(miner, chunk.chunk_uuid)
+                    miner_processes.append(miner_process)
+
+        event_params = EventParams(
+            file_uuid=file.file_uuid,
+            miners_processes=miner_processes,
+        )
+
+        signed_params = sign_data(event_params.__dict__, keypair)
+
+        event = RemoveEvent(
+            params=event_params,
+            signed_params=signed_params.hex(),
+            validator_ss58_address=Ss58Address(keypair.ss58_address)
+        )
+        events.append(event)
+
+    futures = [process_file(file) for file in files]
+    await asyncio.gather(*futures)
+
+    return events
+
+
+async def _remove_chunk_request(keypair: Keypair, user_ss58_address: Ss58Address, miner: ModuleInfo, chunk_uuid: str) -> bool:
+    """
+    Sends a request to a miner to remove a specific data chunk.
+
+    This method sends an asynchronous request to a specified miner to remove a data chunk
+    identified by its UUID. The request is executed using the miner's connection and
+    address information.
+
+    Params:
+        keypair (Keypair): The validator key used to authorize the request.
+        user_ss58_address (Ss58Address): The SS58 address of the user associated with the data chunk.
+        miner (ModuleInfo): The miner's module information.
+        chunk_uuid (str): The UUID of the data chunk to be removed.
+
+    Returns:
+        bool: Returns True if the miner confirms the removal request, otherwise False.
+    """
+    miner_answer = await execute_miner_request(
+        keypair, miner.connection, miner.ss58_address, "remove",
+        {
+            "folder": user_ss58_address,
+            "chunk_uuid": chunk_uuid
+        }
+    )
+    return True if miner_answer else False

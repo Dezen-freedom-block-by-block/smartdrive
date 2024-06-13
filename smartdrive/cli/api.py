@@ -42,10 +42,12 @@ from communex.compat.key import is_encrypted, classic_load_key
 import smartdrive
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_active_validators
-from smartdrive.validator.api.middleware.sign import sign_json
+from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.utils import decode_b64_to_bytes
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# TODO: Modify all responses since actions are not anymore instant actions, are actions being processed
 
 
 def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
@@ -82,7 +84,7 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
         print(f"Compression ratio: {round((1 - (len(data) / total_size)) * 100, 2)}%")
 
         validator_url = _get_validator_url(key, testnet)
-        headers = create_headers(sign_json({"user_ss58_address": key.ss58_address, "file": str(data)}, key), key, show_content_type=False)
+        headers = create_headers(sign_data({"user_ss58_address": key.ss58_address, "file": str(data)}, key), key, show_content_type=False)
         response = requests.post(f"{validator_url}/store", data={"user_ss58_address": key.ss58_address}, headers=headers, files={"file": data}, verify=False)
 
         if response.status_code != 200:
@@ -117,7 +119,7 @@ def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testn
 
     validator_url = _get_validator_url(key, testnet)
     body = {"user_ss58_address": key.ss58_address, "file_uuid": file_uuid}
-    headers = create_headers(sign_json(body, key), key)
+    headers = create_headers(sign_data(body, key), key)
     response = requests.get(f"{validator_url}/retrieve", body, headers=headers, verify=False)
 
     if response.status_code != 200:
@@ -164,7 +166,7 @@ def remove_handler(file_uuid: str, key_name: str = None, testnet: bool = False):
 
     validator_url = _get_validator_url(key, testnet)
     body = {"user_ss58_address": key.ss58_address, "file_uuid": file_uuid}
-    headers = create_headers(sign_json(body, key), key, "application/x-www-form-urlencoded")
+    headers = create_headers(sign_data(body, key), key, "application/x-www-form-urlencoded")
     response = requests.post(f"{validator_url}/remove", body, headers=headers, verify=False)
 
     if response.status_code != 200:

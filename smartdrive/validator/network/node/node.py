@@ -53,6 +53,9 @@ class Node:
         server = Server(self._ip, self._connection_pool, self._keypair, self._netuid, self.mempool_queue, self.mempool_lock)
         server.run()
 
+    def get_identifiers_connections(self):
+        return self._connection_pool.get_identifiers_connections()
+
     def get_all_mempool_items(self):
         with self.mempool_lock:
             items = []

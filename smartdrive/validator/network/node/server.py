@@ -34,7 +34,7 @@ from communex.client import CommuneClient
 from substrateinterface import Keypair
 
 from smartdrive.commune.request import get_filtered_modules
-from smartdrive.validator.api.middleware.sign import verify_json_signature, sign_json
+from smartdrive.validator.api.middleware.sign import verify_data_signature, sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.network.node.client import Client
@@ -98,7 +98,7 @@ class Server(multiprocessing.Process):
                         "code": MESSAGE_CODE_IDENTIFIER,
                         "data": {"ss58_address": self.keypair.ss58_address}
                     }
-                    body_sign = sign_json(body, self.keypair)
+                    body_sign = sign_data(body, self.keypair)
                     message = {
                         "body": body,
                         "signature_hex": body_sign.hex(),
@@ -126,7 +126,7 @@ class Server(multiprocessing.Process):
                 public_key_hex = identification_message["public_key_hex"]
                 ss58_address = get_ss58_address_from_public_key(public_key_hex)
 
-                is_verified_signature = verify_json_signature(identification_message["body"], signature_hex, ss58_address)
+                is_verified_signature = verify_data_signature(identification_message["body"], signature_hex, ss58_address)
 
                 if not is_verified_signature:
                     print(f"Connection signature is not valid.")

@@ -25,7 +25,7 @@ import socket
 import struct
 import time
 from communex.compat.key import classic_load_key
-from smartdrive.validator.api.middleware.sign import sign_json
+from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.network.node.util.message_code import MESSAGE_CODE_IDENTIFIER, MESSAGE_CODE_BLOCK
 
 
@@ -57,7 +57,7 @@ try:
         "code": MESSAGE_CODE_IDENTIFIER,
         "data": {"ss58_address": keypair.ss58_address}
     }
-    body_sign = sign_json(body, keypair)
+    body_sign = sign_data(body, keypair)
     message = {
         "body": body,
         "signature_hex": body_sign.hex(),
@@ -73,7 +73,7 @@ try:
                 {"id": i, "uuid": "9789283RO2NCOV2HOFIDJ"},
             ]
         }
-        body_sign = sign_json(body, keypair)
+        body_sign = sign_data(body, keypair)
         message = {
             "body": body,
             "signature_hex": body_sign.hex(),
