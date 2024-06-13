@@ -19,36 +19,3 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
-
-import json
-import struct
-
-from smartdrive.validator.node.server.util.exceptions import MessageException, ClientDisconnectedException
-
-
-def recv_all(sock, length):
-    """ Helper function to receive all data for a given length. """
-    data = bytearray()
-    while len(data) < length:
-        packet = sock.recv(length - len(data))
-        if not packet:
-            raise ClientDisconnectedException('Client disconnected')
-        data.extend(packet)
-    return data
-
-
-def receive_msg(sock):
-    msg_hdr = recv_all(sock, 4)
-    if len(msg_hdr) == 0:
-        raise ClientDisconnectedException('Client disconnected')
-    elif len(msg_hdr) < 4:
-        raise MessageException('Invalid header (< 4)')
-
-    msg_len = struct.unpack('!I', msg_hdr)[0]
-
-    data = recv_all(sock, msg_len)
-
-    # Decode JSON object
-    obj = json.loads(data.decode('utf-8'))
-
-    return obj

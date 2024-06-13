@@ -83,9 +83,9 @@ def get_config() -> Namespace:
 class Miner(Module):
     def __init__(self, config):
         """
-        Initialize the miner node with the given configuration.
+        Initialize the miner network with the given configuration.
 
-        This constructor initializes the miner node, ensuring that the data path exists and that there is enough disk space available.
+        This constructor initializes the miner network, ensuring that the data path exists and that there is enough disk space available.
 
         Params:
             config: The configuration object containing settings such as data path and maximum storage size.
@@ -114,7 +114,7 @@ class Miner(Module):
         This function returns the status of the miner, including its type, version, and maximum storage size.
 
         Returns:
-            dict: A dictionary containing the type of the node, the version of the software, and the maximum storage size.
+            dict: A dictionary containing the type of the network, the version of the software, and the maximum storage size.
 
         Raises:
             None

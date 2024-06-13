@@ -31,23 +31,34 @@
 #  furnished to do so, subject to the following conditions:
 #
 #
+#  MIT License
+#
+#
+#  Permission is hereby granted, free of charge, to any person obtaining a copy
+#  of this software and associated documentation files (the "Software"), to deal
+#  in the Software without restriction, including without limitation the rights
+#  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#  copies of the Software, and to permit persons to whom the Software is
+#  furnished to do so, subject to the following conditions:
+#
+#
 import json
 import socket
 import struct
 import time
 from communex.compat.key import classic_load_key
 from smartdrive.validator.api.middleware.sign import sign_json
-from smartdrive.validator.node.server.util.message_code import MESSAGE_CODE_IDENTIFIER, MESSAGE_CODE_BLOCK
+from smartdrive.validator.network.node.util.message_code import MESSAGE_CODE_IDENTIFIER, MESSAGE_CODE_BLOCK
 
 
 def send_json(sock, obj):
-    # Convertir el objeto a JSON y codificarlo a bytes
+    # Convert the object to JSON and encode it to bytes
     msg = json.dumps(obj).encode('utf-8')
-    # Obtener la longitud del mensaje
+    # Get the length of the message
     msg_len = len(msg)
-    # Empaquetar la longitud del mensaje como un entero de 4 bytes en formato de red (big-endian)
+    # Pack the length of the message as a 4-byte integer in network byte order (big-endian)
     packed_len = struct.pack('!I', msg_len)
-    # Enviar la longitud del mensaje seguida del mensaje
+    # Send the length of the message followed by the message
     print(packed_len)
     sock.sendall(packed_len + msg)
 
@@ -59,7 +70,7 @@ def receive_json(sock):
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 try:
     client_socket.connect(('127.0.0.1', 8803))
-    print("Conexión establecida con el servidor")
+    print("Connection established with the server")
 
     keypair = classic_load_key("validator")
 
@@ -93,14 +104,15 @@ try:
 
     for i in range(255):
         send_json(client_socket, message)
-        print(f"Mensaje {i+1} enviado: {message}")
+        print(f"Message {i+1} sent: {message}")
 
-        time.sleep(20)
+        time.sleep(5)
 
     time.sleep(50)
 
 except Exception as e:
-    print(f"Error de conexión: {e}")
+    print(f"Connection error: {e}")
 
 finally:
-    print("Conexión cerrada")
+    print("Connection closed")
+

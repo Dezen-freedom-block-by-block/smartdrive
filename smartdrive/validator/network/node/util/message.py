@@ -22,7 +22,7 @@
 
 import json
 
-from smartdrive.validator.node.server.util.message_code import MESSAGE_CODE_IDENTIFIER, MESSAGE_CODE_BLOCK
+from smartdrive.validator.network.node.util.message_code import MESSAGE_CODE_IDENTIFIER, MESSAGE_CODE_BLOCK
 
 
 class Message:

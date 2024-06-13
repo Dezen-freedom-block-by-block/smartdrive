@@ -20,26 +20,38 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 
+#  MIT License
+#
+#
+#  Permission is hereby granted, free of charge, to any person obtaining a copy
+#  of this software and associated documentation files (the "Software"), to deal
+#  in the Software without restriction, including without limitation the rights
+#  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#  copies of the Software, and to permit persons to whom the Software is
+#  furnished to do so, subject to the following conditions:
+#
+#
 import json
 import multiprocessing
 import socket
 import select
 import struct
 import time
+import traceback
+from multiprocessing import Queue
 
 from communex._common import get_node_url
 from communex.client import CommuneClient
-from communex.compat.key import classic_load_key
 from substrateinterface import Keypair
 
 from smartdrive.commune.request import get_filtered_modules
 from smartdrive.validator.api.middleware.sign import verify_json_signature, sign_json
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.models import ModuleType
-from smartdrive.validator.node.server.client import Client
-from smartdrive.validator.node.server.connection_pool import ConnectionPool
-from smartdrive.validator.node.server.util import packing
-from smartdrive.validator.node.server.util.message_code import MESSAGE_CODE_IDENTIFIER
+from smartdrive.validator.network.node.client import Client
+from smartdrive.validator.network.node.connection_pool import ConnectionPool
+from smartdrive.validator.network.node.util import packing
+from smartdrive.validator.network.node.util.message_code import MESSAGE_CODE_IDENTIFIER
 
 
 class Server(multiprocessing.Process):
@@ -48,7 +60,7 @@ class Server(multiprocessing.Process):
     IDENTIFIER_TIMEOUT_SECONDS = 5
     TCP_PORT = 8803
 
-    def __init__(self, bind_address: str, connection_pool: ConnectionPool, keypair: Keypair, netuid: int, notification_queue):
+    def __init__(self, bind_address: str, connection_pool: ConnectionPool, keypair: Keypair, netuid: int, notification_queue: Queue):
         multiprocessing.Process.__init__(self)
         self.bind_address = bind_address
         self.connection_pool = connection_pool
@@ -58,24 +70,28 @@ class Server(multiprocessing.Process):
         self.notification_queue = notification_queue
 
     def run(self):
-        self.initialize_validators()
-        self.start_check_connections_process()
-        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server_socket.bind((self.bind_address, self.TCP_PORT))
-        server_socket.listen(self.MAX_N_CONNECTIONS)
+        server_socket = None
 
         try:
+            self.initialize_validators()
+            self.start_check_connections_process()
+            server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server_socket.bind((self.bind_address, self.TCP_PORT))
+            server_socket.listen(self.MAX_N_CONNECTIONS)
+
             while True:
                 client_socket, address = server_socket.accept()
                 process = multiprocessing.Process(target=self.handle_connection, args=(client_socket, address))
                 process.start()
 
-        except OSError as os_error:
-            print(f"Server stopped unexpectedly - PID: {self.pid} - {os_error}")
-
+        except Exception as e:
+            traceback.print_exc()
+            print(f"Server stopped unexpectedly - PID: {self.pid} - {e}")
         finally:
-            server_socket.close()
+            if server_socket:
+                server_socket.close()
 
     def initialize_validators(self, validators=None):
         # TODO: Each connection try in for loop should be async and we should wait for all of them
@@ -90,13 +106,13 @@ class Server(multiprocessing.Process):
                     validator_socket.connect((validator.connection.ip, self.TCP_PORT))
                     body = {
                         "code": MESSAGE_CODE_IDENTIFIER,
-                        "data": {"ss58_address": keypair.ss58_address}
+                        "data": {"ss58_address": self.keypair.ss58_address}
                     }
-                    body_sign = sign_json(body, keypair)
+                    body_sign = sign_json(body, self.keypair)
                     message = {
                         "body": body,
                         "signature_hex": body_sign.hex(),
-                        "public_key_hex": keypair.public_key.hex()
+                        "public_key_hex": self.keypair.public_key.hex()
                     }
                     self.send_json(validator_socket, message)
                     self.connection_pool.add_connection(validator.ss58_address, validator_socket)
@@ -193,26 +209,3 @@ class Server(multiprocessing.Process):
         packed_len = struct.pack('!I', msg_len)
         print(packed_len)
         sock.sendall(packed_len + msg)
-
-
-if __name__ == '__main__':
-    from multiprocessing import Queue
-
-    mempool = Queue()
-    keypair = classic_load_key("validator1")
-    netuid = 19
-
-    p2p_connection_pool = ConnectionPool(cache_size=Server.MAX_N_CONNECTIONS)
-    p2p_server = Server("127.0.0.1", p2p_connection_pool, keypair, netuid, mempool)
-    p2p_server.start()
-    try:
-        while True:
-            message = mempool.get()
-            print(f"Main process received notification: {message}")
-    except KeyboardInterrupt:
-        print("Main process interrupted.")
-    except Exception as e:
-        print(e)
-
-    p2p_server.join()
-
