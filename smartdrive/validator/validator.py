@@ -47,7 +47,7 @@ from smartdrive.validator.database.database import Database
 from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
 from smartdrive.validator.evaluation.utils import generate_data
 from smartdrive.validator.api.api import API
-from smartdrive.validator.models import SubChunk, Chunk, File, MinerWithSubChunk, Event, Block, ModuleType
+from smartdrive.validator.models.models import SubChunk, Chunk, File, MinerWithSubChunk, Event, Block, ModuleType
 from smartdrive.validator.network.network import Network
 from smartdrive.validator.utils import extract_sql_file, fetch_validator, encode_bytes_to_b64
 from smartdrive.commune.request import get_modules, get_active_validators, get_active_miners, ConnectionInfo, ModuleInfo, execute_miner_request, get_truthful_validators, ping_leader_validator, get_filtered_modules
@@ -478,7 +478,7 @@ class Validator(Module):
     async def handle_received_block(self, block: Block, leader_validator: ModuleInfo):
         # TODO: check handle received block
         processed_events = []
-        if verify_block(block, leader_validator.ss58_address, block.signature):
+        if verify_block(block, leader_validator.ss58_address, block.proposer_signature):
             for event in block.events:
                 if verify_json_signature(event.params, event.signature, event.params.get("user_ss58_address")):
                     processed_events.append(event)

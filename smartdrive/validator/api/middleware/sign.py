@@ -26,7 +26,7 @@ from typing import Union
 from communex.types import Ss58Address
 from substrateinterface import Keypair
 
-from smartdrive.validator.models import Block
+from smartdrive.validator.models.models import Block
 
 
 def sign_json(json_data: dict, keypair: Keypair) -> bytes:

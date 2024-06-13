@@ -30,7 +30,7 @@ import zipfile
 from typing import List, Optional
 from datetime import datetime, timedelta
 
-from smartdrive.validator.models import MinerWithChunk, SubChunk, File, Chunk, Block
+from smartdrive.validator.models.models import MinerWithChunk, SubChunk, File, Chunk, Block
 
 from communex.types import Ss58Address
 

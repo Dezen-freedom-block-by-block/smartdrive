@@ -36,7 +36,7 @@ from substrateinterface import Keypair
 from smartdrive.commune.request import get_filtered_modules
 from smartdrive.validator.api.middleware.sign import verify_json_signature, sign_json
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
-from smartdrive.validator.models import ModuleType
+from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.network.node.client import Client
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.util import packing

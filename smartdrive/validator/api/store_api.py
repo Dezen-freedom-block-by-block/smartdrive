@@ -30,7 +30,7 @@ from communex.client import CommuneClient
 from communex.types import Ss58Address
 
 from smartdrive.validator.database.database import Database
-from smartdrive.validator.models import MinerWithChunk, File, Chunk
+from smartdrive.validator.models.models import MinerWithChunk, File, Chunk
 from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo
 
 
