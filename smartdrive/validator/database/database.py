@@ -30,7 +30,7 @@ import zipfile
 from typing import List, Optional
 from datetime import datetime, timedelta
 
-from smartdrive.validator.models import MinerWithChunk, SubChunk, File, Chunk
+from smartdrive.validator.models import MinerWithChunk, SubChunk, File, Chunk, Block
 
 from communex.types import Ss58Address
 
@@ -108,9 +108,9 @@ class Database:
                     )
                 '''
 
-                create_version_table = '''
-                    CREATE TABLE version (
-                        id INTEGER PRIMARY KEY
+                create_block_table = '''
+                    CREATE TABLE block (
+                        id BIGINT PRIMARY KEY
                     )
                 '''
 
@@ -130,7 +130,7 @@ class Database:
                     _create_table_if_not_exists(cursor, 'chunk', create_chunk_table)
                     _create_table_if_not_exists(cursor, 'sub_chunk', create_sub_chunk_table)
                     _create_table_if_not_exists(cursor, 'miner_chunk', create_miner_chunk_table)
-                    _create_table_if_not_exists(cursor, 'version', create_version_table)
+                    _create_table_if_not_exists(cursor, 'block', create_block_table)
                     _create_table_if_not_exists(cursor, 'miner_response', create_miner_response)
                     connection.commit()
 
@@ -161,19 +161,19 @@ class Database:
         if self._database_exists():
             os.remove(self._database_file_path)
 
-    def get_database_version(self) -> Optional[int]:
+    def get_database_block(self) -> Optional[int]:
         """
-        Retrieves the latest database version, if exists.
+        Retrieves the latest database block, if exists.
 
         Returns:
-            Optional[int]: The latest database version as an integer if successful, or None if
-            an error occurs or if the 'version' table is empty.
+            Optional[int]: The latest database block as an integer if successful, or None if
+            an error occurs or if the 'block' table is empty.
         """
         connection = None
         try:
             connection = sqlite3.connect(self._database_file_path)
             cursor = connection.cursor()
-            cursor.execute("SELECT id FROM version ORDER BY id DESC LIMIT 1")
+            cursor.execute("SELECT id FROM block ORDER BY id DESC LIMIT 1")
             result = cursor.fetchone()
             return result[0] if result else None
         except sqlite3.Error as e:
@@ -611,6 +611,23 @@ class Database:
         finally:
             if connection:
                 connection.close()
+
+    def create_block(self, block_number: int) -> int | None:
+        try:
+            connection = sqlite3.connect(self._database_file_path)
+            with connection:
+                cursor = connection.cursor()
+
+                cursor.execute(f'''
+                    INSERT INTO block (id) VALUES ({block_number})
+                ''')
+
+                connection.commit()
+
+            return cursor.lastrowid
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return None
 
 
 def _create_table_if_not_exists(cursor: sqlite3.Cursor, table_name: str, create_statement: str) -> None:

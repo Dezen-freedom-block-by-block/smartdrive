@@ -30,6 +30,7 @@ import concurrent.futures
 import multiprocessing
 import zipfile
 import random
+
 from substrateinterface import Keypair
 
 from communex._common import get_node_url
@@ -40,15 +41,15 @@ from communex.types import Ss58Address
 
 import smartdrive
 from smartdrive.commune.module._protocol import create_headers
-from smartdrive.validator.api.middleware.sign import sign_json
+from smartdrive.validator.api.middleware.sign import sign_json, verify_json_signature, verify_block
 from smartdrive.validator.api.utils import get_miner_info_with_chunk
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
 from smartdrive.validator.evaluation.utils import generate_data
 from smartdrive.validator.api.api import API
-from smartdrive.validator.models import SubChunk, Chunk, File, MinerWithSubChunk
+from smartdrive.validator.models import SubChunk, Chunk, File, MinerWithSubChunk, Event, Block
 from smartdrive.validator.utils import extract_sql_file, fetch_validator, encode_bytes_to_b64
-from smartdrive.commune.request import get_modules, get_active_validators, get_active_miners, ConnectionInfo, ModuleInfo, execute_miner_request, get_miners
+from smartdrive.commune.request import get_modules, get_active_validators, get_active_miners, ConnectionInfo, ModuleInfo, execute_miner_request, get_truthful_validators, ping_leader_validator, get_filtered_modules
 
 
 def get_config():
@@ -84,6 +85,8 @@ def get_config():
 
 class Validator(Module):
     ITERATION_INTERVAL = 60
+    MAX_EVENTS_PER_BLOCK = 25
+    BLOCK_INTERVAL = 12
 
     _config = None
     _key: Keypair = None
@@ -149,7 +152,7 @@ class Validator(Module):
 
         # Set weights to miners
         score_dict = {}
-        for miner in get_miners(self._comx_client, self._config.netuid):
+        for miner in get_filtered_modules(self._comx_client, self._config.netuid, "miner"):
             if miner.ss58_address == key.ss58_address:
                 continue
             avg_miner_response_time = self._database.get_avg_miner_response_time(miner.ss58_address)
@@ -322,7 +325,7 @@ class Validator(Module):
         with concurrent.futures.ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
             headers = create_headers(sign_json({}, self._key), self._key)
             futures = [
-                executor.submit(fetch_validator, "database-version", validator.connection, 10, headers)
+                executor.submit(fetch_validator, "database-block", validator.connection, 10, headers)
                 for validator in active_validators
             ]
             answers = [future.result() for future in concurrent.futures.as_completed(futures)]
@@ -338,7 +341,7 @@ class Validator(Module):
                             "ip": validator.connection.ip,
                             "port": validator.connection.port
                         },
-                        "database_version": int(response.json()["version"] or 0)
+                        "database_block": int(response.json()["block"] or 0)
                     })
                 except Exception as e:
                     print(e)
@@ -347,12 +350,12 @@ class Validator(Module):
         if not active_validators_database:
             return
 
-        max_database_version = max(obj["database_version"] for obj in active_validators_database)
-        max_version_validators = [
+        max_database_block = max(obj["database_block"] for obj in active_validators_database)
+        max_block_validators = [
             obj for obj in active_validators_database
-            if obj["database_version"] == max_database_version
+            if obj["database_block"] == max_database_block
         ]
-        validator = max_version_validators[0]
+        validator = max_block_validators[0]
 
         connection = ConnectionInfo(validator["connection"]["ip"], validator["connection"]["port"])
         headers = create_headers(sign_json({}, self._key), self._key)
@@ -423,6 +426,61 @@ class Validator(Module):
 
             self._database.insert_miner_response(miner["ss58_address"], "validation", succeed, final_time)
 
+    async def create_blocks(self):
+        # TODO: retrieve real block events
+        # TODO: permit only MAX_EVENTS_PER_BLOCK
+        # TODO: retrieve last block from other leader validator
+        # TODO: propagate blocks to validators
+
+        block_number = self._database.get_database_block()
+        block_number = -1 if block_number is None else block_number
+
+        while True:
+            start_time = time.time()
+
+            truthful_validators = await get_truthful_validators(self._key, self._comx_client, self._config.netuid)
+            all_validators = get_filtered_modules(self._comx_client, self._config.netuid, "validator")
+
+            leader_active_validator = max(truthful_validators, key=lambda v: v.stake or 0)
+            leader_validator = max(all_validators, key=lambda v: v.stake or 0)
+
+            if leader_validator.ss58_address != leader_active_validator.ss58_address:
+                ping_validator = await ping_leader_validator(self._key, leader_validator)
+                if not ping_validator:
+                    leader_validator = leader_active_validator
+
+            if leader_validator.ss58_address == self._key.ss58_address:
+                block_number += 1
+                block_events = []
+                await self.process_events(events=block_events)
+                self._database.create_block(block_number)
+
+            elapsed = time.time() - start_time
+            if elapsed < self.BLOCK_INTERVAL:
+                sleep_time = self.BLOCK_INTERVAL - elapsed
+                print(f"Sleeping for {sleep_time} seconds before trying to create the next block.")
+                await asyncio.sleep(sleep_time)
+
+    async def process_events(self, events: list[Event]):
+        # TODO: check if returns ok and remove from mempool, otherwise keep events
+        for e in events:
+            if e.action == "store":
+                # TODO: data is inserted, now we have to insert where is located data (miner info)
+                result = await self.api.store_api.store_event()
+                print(f"STORE: {result}")
+            elif e.action == "remove":
+                result = await self.api.remove_api.remove_endpoint(user_ss58_address=e.params.get("user_ss58_address"), file_uuid=e.params.get("file_uuid"))
+                print(f"REMOVE: {result}")
+
+    async def handle_received_block(self, block: Block, leader_validator: ModuleInfo):
+        # TODO: check handle received block
+        processed_events = []
+        if verify_block(block, leader_validator.ss58_address, block.signature):
+            for event in block.events:
+                if verify_json_signature(event.params, event.signature, event.params.get("user_ss58_address")):
+                    processed_events.append(event)
+
+            await self.process_events(processed_events)
 
 if __name__ == "__main__":
     config = get_config()
@@ -435,7 +493,7 @@ if __name__ == "__main__":
         _comx_client.update_module(
             key=key,
             name=config.name,
-            address=f"127.0.0.1:{config.port}",
+            address=f"{external_ip}:{config.port}",
             netuid=config.netuid
         )
     else:
@@ -448,7 +506,8 @@ if __name__ == "__main__":
         await asyncio.gather(
             _validator.api.run_server(),
             _validator.initial_sync(),
-            _validator.validation_loop()
+            _validator.validation_loop(),
+            _validator.create_blocks()
         )
 
     asyncio.run(run_tasks())

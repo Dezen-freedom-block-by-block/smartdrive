@@ -61,7 +61,7 @@ class API:
         self.app.add_middleware(SubnetMiddleware, key=key, comx_client=comx_client, netuid=self._config.netuid)
 
         self.app.add_api_route("/method/ping", self.ping_endpoint, methods=["POST"])
-        self.app.add_api_route("/database-version", self.database_api.database_version_endpoint, methods=["GET"])
+        self.app.add_api_route("/database-block", self.database_api.database_block_endpoint, methods=["GET"])
         self.app.add_api_route("/database", self.database_api.database_endpoint, methods=["GET"])
         self.app.add_api_route("/store", self.store_api.store_endpoint, methods=["POST"])
         self.app.add_api_route("/retrieve", self.retrieve_api.retrieve_endpoint, methods=["GET"])

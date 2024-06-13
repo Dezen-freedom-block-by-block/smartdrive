@@ -105,9 +105,26 @@ def get_modules(comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
     return modules_info
 
 
-def get_validators(comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
-    modules = get_modules(comx_client, netuid)
-    return list(filter(lambda module: module.incentives < module.dividends, modules))
+async def vote(key: Keypair, comx_client: CommuneClient, uids: list[int], weights: list[int], netuid: int):
+    """
+    Perform a vote on the network.
+
+    This function sends a voting transaction to the network using the provided key for authentication.
+    Each UID in the `uids` list is voted for with the corresponding weight from the `weights` list.
+
+    Params:
+        key (Keypair): Key used to authenticate the vote.
+        comx_client (CommuneClient): Client to perform the vote.
+        uids (list[int]): List of unique identifiers (UIDs) of the nodes to vote for.
+        weights (list[int]): List of weights associated with each UID.
+        netuid (int): Network identifier used for the votes.
+    """
+    print(f"Voting uids: {uids} - weights: {weights}")
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, comx_client.vote, key, uids, weights, netuid)
+    except Exception as e:
+        print(e)
 
 
 async def get_active_validators(key: Keypair, comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
@@ -139,12 +156,20 @@ async def get_truthful_validators(key: Keypair, comx_client: CommuneClient, netu
     return list(filter(lambda validator: validator.stake > TRUTHFUL_STAKE_AMOUNT, active_validators))
 
 
-def get_miners(comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
+async def ping_leader_validator(key: Keypair, module: ModuleInfo, retries: int = 3, sleep_time: int = 5) -> bool:
+    for _ in range(retries):
+        if (response := await execute_miner_request(key, module.connection, module.ss58_address, "ping", timeout=PING_TIMEOUT)) and response["type"] == "validator":
+            return True
+        await asyncio.sleep(sleep_time)
+    return False
+
+
+def get_filtered_modules(comx_client: CommuneClient, netuid: int, type: str = "Miner") -> List[ModuleInfo]:
     """
-    Retrieve a list of miners.
+    Retrieve a list of miners or validators.
 
     This function queries the network to retrieve module information and filters the modules to
-    identify miners. A module is considered a miner if its incentive is equal to its dividends
+    identify miner or validator. A module is considered a miner or validator if its incentive is equal to its dividends
     and both are zero, or if its incentive is greater than its dividends.
 
     Params:
@@ -155,13 +180,14 @@ def get_miners(comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
         List[ModuleInfo]: A list of `ModuleInfo` objects representing miners.
     """
     modules = get_modules(comx_client, netuid)
-    miners = []
+    result = []
 
     for module in modules:
-        if (module.incentives == module.dividends == 0) or module.incentives > module.dividends:
-            miners.append(module)
+        condition = module.incentive > module.dividends if type == "miner" else module.incentive < module.dividends
+        if (module.incentive == module.dividends == 0) or condition:
+            result.append(module)
 
-    return miners
+    return result
 
 
 async def get_active_miners(key: Keypair, comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
@@ -180,35 +206,13 @@ async def get_active_miners(key: Keypair, comx_client: CommuneClient, netuid: in
    Returns:
        List[ModuleInfo]: A list of `ModuleInfo` objects representing active miners.
    """
-    modules_uid_ss58_address_connection = get_miners(comx_client, netuid)
+    modules_uid_ss58_address_connection = get_modules(comx_client, netuid)
 
     active_miners = [
         module for module in modules_uid_ss58_address_connection
         if (response := await execute_miner_request(key, module.connection, module.ss58_address, "ping", timeout=PING_TIMEOUT)) and response["type"] == "miner"
     ]
     return active_miners
-
-
-async def vote(key: Keypair, comx_client: CommuneClient, uids: list[int], weights: list[int], netuid: int):
-    """
-    Perform a vote on the network.
-
-    This function sends a voting transaction to the network using the provided key for authentication.
-    Each UID in the `uids` list is voted for with the corresponding weight from the `weights` list.
-
-    Params:
-        key (Keypair): Key used to authenticate the vote.
-        comx_client (CommuneClient): Client to perform the vote.
-        uids (list[int]): List of unique identifiers (UIDs) of the nodes to vote for.
-        weights (list[int]): List of weights associated with each UID.
-        netuid (int): Network identifier used for the votes.
-    """
-    print(f"Voting uids: {uids} - weights: {weights}")
-    try:
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, comx_client.vote, key, uids, weights, netuid)
-    except Exception as e:
-        print(e)
 
 
 async def execute_miner_request(validator_key: Keypair, connection: ConnectionInfo, miner_key: Ss58Address, action: str, params: Dict[str, Any] = None, timeout: int = CALL_TIMEOUT):
