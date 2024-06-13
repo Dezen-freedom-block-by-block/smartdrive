@@ -29,6 +29,7 @@ from communex.types import Ss58Address
 from communex.client import CommuneClient
 
 from smartdrive.commune.module.client import ModuleClient
+from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 
 PING_TIMEOUT = 5
 CALL_TIMEOUT = 60
@@ -44,15 +45,16 @@ class ConnectionInfo:
 
 
 class ModuleInfo:
-    def __init__(self, uid: str, ss58_address: Ss58Address, connection: ConnectionInfo, incentive: Optional[int] = None, dividends: Optional[int] = None):
+    def __init__(self, uid: str, ss58_address: Ss58Address, connection: ConnectionInfo, incentive: Optional[int] = None, dividends: Optional[int] = None, stake: Optional[int] = None):
         self.uid = uid
         self.ss58_address = ss58_address
         self.connection = connection
         self.incentive = incentive
         self.dividends = dividends
+        self.stake = stake
 
     def __repr__(self):
-        return f"ModuleInfo(uid={self.uid}, ss58_address={self.ss58_address}, connection={self.connection}, incentive={self.incentive}, dividends={self.dividends})"
+        return f"ModuleInfo(uid={self.uid}, ss58_address={self.ss58_address}, connection={self.connection}, incentive={self.incentive}, dividends={self.dividends}, stake={self.stake})"
 
 
 def get_modules(comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
@@ -76,7 +78,8 @@ def get_modules(comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
             ("Keys", [netuid]),
             ("Address", [netuid]),
             ("Incentive", []),
-            ("Dividends", [])
+            ("Dividends", []),
+            ("StakeFrom", [netuid])
         ]
     }
 
@@ -88,13 +91,17 @@ def get_modules(comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
 
     for uid, ss58_address in keys_map.items():
         address = address_map.get(uid)
+        total_stake = 0
+        stake = result["StakeFrom"].get(ss58_address, [])
+        for _, stake in stake:
+            total_stake += stake
+
         if address:
             connection = _get_ip_port(address)
             if connection:
                 modules_info.append(
-                    ModuleInfo(uid, ss58_address, connection, result["Incentive"][netuid][uid], result["Dividends"][netuid][uid])
+                    ModuleInfo(uid, ss58_address, connection, result["Incentive"][netuid][uid], result["Dividends"][netuid][uid], total_stake)
                 )
-
     return modules_info
 
 
@@ -144,12 +151,25 @@ async def get_active_validators(key: Keypair, comx_client: CommuneClient, netuid
     return active_validators
 
 
-def get_miners(comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
+async def get_truthful_validators(key: Keypair, comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
+    active_validators = await get_active_validators(key, comx_client, netuid)
+    return list(filter(lambda validator: validator.stake > TRUTHFUL_STAKE_AMOUNT, active_validators))
+
+
+async def ping_leader_validator(key: Keypair, module: ModuleInfo, retries: int = 3, sleep_time: int = 5) -> bool:
+    for _ in range(retries):
+        if (response := await execute_miner_request(key, module.connection, module.ss58_address, "ping", timeout=PING_TIMEOUT)) and response["type"] == "validator":
+            return True
+        await asyncio.sleep(sleep_time)
+    return False
+
+
+def get_filtered_modules(comx_client: CommuneClient, netuid: int, type: str = "Miner") -> List[ModuleInfo]:
     """
-    Retrieve a list of miners.
+    Retrieve a list of miners or validators.
 
     This function queries the network to retrieve module information and filters the modules to
-    identify miners. A module is considered a miner if its incentive is equal to its dividends
+    identify miner or validator. A module is considered a miner or validator if its incentive is equal to its dividends
     and both are zero, or if its incentive is greater than its dividends.
 
     Params:
@@ -160,13 +180,14 @@ def get_miners(comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
         List[ModuleInfo]: A list of `ModuleInfo` objects representing miners.
     """
     modules = get_modules(comx_client, netuid)
-    miners = []
+    result = []
 
     for module in modules:
-        if (module.incentive == module.dividends == 0) or module.incentive > module.dividends:
-            miners.append(module)
+        condition = module.incentive > module.dividends if type == "miner" else module.incentive < module.dividends
+        if (module.incentive == module.dividends == 0) or condition:
+            result.append(module)
 
-    return miners
+    return result
 
 
 async def get_active_miners(key: Keypair, comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
@@ -185,7 +206,7 @@ async def get_active_miners(key: Keypair, comx_client: CommuneClient, netuid: in
    Returns:
        List[ModuleInfo]: A list of `ModuleInfo` objects representing active miners.
    """
-    modules_uid_ss58_address_connection = get_miners(comx_client, netuid)
+    modules_uid_ss58_address_connection = get_modules(comx_client, netuid)
 
     active_miners = [
         module for module in modules_uid_ss58_address_connection

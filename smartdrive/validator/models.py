@@ -139,3 +139,23 @@ class File:
         for chunk in self.chunks:
             sub_chunks.append(chunk.sub_chunk)
         return sub_chunks
+
+
+class Event:
+    def __init__(self, action: str, params: dict, signature: str):
+        self.action = action
+        self.params = params
+        self.signature = signature
+
+    def __repr__(self):
+        return f"Event(action={self.action}, params={self.params}, signature={self.signature})"
+
+
+class Block:
+    def __init__(self, block_number: int, events: list[Event], signature: str):
+        self.block_number = block_number
+        self.events = events
+        self.signature = signature
+
+    def __repr__(self):
+        return f"Block(block_number={self.block_number}, events={self.events.__repr__}, signature={self.signature})"

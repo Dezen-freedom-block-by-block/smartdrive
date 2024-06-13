@@ -135,3 +135,7 @@ class StoreAPI:
 
         if miner_answer:
             return MinerWithChunk(miner.ss58_address, miner_answer["id"])
+
+    async def store_event(self):
+        print("")
+        # TODO: store in database where is located the store event

@@ -41,7 +41,7 @@ class DatabaseAPI:
         self._database = database
         self._comx_client = comx_client
 
-    def database_version_endpoint(self):
+    def database_block_endpoint(self):
         """
         Retrieves the current version of the database.
 
@@ -50,7 +50,7 @@ class DatabaseAPI:
                   The value is the latest version number as an integer, or None if the version
                   could not be retrieved.
         """
-        return {"version": self._database.get_database_version()}
+        return {"block": self._database.get_database_block()}
 
     def database_endpoint(self):
         """
