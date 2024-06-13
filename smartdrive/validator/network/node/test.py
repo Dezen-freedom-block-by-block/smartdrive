@@ -65,26 +65,24 @@ try:
     }
     send_json(client_socket, message)
 
-    # Normal message
-    body = {
-        "code": MESSAGE_CODE_BLOCK,
-        "data": [
-            {"id": 1, "uuid": "9789283RO2NCOV2HOFIDJ"},
-            {"id": 2, "uuid": "9789283RO2NCOV2HOFIDJ"}
-        ]
-    }
-    body_sign = sign_json(body, keypair)
-    message = {
-        "body": body,
-        "signature_hex": body_sign.hex(),
-        "public_key_hex": keypair.public_key.hex()
-    }
-
     for i in range(255):
+        # Normal message
+        body = {
+            "code": MESSAGE_CODE_BLOCK,
+            "data": [
+                {"id": i, "uuid": "9789283RO2NCOV2HOFIDJ"},
+            ]
+        }
+        body_sign = sign_json(body, keypair)
+        message = {
+            "body": body,
+            "signature_hex": body_sign.hex(),
+            "public_key_hex": keypair.public_key.hex()
+        }
         send_json(client_socket, message)
         print(f"Message {i+1} sent: {message}")
 
-        time.sleep(5)
+        time.sleep(3)
 
     time.sleep(50)
 

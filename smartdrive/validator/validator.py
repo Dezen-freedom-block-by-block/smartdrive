@@ -493,13 +493,13 @@ if __name__ == "__main__":
 
     if key.ss58_address in [module.ss58_address for module in registered_modules]:
         nat_type, external_ip, external_port = stun.get_ip_info()
-        _comx_client.update_module(
-            key=key,
-            name=config.name,
-            address=f"{external_ip}:{config.port}",
-            netuid=config.netuid
-        )
-        config.ip = external_ip
+        # _comx_client.update_module(
+        #     key=key,
+        #     name=config.name,
+        #     address=f"127.0.0.1:{config.port}",
+        #     netuid=config.netuid
+        # )
+        config.ip = "127.0.0.1"
     else:
         raise Exception(f"Your key: {key.ss58_address} is not registered.")
 
@@ -511,7 +511,7 @@ if __name__ == "__main__":
             _validator.api.run_server(),
             _validator.initial_sync(),
             _validator.validation_loop(),
-            _validator.create_blocks()
+            # _validator.create_blocks()
         )
 
     asyncio.run(run_tasks())

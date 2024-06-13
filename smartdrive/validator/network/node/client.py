@@ -21,6 +21,7 @@
 # SOFTWARE.
 
 import multiprocessing
+from multiprocessing import Queue, Lock
 
 from smartdrive.validator.api.middleware.sign import verify_json_signature
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
@@ -32,12 +33,13 @@ from smartdrive.validator.network.node.util.message import MESSAGE_CODE_TYPES
 
 class Client(multiprocessing.Process):
 
-    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, notification_queue: multiprocessing.Queue):
+    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, mempool: Queue, mempool_lock: Lock):
         multiprocessing.Process.__init__(self)
         self.client_socket = client_socket
         self.identifier = identifier
         self.connection_pool = connection_pool
-        self.notification_queue = notification_queue
+        self.mempool = mempool
+        self.mempool_lock = mempool_lock
 
     def run(self):
         try:
@@ -83,9 +85,8 @@ class Client(multiprocessing.Process):
                 if not is_verified_signature:
                     raise InvalidSignatureException()
 
-                # TODO: Process message - if it is a block, author needs to be checked
-                print(f"Message processed: {body}")
-                self.notification_queue.put(f"Message processed by {self.identifier}: {body}")
+                with self.mempool_lock:
+                    self.mempool.put(f"Message {self.identifier}: {body}")
 
             except InvalidSignatureException as e:
                 raise e

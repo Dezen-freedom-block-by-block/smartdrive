@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 import multiprocessing
-from multiprocessing import Queue
+from multiprocessing import Queue, Lock
 
 from substrateinterface import Keypair
 
@@ -36,8 +36,10 @@ class Node:
     _netuid = None
 
     _server_process = None
+    _mempool_process = None
     _connection_pool = ConnectionPool(cache_size=Server.MAX_N_CONNECTIONS)
-    mempool = Queue()
+    mempool_queue = Queue()
+    mempool_lock = Lock()
 
     def __init__(self, keypair: Keypair, ip: str, netuid: int):
         self._keypair = keypair
@@ -48,5 +50,12 @@ class Node:
         self._server_process.start()
 
     def run_server(self):
-        server = Server(self._ip, self._connection_pool, self._keypair, self._netuid, self.mempool)
+        server = Server(self._ip, self._connection_pool, self._keypair, self._netuid, self.mempool_queue, self.mempool_lock)
         server.run()
+
+    def get_all_mempool_items(self):
+        with self.mempool_lock:
+            items = []
+            while not self.mempool_queue.empty():
+                items.append(self.mempool_queue.get())
+            return items

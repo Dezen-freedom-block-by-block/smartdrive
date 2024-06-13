@@ -20,7 +20,7 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 
-import multiprocessing
+import asyncio
 
 from substrateinterface import Keypair
 
@@ -33,14 +33,16 @@ class Network:
 
     def __init__(self, keypair: Keypair, ip: str, netuid: int):
         self._node = Node(keypair=keypair, ip=ip, netuid=netuid)
-        self.mempool_process = multiprocessing.Process(target=self.listen_mempool)
-        self.mempool_process.start()
+        # TODO: Implement block creation
+        asyncio.run(self.start_periodic_task())
 
-    def listen_mempool(self):
-        try:
-            while True:
-                message = self._node.mempool.get()
-                print(f"Main process received notification: {message}")
-        except Exception as e:
-            print(e)
+    async def periodic_task(self):
+        while True:
+            await asyncio.sleep(1)
+            print("Periodic check:")
+            print(self._node.get_all_mempool_items())
 
+    async def start_periodic_task(self):
+        loop = asyncio.get_running_loop()
+        loop.create_task(self.periodic_task())
+        await asyncio.Event().wait()

@@ -27,7 +27,7 @@ import select
 import struct
 import time
 import traceback
-from multiprocessing import Queue
+from multiprocessing import Queue, Lock
 
 from communex._common import get_node_url
 from communex.client import CommuneClient
@@ -49,14 +49,15 @@ class Server(multiprocessing.Process):
     IDENTIFIER_TIMEOUT_SECONDS = 5
     TCP_PORT = 8803
 
-    def __init__(self, bind_address: str, connection_pool: ConnectionPool, keypair: Keypair, netuid: int, notification_queue: Queue):
+    def __init__(self, bind_address: str, connection_pool: ConnectionPool, keypair: Keypair, netuid: int, mempool: Queue, mempool_lock: Lock):
         multiprocessing.Process.__init__(self)
         self.bind_address = bind_address
         self.connection_pool = connection_pool
         self.keypair = keypair
         self.comx_client = CommuneClient(url=get_node_url())
         self.netuid = netuid
-        self.notification_queue = notification_queue
+        self.mempool = mempool
+        self.mempool_lock = mempool_lock
 
     def run(self):
         server_socket = None
@@ -153,7 +154,7 @@ class Server(multiprocessing.Process):
                         if self.connection_pool.get_remaining_capacity() > 0:
                             self.connection_pool.add_connection(connection_identifier, client_socket)
                             print(f"Connection added {connection_identifier}")
-                            client_receiver = Client(client_socket, connection_identifier, self.connection_pool, self.notification_queue)
+                            client_receiver = Client(client_socket, connection_identifier, self.connection_pool, self.mempool, self.mempool_lock)
                             client_receiver.start()
                         else:
                             print(f"No space available in the connection pool for connection {connection_identifier}.")
