@@ -54,6 +54,21 @@ class EventParams:
         return f"EventParams(file_uuid={self.file_uuid}, miners_processes={self.miners_processes})"
 
 
+class StoreParams(EventParams):
+    def __init__(self, file_uuid: Optional[str], miners_processes: List[MinerProcess], sub_chunk_start: int, sub_chunk_end: int, sub_chunk_encoded: str):
+        super().__init__(file_uuid, miners_processes)
+        self.sub_chunk_start = sub_chunk_start
+        self.sub_chunk_end = sub_chunk_end
+        self.sub_chunk_encoded = sub_chunk_encoded
+
+    def __repr__(self):
+        return (f"StoreParams(file_uuid={self.file_uuid},"
+                f" miners_processes={self.miners_processes},"
+                f" sub_chunk_start={self.sub_chunk_start},"
+                f" sub_chunk_end={self.sub_chunk_end},"
+                f" sub_chunk_encoded={self.sub_chunk_encoded})")
+
+
 class Event:
     def __init__(self, params: EventParams, signed_params: str, validator_ss58_address: Ss58Address):
         self.params = params

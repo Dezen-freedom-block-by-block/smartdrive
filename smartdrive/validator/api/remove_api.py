@@ -19,6 +19,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 import asyncio
 import time
 from typing import List
@@ -28,13 +29,13 @@ from substrateinterface import Keypair
 from communex.client import CommuneClient
 from communex.types import Ss58Address
 
-from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo, get_filtered_modules
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.utils import get_miner_info_with_chunk
 from smartdrive.validator.database.database import Database
-from smartdrive.validator.models.block import RemoveEvent, EventParams, MinerProcess, Event
+from smartdrive.validator.models.block import RemoveEvent, EventParams, MinerProcess
 from smartdrive.validator.models.models import File, ModuleType
 from smartdrive.validator.network.network import Network
+from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo, get_filtered_modules
 
 
 class RemoveAPI:
@@ -51,16 +52,13 @@ class RemoveAPI:
         self._comx_client = comx_client
         self._network = network
 
-    async def remove_endpoint(self, user_ss58_address: Ss58Address = Form(), file_uuid: str = Form()) -> dict[str, bool]:
+    async def remove_endpoint(self, user_ss58_address: Ss58Address = Form(), file_uuid: str = Form()):
         """
         Send an event with the user's purpose to remove a specific file.
 
         Params:
             user_ss58_address: The address of the user who owns the file.
             file_uuid: The UUID of the file to be removed.
-
-        Returns:
-            dict[str, bool]: Dictionary containing if the removal operation was successful.
 
         Raises:
            HTTPException: If the file does not exist, there are no miners with the file, or some miners failed to delete the file.
@@ -108,24 +106,24 @@ class RemoveAPI:
         self._network.emit_event(event)
 
 
-async def remove_files(files: List[File], keypair: Keypair, comx_client: CommuneClient, netuid: int):
+async def remove_files(files: List[File], keypair: Keypair, comx_client: CommuneClient, netuid: int) -> List[RemoveEvent]:
     """
     Handles the removal of multiple files.
 
     This function iterates over a list of files and handles the removal of each file's chunks from the associated miners.
     For each file, it gathers all related miner processes and creates a RemoveEvent that records the removal operation's details.
 
-    Args:
-        files (list[File]): A list of file objects to be removed. Each File object contains information about its chunks.
+    Params:
+        files (list[File]): A list of file objects to be removed.
         keypair (Keypair): The validator key used to authorize the request.
         comx_client (CommuneClient): The client used to interact with the commune network.
         netuid (int): The network UID used to filter the miners.
 
     Returns:
-        List[Event]: A list of RemoveEvent objects, each representing the removal operation for a file.
+        List[RemoveEvent]: A list of RemoveEvent objects, each representing the removal operation for a file.
     """
     miners = get_filtered_modules(comx_client, netuid, ModuleType.MINER)
-    events: List[Event] = []
+    events: List[RemoveEvent] = []
 
     async def handle_remove_request(miner_info: ModuleInfo, chunk_uuid: str):
         start_time = time.time()

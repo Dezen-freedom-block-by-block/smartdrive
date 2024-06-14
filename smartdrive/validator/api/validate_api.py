@@ -41,7 +41,7 @@ async def validate_miners(files: list[File], keypair: Keypair, comx_client: Comm
     by comparing the stored data with the original data. It logs the response times and
     success status of each validation request.
 
-    Args:
+    Params:
         files (list[File]): A list of files containing chunks to be validated.
         keypair (Keypair): The validator key used to authorize the requests.
         comx_client (CommuneClient): The client used to interact with the commune network.
@@ -50,17 +50,17 @@ async def validate_miners(files: list[File], keypair: Keypair, comx_client: Comm
     Returns:
         List[ValidateEvent]: A list of ValidateEvent objects, each representing the validation operation for a sub-chunk.
     """
+    events: List[ValidateEvent] = []
+
     active_miners = await get_active_miners(keypair, comx_client, netuid)
     if not active_miners:
-        return []
+        return events
 
     sub_chunks = list(chunk.sub_chunk is not None for file in files for chunk in file.chunks)
     has_sub_chunks = any(sub_chunks)
 
     if not has_sub_chunks:
-        return []
-
-    events: List[ValidateEvent] = []
+        return events
 
     async def handle_validation_request(miner_info: ModuleInfo, user_owner_ss58_address: Ss58Address, subchunk: SubChunk):
         start_time = time.time()

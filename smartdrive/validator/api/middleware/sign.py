@@ -36,7 +36,7 @@ def sign_data(data: dict, keypair: Keypair) -> bytes:
     This function takes a dictionary representing the JSON data, converts it to a UTF-8 encoded byte string,
     and then signs the byte string using the provided keypair.
 
-    Args:
+    Params:
         data (dict): The data to be signed.
         keypair (Keypair): The keypair used to sign the JSON data.
 
@@ -57,7 +57,7 @@ def verify_data_signature(data: Union[dict, bytes], signature_hex: str, ss58_add
     It converts the JSON data to bytes if necessary, decodes the hexadecimal signature, and
     uses the Keypair associated with the SS58 address to verify the signature.
 
-    Args:
+    Params:
         data (Union[dict, bytes]): The data to be verified. It can be either a dictionary or bytes.
         signature_hex (str): The signature in hexadecimal format.
         ss58_address (str): The SS58 address associated with the public key to verify the signature.
