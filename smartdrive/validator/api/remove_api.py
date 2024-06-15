@@ -22,6 +22,7 @@
 
 import asyncio
 import time
+import uuid
 from typing import List
 from fastapi import HTTPException, Form
 from substrateinterface import Keypair
@@ -32,7 +33,7 @@ from communex.types import Ss58Address
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.utils import get_miner_info_with_chunk
 from smartdrive.validator.database.database import Database
-from smartdrive.validator.models.block import RemoveEvent, EventParams, MinerProcess
+from smartdrive.models.event import RemoveEvent, EventParams, MinerProcess
 from smartdrive.validator.models.models import File, ModuleType
 from smartdrive.validator.network.network import Network
 from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo, get_filtered_modules
@@ -94,16 +95,20 @@ class RemoveAPI:
             miners_processes=miners_processes,
         )
 
-        signed_params = sign_data(event_params.__dict__, self._key)
+        signed_params = sign_data(event_params.dict(), self._key)
 
-        event = RemoveEvent(
-            params=event_params,
-            signed_params=signed_params.hex(),
-            validator_ss58_address=Ss58Address(self._key.ss58_address)
-        )
-
-        # Emit event
-        self._network.emit_event(event)
+        # event = RemoveEvent(
+        #     uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
+        #     validator_ss58_address=Ss58Address(self._key.ss58_address),
+        #     event_params=event_params,
+        #     event_signed_params=signed_params.hex(),
+        #     user_ss58_address=user_ss58_address,
+        #     input_params=,
+        #     input_signed_params=
+        # )
+        #
+        # # Emit event
+        # self._network.emit_event(event)
 
 
 async def remove_files(files: List[File], keypair: Keypair, comx_client: CommuneClient, netuid: int) -> List[RemoveEvent]:

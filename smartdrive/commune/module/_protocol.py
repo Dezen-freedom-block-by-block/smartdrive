@@ -21,11 +21,11 @@ def iso_timestamp_now() -> str:
     return iso_now
 
 
-def create_headers(signature: bytes, my_key: Keypair, timestamp_iso: str = iso_timestamp_now(), content_type: str = "application/json", show_content_type: bool = True):
+def create_headers(signature: bytes, key: Keypair, timestamp_iso: str = iso_timestamp_now(), content_type: str = "application/json", show_content_type: bool = True):
     headers = {
         "X-Signature": signature.hex(),
-        "X-Key": my_key.public_key.hex(),
-        "X-Crypto": str(my_key.crypto_type),
+        "X-Key": key.public_key.hex(),
+        "X-Crypto": str(key.crypto_type),
         "X-Timestamp": timestamp_iso,
     }
     if show_content_type:

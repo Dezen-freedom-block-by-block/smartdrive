@@ -20,34 +20,39 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 
-import asyncio
-
-from substrateinterface import Keypair
-
-from smartdrive.models.event import Event
-from smartdrive.validator.network.node.node import Node
+import sys
+import time
+from threading import Thread
 
 
-class Network:
+class Spinner:
+    def __init__(self, message="Processing"):
+        self.message = message
+        self.done = False
+        self.spinner_thread = Thread(target=self._spin)
+        self.current_cursor = '|'
 
-    _node: Node = None
+    def _spin(self):
+        while not self.done:
+            for cursor in '|/-\\':
+                sys.stdout.write(f'\r{self.message}... {cursor}')
+                sys.stdout.flush()
+                self.current_cursor = cursor
+                time.sleep(0.1)
+        sys.stdout.flush()
 
-    def __init__(self, keypair: Keypair, ip: str, netuid: int):
-        self._node = Node(keypair=keypair, ip=ip, netuid=netuid)
-        # TODO: Implement block creation
-        # asyncio.run(self.start_periodic_task())
+    def start(self):
+        self.done = False
+        self.spinner_thread.start()
 
-    async def periodic_task(self):
-        while True:
-            await asyncio.sleep(1)
-            print("Periodic check:")
-            print(self._node.get_all_mempool_items())
+    def stop(self):
+        self.done = True
+        self.spinner_thread.join()
+        sys.stdout.write(f'\r{self.message}... done\n')
+        sys.stdout.flush()
 
-    async def start_periodic_task(self):
-        loop = asyncio.get_running_loop()
-        loop.create_task(self.periodic_task())
-        await asyncio.Event().wait()
-
-    def emit_event(self, event: Event):
-        identifiers_connections = self._node.get_identifiers_connections()
-        # TODO: Emit event
+    def stop_with_message(self, final_message):
+        self.done = True
+        self.spinner_thread.join()
+        sys.stdout.write(f'\r{self.message}... {final_message}\n')
+        sys.stdout.flush()

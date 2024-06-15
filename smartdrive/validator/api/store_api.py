@@ -25,19 +25,22 @@ import random
 import time
 import base64
 import uuid
+
 from substrateinterface import Keypair
 from typing import Optional
-from fastapi import Form, UploadFile, HTTPException
+from fastapi import Form, UploadFile, HTTPException, Request
 
 from communex.client import CommuneClient
 from communex.types import Ss58Address
 
 from smartdrive.validator.api.middleware.sign import sign_data
+from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.database.database import Database
-from smartdrive.validator.models.block import MinerProcess, EventParams, StoreEvent, StoreParams
+from smartdrive.models.event import MinerProcess, StoreEvent, StoreParams
 from smartdrive.validator.models.models import MinerWithChunk
 from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo
 from smartdrive.validator.network.network import Network
+from smartdrive.validator.utils import calculate_hash
 
 
 class StoreAPI:
@@ -54,7 +57,7 @@ class StoreAPI:
         self._comx_client = comx_client
         self._network = network
 
-    async def store_endpoint(self, user_ss58_address: Ss58Address = Form(), file: UploadFile = Form(...)):
+    async def store_endpoint(self, request: Request, file: UploadFile = Form(...)):
         """
         Stores a file across multiple active miners.
 
@@ -62,12 +65,14 @@ class StoreAPI:
          Once it is distributed sends an event with the related info.
 
         Params:
-            user_ss58_address (Ss58Address): The user's SS58 address.
             file (UploadFile): The file to be uploaded.
 
         Raises:
             HTTPException: If no active miners are available or if no miner responds with a valid response.
         """
+        user_public_key = request.headers.get("X-Key")
+        input_signed_params = request.headers.get("X-Signature")
+        user_ss58_address = get_ss58_address_from_public_key(user_public_key)
         file_bytes = await file.read()
 
         active_miners = await get_active_miners(self._key, self._comx_client, self._config.netuid)
@@ -75,26 +80,32 @@ class StoreAPI:
         if not active_miners:
             raise HTTPException(status_code=404, detail="Currently there are no active miners")
 
-        file_encoded = base64.b64encode(file_bytes).decode("utf-8")
-
         store_event = await store_new_file(
-            file_encoded=file_encoded,
+            file_bytes=file_bytes,
             miners=active_miners,
-            keypair=self._key,
-            user_ss58_address=user_ss58_address
+            validator_keypair=self._key,
+            user_ss58_address=user_ss58_address,
+            input_signed_params=input_signed_params
         )
 
         # Emit event
         self._network.emit_event(store_event)
 
-        succeeded_responses = list(filter(lambda miner_process: miner_process.succeed, store_event.params.miners_processes))
+        # Return response
+        succeeded_responses = list(filter(lambda miner_process: miner_process.succeed, store_event.event_params.miners_processes))
         if not succeeded_responses:
             raise HTTPException(status_code=404, detail="No miner answered with a valid response")
 
-        return {"uuid": store_event.params.file_uuid}
+        return {"uuid": store_event.uuid}
 
 
-async def store_new_file(file_encoded: str, miners: list[ModuleInfo], keypair: Keypair, user_ss58_address: Ss58Address) -> StoreEvent:
+async def store_new_file(
+        file_bytes: bytes,
+        miners: list[ModuleInfo],
+        validator_keypair: Keypair,
+        user_ss58_address: Ss58Address,
+        input_signed_params
+) -> StoreEvent:
     """
     Stores a new file across a list of miners.
 
@@ -115,17 +126,14 @@ async def store_new_file(file_encoded: str, miners: list[ModuleInfo], keypair: K
     # TODO: Don't use base64, file need be transferred directly.
     # TODO: Set max length for sub_chunk
     # TODO: Don't store sub_chunk info in params must be store in MineProcess one the split system it's complete
-    file_uuid = f"{int(time.time())}_{str(uuid.uuid4())}"
-    sub_chunk_end = random.randint(51, len(file_encoded) - 1)
-    sub_chunk_start = sub_chunk_end - 50
-    sub_chunk_encoded = file_encoded[sub_chunk_start:sub_chunk_end]
-
     miners_processes = []
+
+    file_encoded = base64.b64encode(file_bytes).decode("utf-8")
 
     async def handle_store_request(miner: ModuleInfo):
         start_time = time.time()
         miner_answer = await store_request(
-            keypair=keypair,
+            keypair=validator_keypair,
             miner=miner,
             user_ss58_address=user_ss58_address,
             base64_bytes=file_encoded
@@ -146,20 +154,28 @@ async def store_new_file(file_encoded: str, miners: list[ModuleInfo], keypair: K
     ]
     await asyncio.gather(*futures)
 
+    sub_chunk_end = random.randint(51, len(file_encoded) - 1)
+    sub_chunk_start = sub_chunk_end - 50
+    sub_chunk_encoded = file_encoded[sub_chunk_start:sub_chunk_end]
+
     event_params = StoreParams(
-        file_uuid=file_uuid,
+        file_uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
         miners_processes=miners_processes,
         sub_chunk_start=sub_chunk_start,
         sub_chunk_end=sub_chunk_end,
         sub_chunk_encoded=sub_chunk_encoded
     )
 
-    signed_params = sign_data(event_params.__dict__, keypair)
+    signed_params = sign_data(event_params.dict(), validator_keypair)
 
     event = StoreEvent(
-        params=event_params,
-        signed_params=signed_params.hex(),
-        validator_ss58_address=Ss58Address(keypair.ss58_address)
+        uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
+        validator_ss58_address=Ss58Address(validator_keypair.ss58_address),
+        event_params=event_params,
+        event_signed_params=signed_params.hex(),
+        user_ss58_address=user_ss58_address,
+        input_params={"file": calculate_hash(file_bytes)},
+        input_signed_params=input_signed_params
     )
 
     return event

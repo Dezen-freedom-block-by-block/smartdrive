@@ -28,12 +28,13 @@ from communex.client import CommuneClient
 from communex.types import Ss58Address
 
 from smartdrive.commune.request import get_active_miners, ModuleInfo
+from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.remove_api import remove_files
 from smartdrive.validator.api.store_api import store_new_file
 from smartdrive.validator.api.validate_api import validate_miners
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.evaluation.utils import generate_data
-from smartdrive.validator.models.block import RemoveEvent, ValidateEvent, StoreEvent
+from smartdrive.models.event import RemoveEvent, ValidateEvent, StoreEvent
 from smartdrive.validator.models.models import File
 from smartdrive.validator.utils import encode_bytes_to_b64
 
@@ -94,12 +95,15 @@ async def validate_step(database: Database, key: Keypair, comx_client: CommuneCl
     miners_to_store = _determine_miners_to_store(files, expired_files, active_miners)
     if miners_to_store:
         file_data = generate_data(5)
-        file_encoded = encode_bytes_to_b64(file_data)
+        input_params = {"file": str(file_data)}
+        input_signed_params = sign_data(input_params, key)
+
         store_event = await store_new_file(
-            file_encoded=file_encoded,
+            file_bytes=file_data,
             miners=miners_to_store,
-            keypair=key,
-            user_ss58_address=Ss58Address(key.ss58_address)
+            validator_keypair=key,
+            user_ss58_address=Ss58Address(key.ss58_address),
+            input_signed_params=input_signed_params
         )
 
     return remove_events, validate_events, store_event

@@ -31,7 +31,7 @@ from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.utils import get_miner_info_with_chunk
 from smartdrive.validator.database.database import Database
 from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo, ConnectionInfo
-from smartdrive.validator.models.block import RetrieveEvent, MinerProcess, EventParams
+from smartdrive.models.event import RetrieveEvent, MinerProcess, EventParams
 from smartdrive.validator.network.network import Network
 
 

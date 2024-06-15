@@ -41,7 +41,8 @@ from smartdrive.commune.module._protocol import create_headers
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.api.api import API
 from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
-from smartdrive.validator.models.block import Event, Block
+from smartdrive.models.event import Event
+from smartdrive.validator.models.block import Block
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.network.network import Network
 from smartdrive.validator.step import validate_step
@@ -99,9 +100,9 @@ class Validator(Module):
         self._config = config
         self._key = classic_load_key(config.key)
         self._database = Database(config.database_file, config.database_export_file)
-        self.api = API(self._config, self._key, self._database, self._comx_client)
         self._comx_client = CommuneClient(url=get_node_url(use_testnet=self._config.testnet), num_connections=5)
         self._network = Network(keypair=self._key, ip=self._config.ip, netuid=self._config.netuid)
+        self.api = API(self._config, self._key, self._database, self._comx_client, self._network)
 
     async def validation_loop(self):
         """
@@ -300,8 +301,8 @@ if __name__ == "__main__":
     async def run_tasks():
         await asyncio.gather(
             _validator.api.run_server(),
-            _validator.initial_sync(),
-            _validator.validation_loop(),
+            # _validator.initial_sync(),
+            # _validator.validation_loop(),
             # _validator.create_blocks()
         )
 

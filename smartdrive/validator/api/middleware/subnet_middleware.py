@@ -19,11 +19,10 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-import json
-from urllib.parse import parse_qs
 
+from urllib.parse import parse_qs
 from starlette.middleware.base import BaseHTTPMiddleware
-from fastapi import Request, Response, UploadFile
+from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp
 from typing import Awaitable, Callable, Optional
@@ -35,6 +34,7 @@ from communex.client import CommuneClient
 from communex.types import Ss58Address
 
 from smartdrive.validator.api.middleware.sign import verify_data_signature
+from smartdrive.validator.utils import calculate_hash
 
 Callback = Callable[[Request], Awaitable[Response]]
 exclude_paths = ["/method/ping"]
@@ -108,13 +108,20 @@ class SubnetMiddleware(BaseHTTPMiddleware):
                 except UnicodeDecodeError:
                     body = body
 
-        is_verified_signature = verify_data_signature(body, signature, ss58_address)
+        if "file" in body:
+            file_bytes = eval(body["file"])
+            signed_body = {"file": calculate_hash(file_bytes)}
+            is_verified_signature = verify_data_signature(signed_body, signature, ss58_address)
+        else:
+            is_verified_signature = verify_data_signature(body, signature, ss58_address)
+
         if not is_verified_signature:
             response = JSONResponse(
                 status_code=401,
                 content={"detail": "Valid X-Signature not provided on headers"}
             )
             return response
+
         response = await call_next(request)
 
         return response

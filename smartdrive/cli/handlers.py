@@ -28,7 +28,6 @@ import random
 import asyncio
 from pathlib import Path
 from getpass import getpass
-
 import py7zr
 import urllib3
 import requests
@@ -40,10 +39,12 @@ from communex.client import CommuneClient
 from communex.compat.key import is_encrypted, classic_load_key
 
 import smartdrive
+from smartdrive.cli.errros import NoValidatorsAvailableException
+from smartdrive.cli.spinner import Spinner
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_active_validators
 from smartdrive.validator.api.middleware.sign import sign_data
-from smartdrive.validator.utils import decode_b64_to_bytes
+from smartdrive.validator.utils import decode_b64_to_bytes, calculate_hash
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -52,51 +53,97 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
     """
-    Encrypt, compress, and store a file on the SmartDrive network.
+    Encrypts, compresses, and sends a file storage request to the SmartDrive network.
 
-    Params:
+    This function performs the following steps:
+    1. Compresses the file.
+    2. Signs the request data.
+    3. Sends the request to the SmartDrive network and waits for the transaction UUID.
+
+    Args:
         file_path (str): The path to the file to be stored.
         key_name (str, optional): An optional key for encryption. If not provided, it will be requested.
-        testnet (bool, optional): Flag to indicate if the testnet should be used.
+        testnet (bool, optional): Flag to indicate if the testnet should be used. Default is False.
 
-    Example:
-        store_handler("path/to/file.txt", key_name="my-key", testnet=True)
+    Raises:
+        NoValidatorsAvailableException: If no validators are available.
+        requests.RequestException: If there is a network error during the request.
+        Exception: For any other unexpected errors.
+
     """
     smartdrive.check_version(sys.argv)
 
     file_path = os.path.expanduser(file_path)
 
     if not Path(file_path).is_file():
-        print(f"ERROR: File {file_path} not exist or is a directory.")
+        print(f"ERROR: File {file_path} does not exist or is a directory.")
+        return
 
-    else:
-        total_size = os.path.getsize(file_path)
-        key = _get_key(key_name)
+    total_size = os.path.getsize(file_path)
+    key = _get_key(key_name)
 
-        print(f"Encrypting, compressing and storing data: {file_path}")
+    # Step 1: Compress the file
+    spinner = Spinner("Compressing")
+    spinner.start()
 
+    try:
         data = io.BytesIO()
         with py7zr.SevenZipFile(data, 'w', password=key.private_key.hex()) as archive:
-            archive.write(file_path, arcname=os.path.basename(file_path))
+            archive.writeall(file_path)
 
-        data = data.getvalue()
+        data.seek(0)
+        compressed_data = data.getvalue()
 
-        print(f"Compression ratio: {round((1 - (len(data) / total_size)) * 100, 2)}%")
+        spinner.stop_with_message("¡Done!")
+        print(f"Compression ratio: {round((1 - (len(compressed_data) / total_size)) * 100, 2)}%")
+
+        # Step 2: Sign the request
+        spinner = Spinner("Signing request")
+        spinner.start()
+
+        signed_data = sign_data({"file": calculate_hash(compressed_data)}, key)
+
+        spinner.stop_with_message("¡Done!")
+
+        # Step 3: Send the request
+        spinner = Spinner("Sending request")
+        spinner.start()
 
         validator_url = _get_validator_url(key, testnet)
-        headers = create_headers(sign_data({"user_ss58_address": key.ss58_address, "file": str(data)}, key), key, show_content_type=False)
-        response = requests.post(f"{validator_url}/store", data={"user_ss58_address": key.ss58_address}, headers=headers, files={"file": data}, verify=False)
+        headers = create_headers(signed_data, key, show_content_type=False)
 
-        if response.status_code != 200:
-            try:
-                error_message = response.json()
-                print(f"ERROR: {error_message.get('detail')}")
+        response = requests.post(
+            url=f"{validator_url}/store",
+            headers=headers,
+            files={"file": data},
+            verify=False
+        )
 
-            except ValueError:
-                print(f"ERROR: {response.text}")
-        else:
+        response.raise_for_status()
+        spinner.stop_with_message("¡Done!")
+
+        try:
             message = response.json()
-            print(f"Data stored successfully. Your identifier is: {message.get('uuid')}")
+        except ValueError:
+            print(f"ERROR: Unable to parse response JSON - {response.text}")
+            return
+
+        uuid = message.get('uuid')
+        if uuid:
+            print(f"Data stored successfully. Your transaction identifier is: {uuid}")
+        else:
+            print("Data stored successfully, but no transaction identifier was returned.")
+
+    except NoValidatorsAvailableException:
+        spinner.stop_with_message("Error: No validators available")
+    except requests.RequestException as e:
+        try:
+            error_message = e.response.json().get('detail', 'Unknown error')
+            spinner.stop_with_message(f"Error: Network error - {error_message}.")
+        except ValueError:
+            spinner.stop_with_message(f"Error: Network error.")
+    except Exception:
+        spinner.stop_with_message(f"Unexpected error.")
 
 
 def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testnet: bool = False):
@@ -234,8 +281,7 @@ def _get_validator_url(key: Keypair, testnet: bool = False) -> str:
     validators = loop.run_until_complete(get_active_validators(key, comx_client, netuid))
 
     if not validators:
-        print("ERROR: No validators available.")
-        exit(1)
+        raise NoValidatorsAvailableException
 
     validator = random.choice(validators)
     return f"https://{validator.connection.ip}:{validator.connection.port}"

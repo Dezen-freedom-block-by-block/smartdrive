@@ -21,7 +21,7 @@
 # SOFTWARE.
 import asyncio
 import time
-from typing import List, Dict
+from typing import List
 
 from communex.client import CommuneClient
 from communex.types import Ss58Address
@@ -29,7 +29,7 @@ from substrateinterface import Keypair
 
 from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo
 from smartdrive.validator.api.middleware.sign import sign_data
-from smartdrive.validator.models.block import ValidateEvent, MinerProcess, EventParams
+from smartdrive.models.event import ValidateEvent, MinerProcess, EventParams
 from smartdrive.validator.models.models import File, SubChunk
 
 

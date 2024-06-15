@@ -22,7 +22,7 @@
 
 import typer
 
-from smartdrive.cli.api import store_handler, retrieve_handler, remove_handler
+from smartdrive.cli.handlers import store_handler, retrieve_handler, remove_handler
 
 app = typer.Typer()
 

@@ -253,7 +253,7 @@ if __name__ == "__main__":
     key = classic_load_key(config.key)
     registered_modules = get_modules(comx_client, config.netuid)
 
-    if key.ss58_address in list(map(lambda module: module.miner_ss58_address, registered_modules)):
+    if key.ss58_address in list(map(lambda module: module.ss58_address, registered_modules)):
         nat_type, external_ip, external_port = stun.get_ip_info()
         comx_client.update_module(
             key=key,

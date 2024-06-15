@@ -19,35 +19,3 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
-
-import asyncio
-
-from substrateinterface import Keypair
-
-from smartdrive.models.event import Event
-from smartdrive.validator.network.node.node import Node
-
-
-class Network:
-
-    _node: Node = None
-
-    def __init__(self, keypair: Keypair, ip: str, netuid: int):
-        self._node = Node(keypair=keypair, ip=ip, netuid=netuid)
-        # TODO: Implement block creation
-        # asyncio.run(self.start_periodic_task())
-
-    async def periodic_task(self):
-        while True:
-            await asyncio.sleep(1)
-            print("Periodic check:")
-            print(self._node.get_all_mempool_items())
-
-    async def start_periodic_task(self):
-        loop = asyncio.get_running_loop()
-        loop.create_task(self.periodic_task())
-        await asyncio.Event().wait()
-
-    def emit_event(self, event: Event):
-        identifiers_connections = self._node.get_identifiers_connections()
-        # TODO: Emit event
