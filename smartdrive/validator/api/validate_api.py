@@ -19,93 +19,15 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-import asyncio
-import time
-from typing import List
 
-from communex.client import CommuneClient
 from communex.types import Ss58Address
 from substrateinterface import Keypair
 
-from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo
-from smartdrive.validator.api.middleware.sign import sign_data
-from smartdrive.models.event import ValidateEvent, MinerProcess, EventParams
-from smartdrive.validator.models.models import File, SubChunk
+from smartdrive.commune.request import execute_miner_request, ModuleInfo
+from smartdrive.validator.models.models import SubChunk
 
 
-async def validate_miners(files: list[File], keypair: Keypair, comx_client: CommuneClient, netuid: int) -> List[ValidateEvent]:
-    """
-    Validates the stored sub-chunks across active miners.
-
-    This method checks the integrity of sub-chunks stored across various active miners
-    by comparing the stored data with the original data. It logs the response times and
-    success status of each validation request.
-
-    Params:
-        files (list[File]): A list of files containing chunks to be validated.
-        keypair (Keypair): The validator key used to authorize the requests.
-        comx_client (CommuneClient): The client used to interact with the commune network.
-        netuid (int): The network UID used to filter the active miners.
-
-    Returns:
-        List[ValidateEvent]: A list of ValidateEvent objects, each representing the validation operation for a sub-chunk.
-    """
-    events: List[ValidateEvent] = []
-
-    active_miners = await get_active_miners(keypair, comx_client, netuid)
-    if not active_miners:
-        return events
-
-    sub_chunks = list(chunk.sub_chunk is not None for file in files for chunk in file.chunks)
-    has_sub_chunks = any(sub_chunks)
-
-    if not has_sub_chunks:
-        return events
-
-    async def handle_validation_request(miner_info: ModuleInfo, user_owner_ss58_address: Ss58Address, subchunk: SubChunk):
-        start_time = time.time()
-        validate_request_succeed = await _validate_chunk_request(
-            keypair=keypair,
-            user_owner_ss58_address=user_owner_ss58_address,
-            miner_module_info=miner_info,
-            subchunk=subchunk
-        )
-        final_time = time.time() - start_time
-
-        miner_process = MinerProcess(
-            chunk_uuid=subchunk.chunk_uuid,
-            miner_ss58_address=miner_info.ss58_address,
-            succeed=validate_request_succeed,
-            processing_time=final_time
-        )
-        event_params = EventParams(
-            file_uuid=subchunk.chunk_uuid,
-            miners_processes=[miner_process],
-        )
-
-        signed_params = sign_data(event_params.__dict__, keypair)
-
-        event = ValidateEvent(
-            params=event_params,
-            signed_params=signed_params.hex(),
-            validator_ss58_address=Ss58Address(keypair.ss58_address)
-        )
-        events.append(event)
-
-    async def process_file(file: File):
-        for chunk in file.chunks:
-            if chunk.sub_chunk is not None:
-                chunk_miner_module_info = next((miner for miner in active_miners if miner.ss58_address == chunk.miner_owner_ss58address), None)
-                if chunk_miner_module_info:
-                    await handle_validation_request(chunk_miner_module_info, file.user_owner_ss58address, chunk.sub_chunk)
-
-    futures = [process_file(file) for file in files]
-    await asyncio.gather(*futures)
-
-    return events
-
-
-async def _validate_chunk_request(keypair: Keypair, user_owner_ss58_address: Ss58Address, miner_module_info: ModuleInfo, subchunk: SubChunk) -> bool:
+async def validate_chunk_request(keypair: Keypair, user_owner_ss58_address: Ss58Address, miner_module_info: ModuleInfo, subchunk: SubChunk) -> bool:
     """
     Sends a request to a miner to validate a specific sub-chunk.
 

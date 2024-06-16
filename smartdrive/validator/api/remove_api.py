@@ -20,23 +20,18 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import asyncio
-import time
-import uuid
-from typing import List
-from fastapi import HTTPException, Form
+from fastapi import HTTPException, Form, Request
 from substrateinterface import Keypair
 
 from communex.client import CommuneClient
 from communex.types import Ss58Address
 
 from smartdrive.validator.api.middleware.sign import sign_data
-from smartdrive.validator.api.utils import get_miner_info_with_chunk
+from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.database.database import Database
-from smartdrive.models.event import RemoveEvent, EventParams, MinerProcess
-from smartdrive.validator.models.models import File, ModuleType
+from smartdrive.models.event import RemoveEvent, RemoveParams
 from smartdrive.validator.network.network import Network
-from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo, get_filtered_modules
+from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo
 
 
 class RemoveAPI:
@@ -53,17 +48,22 @@ class RemoveAPI:
         self._comx_client = comx_client
         self._network = network
 
-    async def remove_endpoint(self, user_ss58_address: Ss58Address = Form(), file_uuid: str = Form()):
+    async def remove_endpoint(self, request: Request, file_uuid: str = Form()):
         """
-        Send an event with the user's purpose to remove a specific file.
+        Send an event with the user's intention to remove a specific file from the SmartDrive network.
 
         Params:
-            user_ss58_address: The address of the user who owns the file.
-            file_uuid: The UUID of the file to be removed.
+            request (Request): The incoming request containing necessary headers for validation.
+            file_uuid (str): The UUID of the file to be removed, provided as a form parameter.
 
         Raises:
-           HTTPException: If the file does not exist, there are no miners with the file, or some miners failed to delete the file.
+           HTTPException: If the file does not exist, there are no miners with the file, or there are no active miners available.
         """
+        # Get headers related info
+        user_public_key = request.headers.get("X-Key")
+        input_signed_params = request.headers.get("X-Signature")
+        user_ss58_address = get_ss58_address_from_public_key(user_public_key)
+
         # Check if the file exists
         file_exists = self._database.check_if_file_exists(user_ss58_address, file_uuid)
         if not file_exists:
@@ -79,98 +79,27 @@ class RemoveAPI:
         if not active_miners:
             raise HTTPException(status_code=404, detail="Currently there are no active miners")
 
-        miners_with_chunks = get_miner_info_with_chunk(active_miners, miner_chunks)
-
         # Create event
-        miners_processes: List[MinerProcess] = []
-        for miner_chunk in miners_with_chunks:
-            miner_process = MinerProcess(
-                chunk_uuid=miner_chunk["chunk_uuid"],
-                miner_ss58_address=miner_chunk["ss58_address"]
-            )
-            miners_processes.append(miner_process)
-
-        event_params = EventParams(
-            file_uuid=file_uuid,
-            miners_processes=miners_processes,
+        event_params = RemoveParams(
+            file_uuid=file_uuid
         )
 
         signed_params = sign_data(event_params.dict(), self._key)
 
-        # event = RemoveEvent(
-        #     uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
-        #     validator_ss58_address=Ss58Address(self._key.ss58_address),
-        #     event_params=event_params,
-        #     event_signed_params=signed_params.hex(),
-        #     user_ss58_address=user_ss58_address,
-        #     input_params=,
-        #     input_signed_params=
-        # )
-        #
-        # # Emit event
-        # self._network.emit_event(event)
-
-
-async def remove_files(files: List[File], keypair: Keypair, comx_client: CommuneClient, netuid: int) -> List[RemoveEvent]:
-    """
-    Handles the removal of multiple files.
-
-    This function iterates over a list of files and handles the removal of each file's chunks from the associated miners.
-    For each file, it gathers all related miner processes and creates a RemoveEvent that records the removal operation's details.
-
-    Params:
-        files (list[File]): A list of file objects to be removed.
-        keypair (Keypair): The validator key used to authorize the request.
-        comx_client (CommuneClient): The client used to interact with the commune network.
-        netuid (int): The network UID used to filter the miners.
-
-    Returns:
-        List[RemoveEvent]: A list of RemoveEvent objects, each representing the removal operation for a file.
-    """
-    miners = get_filtered_modules(comx_client, netuid, ModuleType.MINER)
-    events: List[RemoveEvent] = []
-
-    async def handle_remove_request(miner_info: ModuleInfo, chunk_uuid: str):
-        start_time = time.time()
-        remove_request_succeed = await _remove_chunk_request(keypair, Ss58Address(keypair.ss58_address), miner_info, chunk_uuid)
-        final_time = time.time() - start_time
-
-        return MinerProcess(
-            chunk_uuid=chunk_uuid,
-            miner_ss58_address=miner_info.ss58_address,
-            succeed=remove_request_succeed,
-            processing_time=final_time
-        )
-
-    async def process_file(file: File):
-        miner_processes = []
-        for chunk in file.chunks:
-            for miner in miners:
-                if miner.ss58_address == chunk.miner_owner_ss58address:
-                    miner_process = await handle_remove_request(miner, chunk.chunk_uuid)
-                    miner_processes.append(miner_process)
-
-        event_params = EventParams(
-            file_uuid=file.file_uuid,
-            miners_processes=miner_processes,
-        )
-
-        signed_params = sign_data(event_params.__dict__, keypair)
-
         event = RemoveEvent(
-            params=event_params,
-            signed_params=signed_params.hex(),
-            validator_ss58_address=Ss58Address(keypair.ss58_address)
+            validator_ss58_address=Ss58Address(self._key.ss58_address),
+            event_params=event_params,
+            event_signed_params=signed_params.hex(),
+            user_ss58_address=user_ss58_address,
+            input_params={"file_uuid": file_uuid},
+            input_signed_params=input_signed_params
         )
-        events.append(event)
 
-    futures = [process_file(file) for file in files]
-    await asyncio.gather(*futures)
-
-    return events
+        # Emit event
+        self._network.emit_event(event)
 
 
-async def _remove_chunk_request(keypair: Keypair, user_ss58_address: Ss58Address, miner: ModuleInfo, chunk_uuid: str) -> bool:
+async def remove_chunk_request(keypair: Keypair, user_ss58_address: Ss58Address, miner: ModuleInfo, chunk_uuid: str) -> bool:
     """
     Sends a request to a miner to remove a specific data chunk.
 

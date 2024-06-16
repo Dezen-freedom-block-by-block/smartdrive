@@ -23,7 +23,6 @@
 import json
 from enum import Enum
 from typing import List, Optional, Dict, Any
-from pydantic.dataclasses import dataclass
 from pydantic import BaseModel
 
 from communex.types import Ss58Address
@@ -45,7 +44,7 @@ class MinerProcess(BaseModel):
 
 class EventParams(BaseModel):
     file_uuid: Optional[str]
-    miners_processes: List[MinerProcess]
+    miners_processes: Optional[List[MinerProcess]]
 
 
 class StoreParams(EventParams):
@@ -56,8 +55,11 @@ class StoreParams(EventParams):
     sub_chunk_encoded: str
 
 
+class RemoveParams(EventParams):
+    miners_processes: Optional[List[MinerProcess]] = None
+
+
 class Event(BaseModel):
-    uuid: str
     validator_ss58_address: Ss58Address
     event_params: EventParams
     event_signed_params: str
@@ -70,11 +72,11 @@ class UserEvent(Event):
 
 
 class StoreEvent(UserEvent):
-    pass
+    event_params: StoreParams
 
 
 class RemoveEvent(UserEvent):
-    pass
+    event_params: RemoveParams
 
 
 class RetrieveEvent(UserEvent):
@@ -87,14 +89,12 @@ class ValidateEvent(Event):
 
 def parse_event(action: Action, json_data: str) -> Event:
     data = json.loads(json_data)
-    uuid = data['uuid']
     validator_ss58_address = Ss58Address(data['validator_ss58_address'])
     event_params = data['event_params']
     event_signed_params = data['event_signed_params']
 
     if action == Action.STORE:
         return StoreEvent(
-            uuid=uuid,
             user_ss58_address=Ss58Address(data['user_ss58_address']),
             input_params=data['input_params'],
             input_signed_params=data['input_signed_params'],
@@ -104,7 +104,6 @@ def parse_event(action: Action, json_data: str) -> Event:
         )
     elif action == Action.REMOVE:
         return RemoveEvent(
-            uuid=uuid,
             user_ss58_address=Ss58Address(data['user_ss58_address']),
             input_params=data['input_params'],
             input_signed_params=data['input_signed_params'],
@@ -114,7 +113,6 @@ def parse_event(action: Action, json_data: str) -> Event:
         )
     elif action == Action.RETRIEVE:
         return RetrieveEvent(
-            uuid=uuid,
             user_ss58_address=Ss58Address(data['user_ss58_address']),
             input_params=data['input_params'],
             input_signed_params=data['input_signed_params'],
@@ -124,7 +122,6 @@ def parse_event(action: Action, json_data: str) -> Event:
         )
     elif action == Action.VALIDATION:
         return ValidateEvent(
-            uuid=uuid,
             validator_ss58_address=validator_ss58_address,
             event_params=event_params,
             event_signed_params=event_signed_params

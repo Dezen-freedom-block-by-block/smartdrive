@@ -19,7 +19,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
+import json
 from urllib.parse import parse_qs
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import Request, Response
@@ -48,49 +48,37 @@ class SubnetMiddleware(BaseHTTPMiddleware):
         self._netuid = netuid
 
     async def dispatch(self, request: Request, call_next: Callback) -> Response:
+        def unauthorized_response(detail: str) -> JSONResponse:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": detail}
+            )
+
         if request.url.path in exclude_paths:
             return await call_next(request)
 
         if request.client is None:
-            response = JSONResponse(
-                status_code=401,
-                content={
-                    "detail": "Address should be present in request"
-                }
-            )
-            return response
+            return unauthorized_response("Address should be present in request")
 
         key = request.headers.get('X-Key')
         if not key:
-            response = JSONResponse(
-                status_code=401,
-                content={"detail": "Valid X-Key not provided on headers"}
-            )
-            return response
+            return unauthorized_response("Valid X-Key not provided on headers")
 
         ss58_address = get_ss58_address_from_public_key(key)
         if not ss58_address:
-            response = JSONResponse(
-                status_code=401,
-                content={"detail": "Not a valid public key provided"}
-            )
-            return response
+            return unauthorized_response("Not a valid public key provided")
 
         staketo_modules = self._comx_client.get_staketo(ss58_address, self._netuid)
-        staketo_addresses = staketo_modules.keys()
-        if not staketo_addresses:
-            response = JSONResponse(
-                status_code=401,
-                content={"detail": "You must stake to at least one active validator in the subnet"}
-            )
-            return response
+        if not staketo_modules.keys():
+            return unauthorized_response("You must stake to at least one active validator in the subnet")
 
         signature = request.headers.get('X-Signature')
+
         if request.method == "GET":
             body = dict(request.query_params)
         else:
             content_type = request.headers.get("Content-Type")
-            if "multipart/form-data" in content_type:
+            if content_type and "multipart/form-data" in content_type:
                 body_bytes = await request.body()
                 request._body = body_bytes
                 form = await request.form()
@@ -100,13 +88,20 @@ class SubnetMiddleware(BaseHTTPMiddleware):
                     body["file"] = str(await file.read())
                 request._body = body_bytes
             elif content_type and "application/json" in content_type:
-                body = await request.json()
+                body_bytes = await request.body()
+                if body_bytes:
+                    try:
+                        body = await request.json()
+                    except json.JSONDecodeError:
+                        return unauthorized_response("Invalid JSON")
+                else:
+                    body = {}
             else:
-                body = await request.body()
+                body_bytes = await request.body()
                 try:
-                    body = {key: value[0] if isinstance(value, list) else value for key, value in parse_qs(body.decode("utf-8")).items()}
+                    body = {key: value[0] if isinstance(value, list) else value for key, value in parse_qs(body_bytes.decode("utf-8")).items()}
                 except UnicodeDecodeError:
-                    body = body
+                    body = body_bytes
 
         if "file" in body:
             file_bytes = eval(body["file"])
@@ -116,14 +111,9 @@ class SubnetMiddleware(BaseHTTPMiddleware):
             is_verified_signature = verify_data_signature(body, signature, ss58_address)
 
         if not is_verified_signature:
-            response = JSONResponse(
-                status_code=401,
-                content={"detail": "Valid X-Signature not provided on headers"}
-            )
-            return response
+            return unauthorized_response("Valid X-Signature not provided on headers")
 
         response = await call_next(request)
-
         return response
 
 

@@ -19,15 +19,17 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 import time
 from typing import Optional, List
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from substrateinterface import Keypair
 
 from communex.client import CommuneClient
 from communex.types import Ss58Address
 
 from smartdrive.validator.api.middleware.sign import sign_data
+from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.api.utils import get_miner_info_with_chunk
 from smartdrive.validator.database.database import Database
 from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo, ConnectionInfo
@@ -49,7 +51,7 @@ class RetrieveAPI:
         self._comx_client = comx_client
         self._network = network
 
-    async def retrieve_endpoint(self, user_ss58_address: Ss58Address, file_uuid: str):
+    async def retrieve_endpoint(self, request: Request, file_uuid: str):
         """
         Retrieves a file chunk from active miners.
 
@@ -67,8 +69,11 @@ class RetrieveAPI:
         Raises:
             HTTPException: If the file does not exist, no miner has the chunk, or no active miners are available.
         """
-        file_exists = self._database.check_if_file_exists(user_ss58_address, file_uuid)
+        user_public_key = request.headers.get("X-Key")
+        input_signed_params = request.headers.get("X-Signature")
+        user_ss58_address = get_ss58_address_from_public_key(user_public_key)
 
+        file_exists = self._database.check_if_file_exists(user_ss58_address, file_uuid)
         if not file_exists:
             print("The file not exists")
             raise HTTPException(status_code=404, detail="File does not exist")
@@ -113,12 +118,15 @@ class RetrieveAPI:
             miners_processes=miners_processes,
         )
 
-        signed_params = sign_data(event_params.__dict__, self._key)
+        signed_params = sign_data(event_params.dict(), self._key)
 
         event = RetrieveEvent(
-            params=event_params,
-            signed_params=signed_params.hex(),
-            validator_ss58_address=Ss58Address(self._key.ss58_address)
+            validator_ss58_address=Ss58Address(self._key.ss58_address),
+            event_params=event_params,
+            event_signed_params=signed_params.hex(),
+            user_ss58_address=user_ss58_address,
+            input_params={"file_uuid":file_uuid},
+            input_signed_params=input_signed_params
         )
 
         # Emit event

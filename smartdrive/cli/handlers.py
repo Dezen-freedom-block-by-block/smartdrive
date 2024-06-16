@@ -39,7 +39,7 @@ from communex.client import CommuneClient
 from communex.compat.key import is_encrypted, classic_load_key
 
 import smartdrive
-from smartdrive.cli.errros import NoValidatorsAvailableException
+from smartdrive.cli.errors import NoValidatorsAvailableException
 from smartdrive.cli.spinner import Spinner
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_active_validators
@@ -47,8 +47,6 @@ from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.utils import decode_b64_to_bytes, calculate_hash
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-# TODO: Modify all responses since actions are not anymore instant actions, are actions being processed
 
 
 def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
@@ -60,7 +58,7 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
     2. Signs the request data.
     3. Sends the request to the SmartDrive network and waits for the transaction UUID.
 
-    Args:
+    Params:
         file_path (str): The path to the file to be stored.
         key_name (str, optional): An optional key for encryption. If not provided, it will be requested.
         testnet (bool, optional): Flag to indicate if the testnet should be used. Default is False.
@@ -89,7 +87,7 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
     try:
         data = io.BytesIO()
         with py7zr.SevenZipFile(data, 'w', password=key.private_key.hex()) as archive:
-            archive.writeall(file_path)
+            archive.writeall(file_path, arcname=Path(file_path).name)  # Use the file name only
 
         data.seek(0)
         compressed_data = data.getvalue()
@@ -130,9 +128,9 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
 
         uuid = message.get('uuid')
         if uuid:
-            print(f"Data stored successfully. Your transaction identifier is: {uuid}")
+            print(f"Your data will be stored soon. Your file UUID is: {uuid}")
         else:
-            print("Data stored successfully, but no transaction identifier was returned.")
+            print("Your data will be stored soon, but no file UUID was returned.")
 
     except NoValidatorsAvailableException:
         spinner.stop_with_message("Error: No validators available")
@@ -150,85 +148,121 @@ def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testn
     """
     Retrieve, decompress, and decrypt a file from the SmartDrive network.
 
+    This function performs the following steps:
+    1. Retrieves the file from the SmartDrive network.
+    2. Decompresses the file.
+    3. Decrypts the file and saves it to the specified path.
+
     Params:
-        file_uuid (str): The ID of the file to be retrieved.
+        file_uuid (str): The UUID of the file to be retrieved.
         file_path (str): The path where the retrieved file will be saved.
         key_name (str, optional): An optional key for decryption. If not provided, it will be requested.
-        testnet (bool, optional): Flag to indicate if the testnet should be used.
+        testnet (bool, optional): Flag to indicate if the testnet should be used. Default is False.
 
-    Example:
-        retrieve_handler("file-id-123", "path/to/save/file.txt", key_name="my-key", testnet=True)
+    Raises:
+        NoValidatorsAvailableException: If no validators are available.
+        requests.RequestException: If there is a network error during the request.
+        lzma.LZMAError: If decompression fails due to corrupted data or incorrect key.
+        Exception: For any other unexpected errors.
     """
     smartdrive.check_version(sys.argv)
 
     key = _get_key(key_name)
-    print(f"Retrieving, decompressing and decrypting data: {file_uuid}")
 
-    validator_url = _get_validator_url(key, testnet)
-    body = {"user_ss58_address": key.ss58_address, "file_uuid": file_uuid}
-    headers = create_headers(sign_data(body, key), key)
-    response = requests.get(f"{validator_url}/retrieve", body, headers=headers, verify=False)
+    try:
+        # Step 1: Retrieve the file
+        spinner = Spinner(f"Retrieving file with UUID: {file_uuid}")
+        spinner.start()
 
-    if response.status_code != 200:
-        try:
-            error_message = response.json()
-            print(f"ERROR: {error_message.get('detail')}")
+        validator_url = _get_validator_url(key, testnet)
+        body = {"file_uuid": file_uuid}
+        headers = create_headers(sign_data(body, key), key)
 
-        except ValueError:
-            print(f"ERROR: {response.text}")
+        response = requests.get(f"{validator_url}/retrieve", params=body, headers=headers, verify=False)
 
-    else:
-        # TODO: Receive bytes directly, not base64 data.
+        response.raise_for_status()
+        spinner.stop_with_message("¡Done!")
+
+        # Step 2: Decompress and storing the file
+        spinner = Spinner("Decompressing")
+        spinner.start()
+
         data_bytes = decode_b64_to_bytes(response.content)
         data = io.BytesIO(data_bytes)
+
         try:
             with py7zr.SevenZipFile(data, 'r', password=key.private_key.hex()) as archive:
                 archive.extractall(path=file_path)
                 filename = archive.getnames()
 
+            spinner.stop_with_message("¡Done!")
             print(f"Data downloaded successfully in {file_path}{filename[0]}")
 
         except lzma.LZMAError:
+            spinner.stop_with_message("Error: Decompression failed.")
             print("ERROR: Decompression failed. The data is corrupted or the key is incorrect.")
-            exit(1)
+            return
+
+    except NoValidatorsAvailableException:
+        spinner.stop_with_message("Error: No validators available")
+    except requests.RequestException as e:
+        try:
+            error_message = e.response.json().get('detail', 'Unknown error')
+            spinner.stop_with_message(f"Error: Network error - {error_message}.")
+        except ValueError:
+            spinner.stop_with_message(f"Error: Network error.")
+    except Exception as e:
+        spinner.stop_with_message(f"Unexpected error: {e}")
 
 
 def remove_handler(file_uuid: str, key_name: str = None, testnet: bool = False):
     """
     Remove a file from the SmartDrive network.
 
-    Params:
-        file_uuid (str): The ID of the file to be removed.
-        key_name (str, optional): An optional key for decryption. If not provided, it will be requested.
-        testnet (bool, optional): Flag to indicate if the testnet should be used.
+    This function performs the following steps:
+    1. Sends a request to remove the file from the SmartDrive network.
+    2. Checks the response to confirm removal.
 
-    Example:
-        remove_handler("file-id-123", key_name="my-key", testnet=True)
+    Params:
+        file_uuid (str): The UUID of the file to be removed.
+        key_name (str, optional): An optional key for decryption. If not provided, it will be requested.
+        testnet (bool, optional): Flag to indicate if the testnet should be used. Default is False.
+
+    Raises:
+        NoValidatorsAvailableException: If no validators are available.
+        requests.RequestException: If there is a network error during the request.
+        Exception: For any other unexpected errors.
     """
     smartdrive.check_version(sys.argv)
 
-    # TODO: Improve security.
+    # Retrieve the key
     key = _get_key(key_name)
-    print(f"Removing file with id: {file_uuid}")
 
-    validator_url = _get_validator_url(key, testnet)
-    body = {"user_ss58_address": key.ss58_address, "file_uuid": file_uuid}
-    headers = create_headers(sign_data(body, key), key, "application/x-www-form-urlencoded")
-    response = requests.post(f"{validator_url}/remove", body, headers=headers, verify=False)
+    try:
+        # Step 1: Send remove request
+        spinner = Spinner(f"Removing file with UUID: {file_uuid}")
+        spinner.start()
 
-    if response.status_code != 200:
+        validator_url = _get_validator_url(key, testnet)
+        body = {"file_uuid": file_uuid}
+        headers = create_headers(sign_data(body, key), key, content_type="application/x-www-form-urlencoded")
+        response = requests.post(f"{validator_url}/remove", body, headers=headers, verify=False)
+
+        response.raise_for_status()
+        spinner.stop_with_message("¡Done!")
+
+        print(f"File {file_uuid} will be removed.")
+
+    except NoValidatorsAvailableException:
+        spinner.stop_with_message("Error: No validators available")
+    except requests.RequestException as e:
         try:
-            error_message = response.json()
-            print(f"ERROR: {error_message.get('detail')}")
-
+            error_message = e.response.json().get('detail', 'Unknown error')
+            spinner.stop_with_message(f"Error: Network error - {error_message}.")
         except ValueError:
-            print(f"ERROR: {response.text}")
-    else:
-        message = response.json()
-        if message.get("removed"):
-            print(f"File {file_uuid} deleted successfully.")
-        else:
-            print(f"Error: File {file_uuid} could not be removed.")
+            spinner.stop_with_message(f"Error: Network error.")
+    except Exception as e:
+        spinner.stop_with_message(f"Unexpected error: {e}")
 
 
 def _get_key(key_name: str) -> Keypair:

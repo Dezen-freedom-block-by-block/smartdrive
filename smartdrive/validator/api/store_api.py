@@ -96,7 +96,7 @@ class StoreAPI:
         if not succeeded_responses:
             raise HTTPException(status_code=404, detail="No miner answered with a valid response")
 
-        return {"uuid": store_event.uuid}
+        return {"uuid": store_event.event_params.file_uuid}
 
 
 async def store_new_file(
@@ -132,7 +132,7 @@ async def store_new_file(
 
     async def handle_store_request(miner: ModuleInfo):
         start_time = time.time()
-        miner_answer = await store_request(
+        miner_answer = await _store_request(
             keypair=validator_keypair,
             miner=miner,
             user_ss58_address=user_ss58_address,
@@ -169,7 +169,6 @@ async def store_new_file(
     signed_params = sign_data(event_params.dict(), validator_keypair)
 
     event = StoreEvent(
-        uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
         validator_ss58_address=Ss58Address(validator_keypair.ss58_address),
         event_params=event_params,
         event_signed_params=signed_params.hex(),
@@ -181,7 +180,7 @@ async def store_new_file(
     return event
 
 
-async def store_request(keypair: Keypair, miner: ModuleInfo, user_ss58_address: Ss58Address, base64_bytes: str) -> Optional[MinerWithChunk]:
+async def _store_request(keypair: Keypair, miner: ModuleInfo, user_ss58_address: Ss58Address, base64_bytes: str) -> Optional[MinerWithChunk]:
     """
      Sends a request to a miner to store a file chunk.
 
