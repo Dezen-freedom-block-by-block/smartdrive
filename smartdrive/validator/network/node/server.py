@@ -59,14 +59,13 @@ class Server(multiprocessing.Process):
         server_socket = None
 
         try:
-            # self.initialize_validators()
-            # self.start_check_connections_process()
+            self.initialize_validators()
+            self.start_check_connections_process()
             server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_socket.bind((self.bind_address, self.TCP_PORT))
             server_socket.listen(self.MAX_N_CONNECTIONS)
 
-            print("LISTEN NEW CONNECTIONS")
             while True:
                 client_socket, address = server_socket.accept()
                 process = multiprocessing.Process(target=self.handle_connection, args=(client_socket, address))
@@ -102,6 +101,8 @@ class Server(multiprocessing.Process):
                     }
                     send_json(validator_socket, message)
                     self.connection_pool.add_connection(validator.ss58_address, validator_socket)
+                    client_receiver = Client(validator_socket, validator.ss58_address, self.connection_pool, self.mempool)
+                    client_receiver.start()
                     print(f"Validator {validator.ss58_address} connected and added to the pool.")
                 except Exception as e:
                     self.connection_pool.remove_connection(validator.ss58_address)
@@ -111,6 +112,7 @@ class Server(multiprocessing.Process):
             print(f"Error initializing validators: {e}")
 
     def handle_connection(self, client_socket, address):
+        print("HANDEL CONNECTION")
         try:
             # Wait IDENTIFIER_TIMEOUT_SECONDS as maximum time to get the identifier message
             ready = select.select([client_socket], [], [], self.IDENTIFIER_TIMEOUT_SECONDS)
@@ -133,7 +135,6 @@ class Server(multiprocessing.Process):
 
                 if connection_identifier in self.connection_pool.get_identifiers():
                     print(f"Connection {connection_identifier} is already in the connection pool.")
-                    client_socket.close()
                     return
 
                 if self.connection_pool.get_remaining_capacity() == 0:

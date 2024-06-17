@@ -24,13 +24,11 @@ import asyncio
 import time
 
 from communex.client import CommuneClient
-from communex.types import Ss58Address
 from substrateinterface import Keypair
 
-from smartdrive.commune.request import get_truthful_validators, get_filtered_modules, ping_proposer_validator
+from smartdrive.commune.request import get_truthful_validators, get_filtered_modules
 from smartdrive.models.event import Event
 from smartdrive.validator.api.middleware.sign import sign_data
-from smartdrive.validator.api.utils import process_events
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.models.block import Block
 from smartdrive.validator.models.models import ModuleType
