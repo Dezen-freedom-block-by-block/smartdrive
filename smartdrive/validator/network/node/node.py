@@ -35,13 +35,16 @@ class Node:
     _netuid = None
 
     _server_process = None
-    _mempool = multiprocessing.Manager().list()
-    _connection_pool = ConnectionPool(cache_size=Server.MAX_N_CONNECTIONS)
+    _mempool = None
+    _connection_pool = None
 
     def __init__(self, keypair: Keypair, ip: str, netuid: int):
         self._keypair = keypair
         self._ip = ip
         self._netuid = netuid
+
+        self._mempool = multiprocessing.Manager().list()
+        self._connection_pool = ConnectionPool(cache_size=Server.MAX_N_CONNECTIONS)
 
         self._server_process = multiprocessing.Process(target=self.run_server, args=(self._mempool,))
         self._server_process.start()
