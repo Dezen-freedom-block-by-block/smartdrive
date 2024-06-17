@@ -8,7 +8,7 @@
 # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
-# 
+#
 # The above copyright notice and this permission notice shall be included in all
 # copies or substantial portions of the Software.
 #
@@ -20,9 +20,13 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from enum import Enum
+import json
+import struct
 
 
-class MessageCode(Enum):
-    MESSAGE_CODE_IDENTIFIER = 0
-    MESSAGE_CODE_BLOCK = 1
+def send_json(sock, obj):
+    msg = json.dumps(obj).encode('utf-8')
+    msg_len = len(msg)
+    packed_len = struct.pack('!I', msg_len)
+    print(packed_len)
+    sock.sendall(packed_len + msg)

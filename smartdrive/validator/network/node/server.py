@@ -20,11 +20,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import json
 import multiprocessing
 import socket
 import select
-import struct
 import time
 import traceback
 from multiprocessing import Queue, Lock
@@ -39,8 +37,9 @@ from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_addre
 from smartdrive.validator.models import ModuleType
 from smartdrive.validator.network.node.client import Client
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
+from smartdrive.validator.network.node.test import send_json
 from smartdrive.validator.network.node.util import packing
-from smartdrive.validator.network.node.util.message_code import MESSAGE_CODE_IDENTIFIER
+from smartdrive.validator.network.node.util.message_code import MessageCode
 
 
 class Server(multiprocessing.Process):
@@ -95,7 +94,7 @@ class Server(multiprocessing.Process):
                 try:
                     validator_socket.connect((validator.connection.ip, self.TCP_PORT))
                     body = {
-                        "code": MESSAGE_CODE_IDENTIFIER,
+                        "code": MessageCode.MESSAGE_CODE_IDENTIFIER,
                         "data": {"ss58_address": self.keypair.ss58_address}
                     }
                     body_sign = sign_json(body, self.keypair)
@@ -104,7 +103,7 @@ class Server(multiprocessing.Process):
                         "signature_hex": body_sign.hex(),
                         "public_key_hex": self.keypair.public_key.hex()
                     }
-                    self.send_json(validator_socket, message)
+                    send_json(validator_socket, message)
                     self.connection_pool.add_connection(validator.ss58_address, validator_socket)
                     print(f"Validator {validator.ss58_address} connected and added to the pool.")
                 except Exception as e:
@@ -193,9 +192,3 @@ class Server(multiprocessing.Process):
             new_validators = [validator for validator in validators if validator.ss58_address not in identifiers and validator.ss58_address != self.keypair.ss58_address]
             self.initialize_validators(new_validators)
 
-    def send_json(self, sock, obj):
-        msg = json.dumps(obj).encode('utf-8')
-        msg_len = len(msg)
-        packed_len = struct.pack('!I', msg_len)
-        print(packed_len)
-        sock.sendall(packed_len + msg)

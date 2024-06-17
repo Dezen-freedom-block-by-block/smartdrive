@@ -22,7 +22,7 @@
 
 import json
 
-from smartdrive.validator.network.node.util.message_code import MESSAGE_CODE_IDENTIFIER, MESSAGE_CODE_BLOCK
+from smartdrive.validator.network.node.util.message_code import MessageCode
 
 
 class Message:
@@ -55,4 +55,4 @@ class MessageBlock(Message):
         return f"MessageBlock(code={self.code}, data={self.data})"
 
 
-MESSAGE_CODE_TYPES = {MESSAGE_CODE_IDENTIFIER: MessageIdentifier, MESSAGE_CODE_BLOCK: MessageBlock}
+MESSAGE_CODE_TYPES = {MessageCode.MESSAGE_CODE_IDENTIFIER: MessageIdentifier, MessageCode.MESSAGE_CODE_BLOCK: MessageBlock}

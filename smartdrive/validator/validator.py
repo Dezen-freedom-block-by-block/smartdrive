@@ -50,7 +50,7 @@ from smartdrive.validator.api.api import API
 from smartdrive.validator.models import SubChunk, Chunk, File, MinerWithSubChunk, Event, Block, ModuleType
 from smartdrive.validator.network.network import Network
 from smartdrive.validator.utils import extract_sql_file, fetch_validator, encode_bytes_to_b64
-from smartdrive.commune.request import get_modules, get_active_validators, get_active_miners, ConnectionInfo, ModuleInfo, execute_miner_request, get_truthful_validators, ping_leader_validator, get_filtered_modules
+from smartdrive.commune.request import get_modules, get_active_validators, get_active_miners, ConnectionInfo, ModuleInfo, execute_miner_request, get_truthful_validators, ping_proposer_validator, get_filtered_modules
 
 
 def get_config():
@@ -429,61 +429,6 @@ class Validator(Module):
 
             self._database.insert_miner_response(miner["ss58_address"], "validation", succeed, final_time)
 
-    async def create_blocks(self):
-        # TODO: retrieve real block events
-        # TODO: permit only MAX_EVENTS_PER_BLOCK
-        # TODO: retrieve last block from other leader validator
-        # TODO: propagate blocks to validators
-
-        block_number = self._database.get_database_block()
-        block_number = -1 if block_number is None else block_number
-
-        while True:
-            start_time = time.time()
-
-            truthful_validators = await get_truthful_validators(self._key, self._comx_client, self._config.netuid)
-            all_validators = get_filtered_modules(self._comx_client, self._config.netuid, ModuleType.VALIDATOR)
-
-            leader_active_validator = max(truthful_validators, key=lambda v: v.stake or 0)
-            leader_validator = max(all_validators, key=lambda v: v.stake or 0)
-
-            if leader_validator.ss58_address != leader_active_validator.ss58_address:
-                ping_validator = await ping_leader_validator(self._key, leader_validator)
-                if not ping_validator:
-                    leader_validator = leader_active_validator
-
-            if leader_validator.ss58_address == self._key.ss58_address:
-                block_number += 1
-                block_events = []
-                await self.process_events(events=block_events)
-                self._database.create_block(block_number)
-
-            elapsed = time.time() - start_time
-            if elapsed < self.BLOCK_INTERVAL:
-                sleep_time = self.BLOCK_INTERVAL - elapsed
-                print(f"Sleeping for {sleep_time} seconds before trying to create the next block.")
-                await asyncio.sleep(sleep_time)
-
-    async def process_events(self, events: list[Event]):
-        # TODO: check if returns ok and remove from mempool, otherwise keep events
-        for e in events:
-            if e.action == "store":
-                # TODO: data is inserted, now we have to insert where is located data (miner info)
-                result = await self.api.store_api.store_event()
-                print(f"STORE: {result}")
-            elif e.action == "remove":
-                result = await self.api.remove_api.remove_endpoint(user_ss58_address=e.params.get("user_ss58_address"), file_uuid=e.params.get("file_uuid"))
-                print(f"REMOVE: {result}")
-
-    async def handle_received_block(self, block: Block, leader_validator: ModuleInfo):
-        # TODO: check handle received block
-        processed_events = []
-        if verify_block(block, leader_validator.ss58_address, block.signature):
-            for event in block.events:
-                if verify_json_signature(event.params, event.signature, event.params.get("user_ss58_address")):
-                    processed_events.append(event)
-
-            await self.process_events(processed_events)
 
 if __name__ == "__main__":
     config = get_config()
@@ -509,9 +454,8 @@ if __name__ == "__main__":
     async def run_tasks():
         await asyncio.gather(
             _validator.api.run_server(),
-            _validator.initial_sync(),
-            _validator.validation_loop(),
-            # _validator.create_blocks()
+            # _validator.initial_sync(),
+            # _validator.validation_loop()
         )
 
     asyncio.run(run_tasks())
