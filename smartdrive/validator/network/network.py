@@ -70,27 +70,27 @@ class Network:
             truthful_validators = await get_truthful_validators(self._keypair, self._comx_client, self._netuid)
             all_validators = get_filtered_modules(self._comx_client, self._netuid, ModuleType.VALIDATOR)
 
-            # proposer_active_validator = max(truthful_validators, key=lambda v: v.stake or 0)
-            # proposer_validator = max(all_validators, key=lambda v: v.stake or 0)
-            #
-            # if proposer_validator.ss58_address != proposer_active_validator.ss58_address:
-            #     ping_validator = await ping_proposer_validator(self._keypair, proposer_validator)
-            #     if not ping_validator:
-            #         proposer_validator = proposer_active_validator
-            #
-            # if proposer_validator.ss58_address == self._keypair.ss58_address:
-            #     block_number += 1
-            #
-            #     # Create and process block
-            #     block_events = self._node.consume_mempool_items(max_items=self.MAX_EVENTS_PER_BLOCK)
-            #     self._database.create_block(Block(block_number=block_number, events=block_events,
-            #                                       proposer_signature=Ss58Address(self._keypair.ss58_address)))
-            #     await process_events(events=block_events, is_proposer_validator=True)
-            #
-            #     # Propagate block to other validators
-            #     block = Block(block_number=block_number, events=block_events,
-            #                   proposer_signature=Ss58Address(self._keypair.ss58_address))
-            #     await asyncio.to_thread(self.send_block_to_validators(block=block))
+            proposer_active_validator = max(truthful_validators, key=lambda v: v.stake or 0)
+            proposer_validator = max(all_validators, key=lambda v: v.stake or 0)
+
+            if proposer_validator.ss58_address != proposer_active_validator.ss58_address:
+                ping_validator = await ping_proposer_validator(self._keypair, proposer_validator)
+                if not ping_validator:
+                    proposer_validator = proposer_active_validator
+
+            if proposer_validator.ss58_address == self._keypair.ss58_address:
+                block_number += 1
+
+                # Create and process block
+                block_events = self._node.get_all_mempool_items()
+                self._database.create_block(Block(block_number=block_number, events=block_events,
+                                                  proposer_signature=Ss58Address(self._keypair.ss58_address)))
+                await process_events(events=block_events, is_proposer_validator=True)
+
+                # Propagate block to other validators
+                block = Block(block_number=block_number, events=block_events,
+                              proposer_signature=Ss58Address(self._keypair.ss58_address))
+                await asyncio.to_thread(self.send_block_to_validators(block=block))
 
             elapsed = time.time() - start_time
             if elapsed < self.BLOCK_INTERVAL:

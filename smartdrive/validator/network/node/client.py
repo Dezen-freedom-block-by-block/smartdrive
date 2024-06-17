@@ -19,11 +19,14 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
+import asyncio
+import json
 import multiprocessing
 
 from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
+from smartdrive.validator.api.utils import process_events
+from smartdrive.validator.models.block import Block
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.util import packing
 from smartdrive.validator.network.node.util.exceptions import MessageException, ClientDisconnectedException, MessageFormatException, InvalidSignatureException
@@ -85,21 +88,30 @@ class Client(multiprocessing.Process):
 
             if body['code'] == MessageCode.MESSAGE_CODE_BLOCK:
                 processed_events = []
-                # data = json.loads(body["data"])
-                # block = Block(**data)
-                #
-                # for event in block.events:
-                #     if verify_data_signature(event.input_params, event.input_signed_params, event.user_ss58_address):
-                #         processed_events.append(event)
-                #
-                # block.events = processed_events
-                # self.database.create_block(block=block)
-                #
-                # await process_events(events=processed_events, is_proposer_validator=False)
+                data = json.loads(body["data"])
+                block = Block(**data)
+
+                for event in block.events:
+                    if verify_data_signature(event.input_params, event.input_signed_params, event.user_ss58_address):
+                        processed_events.append(event)
+
+                block.events = processed_events
+                self.database.create_block(block=block)
+
+                asyncio.run_coroutine_threadsafe(
+                    process_events(
+                        events=processed_events,
+                        is_proposer_validator=False,
+                        keypair="",
+                        comx_client="",
+                        netuid="",
+                        database=""
+                    ), asyncio.get_event_loop()
+                )
 
             elif body['code'] in MessageCode.MESSAGE_CODE_IDENTIFIER:
-                with self.mempool_lock:
-                    self.mempool.put(f"Message {self.identifier}: {body}")
+                message = body['data']
+                self.mempool.append(message)
 
         except InvalidSignatureException as e:
             raise e
