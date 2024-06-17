@@ -30,7 +30,7 @@ from communex.client import CommuneClient
 
 from smartdrive.commune.module.client import ModuleClient
 from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
-from smartdrive.validator.models import ModuleType
+from smartdrive.validator.models.models import ModuleType
 
 PING_TIMEOUT = 5
 CALL_TIMEOUT = 60

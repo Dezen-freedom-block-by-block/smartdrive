@@ -153,3 +153,7 @@ class Network:
         loop = asyncio.get_running_loop()
         loop.create_task(self.create_blocks())
         await asyncio.Event().wait()
+
+    def emit_event(self, event: Event):
+        identifiers_connections = self._node.get_identifiers_connections()
+        # TODO: Emit event

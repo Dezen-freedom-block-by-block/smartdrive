@@ -21,16 +21,20 @@
 # SOFTWARE.
 
 import time
-from typing import Optional
-from fastapi import HTTPException
+from typing import Optional, List
+from fastapi import HTTPException, Request
 from substrateinterface import Keypair
 
 from communex.client import CommuneClient
 from communex.types import Ss58Address
 
+from smartdrive.validator.api.middleware.sign import sign_data
+from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.api.utils import get_miner_info_with_chunk
 from smartdrive.validator.database.database import Database
-from smartdrive.commune.request import get_active_miners, execute_miner_request, ConnectionInfo, ModuleInfo
+from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo, ConnectionInfo
+from smartdrive.models.event import RetrieveEvent, MinerProcess, EventParams
+from smartdrive.validator.network.network import Network
 
 
 class RetrieveAPI:
@@ -38,14 +42,16 @@ class RetrieveAPI:
     _key: Keypair = None
     _database: Database = None
     _comx_client: CommuneClient = None
+    _network: Network = None
 
-    def __init__(self, config, key, database, comx_client):
+    def __init__(self, config, key, database, comx_client, network: Network):
         self._config = config
         self._key = key
         self._database = database
         self._comx_client = comx_client
+        self._network = network
 
-    async def retrieve_endpoint(self, user_ss58_address: Ss58Address, file_uuid: str):
+    async def retrieve_endpoint(self, request: Request, file_uuid: str):
         """
         Retrieves a file chunk from active miners.
 
@@ -63,9 +69,11 @@ class RetrieveAPI:
         Raises:
             HTTPException: If the file does not exist, no miner has the chunk, or no active miners are available.
         """
-        # TODO: This method currently is assuming that chunks are final files. This is an early stage.
-        file_exists = self._database.check_if_file_exists(user_ss58_address, file_uuid)
+        user_public_key = request.headers.get("X-Key")
+        input_signed_params = request.headers.get("X-Signature")
+        user_ss58_address = get_ss58_address_from_public_key(user_public_key)
 
+        file_exists = self._database.check_if_file_exists(user_ss58_address, file_uuid)
         if not file_exists:
             print("The file not exists")
             raise HTTPException(status_code=404, detail="File does not exist")
@@ -80,36 +88,80 @@ class RetrieveAPI:
             print("Currently there are no active miners")
             raise HTTPException(status_code=404, detail="Currently there are no active miners")
 
-        miner_info_with_chunk = get_miner_info_with_chunk(active_miners, miner_chunks)
+        miners_with_chunks = get_miner_info_with_chunk(active_miners, miner_chunks)
 
-        for miner in miner_info_with_chunk:
+        # Create event
+        miners_processes: List[MinerProcess] = []
+        # TODO: This method currently is assuming that chunks are final files. This is an early stage.
+        for miner_chunk in miners_with_chunks:
             start_time = time.time()
-            connection = ConnectionInfo(miner["connection"]["ip"], miner["connection"]["port"])
+            connection = ConnectionInfo(miner_chunk["connection"]["ip"], miner_chunk["connection"]["port"])
             miner_info = ModuleInfo(
-                miner["uid"],
-                miner["ss58_address"],
+                miner_chunk["uid"],
+                miner_chunk["ss58_address"],
                 connection
             )
-            chunk = await self.retrieve_request(user_ss58_address, miner_info, miner["chunk_uuid"])
+            chunk = await retrieve_request(self._key, user_ss58_address, miner_info, miner_chunk["chunk_uuid"])
             final_time = time.time() - start_time
-            miner["chunk"] = chunk
+            miner_chunk["chunk"] = chunk
 
-            self._database.insert_miner_response(miner["ss58_address"], "retrieve", True if chunk else False, final_time)
+            miner_process = MinerProcess(
+                chunk_uuid=miner_chunk["chunk_uuid"],
+                miner_ss58_address=miner_chunk["ss58_address"],
+                succeed=chunk is not None,
+                processing_time=final_time
+            )
+            miners_processes.append(miner_process)
 
-        if miner_info_with_chunk[0]["chunk"]:
-            return miner_info_with_chunk[0]["chunk"]
+        event_params = EventParams(
+            file_uuid=file_uuid,
+            miners_processes=miners_processes,
+        )
 
+        signed_params = sign_data(event_params.dict(), self._key)
+
+        event = RetrieveEvent(
+            validator_ss58_address=Ss58Address(self._key.ss58_address),
+            event_params=event_params,
+            event_signed_params=signed_params.hex(),
+            user_ss58_address=user_ss58_address,
+            input_params={"file_uuid":file_uuid},
+            input_signed_params=input_signed_params
+        )
+
+        # Emit event
+        self._network.emit_event(event)
+
+        if miners_with_chunks[0]["chunk"]:
+            return miners_with_chunks[0]["chunk"]
         else:
             print("The chunk does not exists")
             raise HTTPException(status_code=404, detail="The chunk does not exist")
 
-    async def retrieve_request(self, user_ss58address: Ss58Address, miner: ModuleInfo, chunk_uuid: str) -> Optional[str]:
-        miner_answer = await execute_miner_request(
-            self._key, miner.connection, miner.ss58_address, "retrieve",
-            {
-                "folder": user_ss58address,
-                "chunk_uuid": chunk_uuid
-            }
-        )
 
-        return miner_answer["chunk"] if miner_answer else None
+async def retrieve_request(keypair: Keypair, user_ss58address: Ss58Address, miner: ModuleInfo, chunk_uuid: str) -> Optional[str]:
+    """
+    Sends a request to a miner to retrieve a specific data chunk.
+
+    This method sends an asynchronous request to a specified miner to retrieve a data chunk
+    identified by its UUID. The request is executed using the miner's connection and
+    address information.
+
+    Params:
+        keypair (Keypair): The validator key used to authorize the request.
+        user_ss58_address (Ss58Address): The SS58 address of the user associated with the data chunk.
+        miner (ModuleInfo): The miner's module information.
+        chunk_uuid (str): The UUID of the data chunk to be retrieved.
+
+    Returns:
+        Optional[str]: Returns the chunk UUID, or None if something went wrong.
+    """
+    miner_answer = await execute_miner_request(
+        keypair, miner.connection, miner.ss58_address, "retrieve",
+        {
+            "folder": user_ss58address,
+            "chunk_uuid": chunk_uuid
+        }
+    )
+
+    return miner_answer["chunk"] if miner_answer else None

@@ -258,7 +258,7 @@ if __name__ == "__main__":
         comx_client.update_module(
             key=key,
             name=config.name,
-            address=f"{external_ip}:{config.port}",
+            address=f"127.0.0.1:{config.port}",
             netuid=config.netuid
         )
 

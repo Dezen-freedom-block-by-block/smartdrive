@@ -30,7 +30,8 @@ import zipfile
 from typing import List, Optional
 from datetime import datetime, timedelta
 
-from smartdrive.validator.models import MinerWithChunk, SubChunk, File, Chunk, Block
+from smartdrive.models.event import Event
+from smartdrive.validator.models.models import MinerWithChunk, SubChunk, File, Chunk
 
 from communex.types import Ss58Address
 
@@ -114,8 +115,8 @@ class Database:
                     )
                 '''
 
-                create_miner_response = '''
-                    CREATE TABLE miner_response (
+                create_event_table = '''
+                    CREATE TABLE event (
                         miner_ss58_address TEXT,
                         action VARCHAR,
                         succeed INTEGER,
@@ -131,7 +132,7 @@ class Database:
                     _create_table_if_not_exists(cursor, 'sub_chunk', create_sub_chunk_table)
                     _create_table_if_not_exists(cursor, 'miner_chunk', create_miner_chunk_table)
                     _create_table_if_not_exists(cursor, 'block', create_block_table)
-                    _create_table_if_not_exists(cursor, 'miner_response', create_miner_response)
+                    _create_table_if_not_exists(cursor, 'event', create_event_table)
                     connection.commit()
 
                 except sqlite3.Error as e:
@@ -509,32 +510,32 @@ class Database:
 
         return True
 
-    def insert_miner_response(self, miner_ss58_address: Ss58Address, action: str, succeed: bool, time: float):
+    def insert_event(self, event: Event):
         """
-        Insert a record into the miner_response table.
+        Insert a record into the event table.
 
         Params:
-            miner_ss58_address (Ss58Address): The Ss58address of the miner.
-            action (str): The action performed by the miner.
-            succeed (bool): Boolean indicating if the response was succeeded or not.
-            time (float): The time taken by the miner to respond in seconds.
+            event (Event): Event carry out by the miner.
 
         Raises:
             sqlite3.Error: If there is an error inserting the record into the database.
         """
-        try:
-            connection = sqlite3.connect(self._database_file_path)
-            with connection:
-                cursor = connection.cursor()
-
-                cursor.execute('''
-                    INSERT INTO miner_response (miner_ss58_address, action, succeed, time)
-                    VALUES (?, ?, ?, ?)
-                ''', (miner_ss58_address, action, succeed, time))
-
-                connection.commit()
-        except sqlite3.Error as e:
-            print(f"Database error: {e}")
+        pass
+        # TODO: Insert event
+        # try:
+        #     connection = sqlite3.connect(self._database_file_path)
+        #     with connection:
+        #         cursor = connection.cursor()
+        #
+        #
+        #         cursor.execute('''
+        #             INSERT INTO event (miner_ss58_address, action, succeed, time)
+        #             VALUES (?, ?, ?, ?)
+        #         ''', (event., action, succeed, time))
+        #
+        #         connection.commit()
+        # except sqlite3.Error as e:
+        #     print(f"Database error: {e}")
 
     def get_successful_responses_and_total(self, miner_ss58_address: Ss58Address, action: str = None,
                                            days_interval: int = 7) -> tuple:

@@ -26,6 +26,7 @@ import tempfile
 import zipfile
 from typing import Optional
 import requests
+import hashlib
 
 from starlette.datastructures import Headers
 
@@ -112,3 +113,18 @@ def decode_b64_to_bytes(data: str) -> bytes:
         bytes: The decoded bytes.
     """
     return base64.b64decode(data)
+
+
+def calculate_hash(data: bytes) -> str:
+    """
+    Calculates the SHA-256 hash of the given data.
+
+    Params:
+        data (bytes): The data to hash, provided as a byte string.
+
+    Returns:
+        str: The hexadecimal representation of the SHA-256 hash of the input data.
+    """
+    sha256 = hashlib.sha256()
+    sha256.update(data)
+    return sha256.hexdigest()

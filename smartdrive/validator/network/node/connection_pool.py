@@ -20,6 +20,10 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 
+# MIT License
+#
+#
+#
 from multiprocessing import Manager, Lock
 
 
@@ -75,6 +79,12 @@ class ConnectionPool:
         identifiers = self._connections.keys()
         self._pool_lock.release()
         return identifiers
+
+    def get_identifiers_connections(self):
+        self._pool_lock.acquire()
+        identifiers_connections = self._connections
+        self._pool_lock.release()
+        return identifiers_connections
 
     def get_remaining_capacity(self):
         return self._cache_size - len(self._connections)

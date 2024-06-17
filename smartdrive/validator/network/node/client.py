@@ -23,7 +23,7 @@
 import multiprocessing
 from multiprocessing import Queue, Lock
 
-from smartdrive.validator.api.middleware.sign import verify_json_signature
+from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.util import packing
@@ -80,7 +80,7 @@ class Client(multiprocessing.Process):
                 public_key_hex = msg["public_key_hex"]
                 ss58_address = get_ss58_address_from_public_key(public_key_hex)
 
-                is_verified_signature = verify_json_signature(body, signature_hex, ss58_address)
+                is_verified_signature = verify_data_signature(body, signature_hex, ss58_address)
 
                 if not is_verified_signature:
                     raise InvalidSignatureException()

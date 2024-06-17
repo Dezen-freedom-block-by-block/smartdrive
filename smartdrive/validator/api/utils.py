@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 from smartdrive.commune.request import ModuleInfo
-from smartdrive.validator.models import MinerWithChunk, MinerWithSubChunk
+from smartdrive.validator.models.models import MinerWithChunk, MinerWithSubChunk
 
 
 def get_miner_info_with_chunk(active_miners: list[ModuleInfo], miner_chunks: list[MinerWithChunk] | list[MinerWithSubChunk]) -> list:
