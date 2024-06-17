@@ -24,8 +24,6 @@ import multiprocessing
 import socket
 import select
 import time
-import traceback
-from multiprocessing import Queue, Lock
 
 from communex._common import get_node_url
 from communex.client import CommuneClient
@@ -37,18 +35,18 @@ from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_addre
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.network.node.client import Client
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
-from smartdrive.validator.network.node.test import send_json
 from smartdrive.validator.network.node.util import packing
 from smartdrive.validator.network.node.util.message_code import MessageCode
+from smartdrive.validator.network.node.utils import send_json
 
 
 class Server(multiprocessing.Process):
     # TODO: Replace with production validators number
     MAX_N_CONNECTIONS = 255
     IDENTIFIER_TIMEOUT_SECONDS = 5
-    TCP_PORT = 8803
+    TCP_PORT = 9002
 
-    def __init__(self, bind_address: str, connection_pool: ConnectionPool, keypair: Keypair, netuid: int, mempool: Queue, mempool_lock: Lock):
+    def __init__(self, bind_address: str, connection_pool: ConnectionPool, keypair: Keypair, netuid: int, mempool):
         multiprocessing.Process.__init__(self)
         self.bind_address = bind_address
         self.connection_pool = connection_pool
@@ -56,7 +54,6 @@ class Server(multiprocessing.Process):
         self.comx_client = CommuneClient(url=get_node_url())
         self.netuid = netuid
         self.mempool = mempool
-        self.mempool_lock = mempool_lock
 
     def run(self):
         server_socket = None
@@ -64,7 +61,6 @@ class Server(multiprocessing.Process):
         try:
             self.initialize_validators()
             self.start_check_connections_process()
-            server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_socket.bind((self.bind_address, self.TCP_PORT))
@@ -76,7 +72,6 @@ class Server(multiprocessing.Process):
                 process.start()
 
         except Exception as e:
-            traceback.print_exc()
             print(f"Server stopped unexpectedly - PID: {self.pid} - {e}")
         finally:
             if server_socket:
@@ -92,9 +87,10 @@ class Server(multiprocessing.Process):
             for validator in validators:
                 validator_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 try:
-                    validator_socket.connect((validator.connection.ip, self.TCP_PORT))
+                    # TODO: Remove port configuration and set it fixed to self.tcp_port, this is only to not connect a validator node to itself
+                    validator_socket.connect((validator.connection.ip, validator.connection.port + 1000))
                     body = {
-                        "code": MessageCode.MESSAGE_CODE_IDENTIFIER,
+                        "code": MessageCode.MESSAGE_CODE_IDENTIFIER.value,
                         "data": {"ss58_address": self.keypair.ss58_address}
                     }
                     body_sign = sign_data(body, self.keypair)
@@ -153,7 +149,7 @@ class Server(multiprocessing.Process):
                         if self.connection_pool.get_remaining_capacity() > 0:
                             self.connection_pool.add_connection(connection_identifier, client_socket)
                             print(f"Connection added {connection_identifier}")
-                            client_receiver = Client(client_socket, connection_identifier, self.connection_pool, self.mempool, self.mempool_lock)
+                            client_receiver = Client(client_socket, connection_identifier, self.connection_pool, self.mempool)
                             client_receiver.start()
                         else:
                             print(f"No space available in the connection pool for connection {connection_identifier}.")
@@ -186,9 +182,7 @@ class Server(multiprocessing.Process):
                 removed_connection = self.connection_pool.remove_connection(ss58_address)
                 if removed_connection:
                     removed_connection.close()
-                print(f"Closed inactive validator connection {ss58_address}.")
 
             identifiers = self.connection_pool.get_identifiers()
             new_validators = [validator for validator in validators if validator.ss58_address not in identifiers and validator.ss58_address != self.keypair.ss58_address]
             self.initialize_validators(new_validators)
-

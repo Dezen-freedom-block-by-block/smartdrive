@@ -27,9 +27,11 @@ from communex.client import CommuneClient
 from substrateinterface import Keypair
 
 from smartdrive.commune.request import get_truthful_validators, get_filtered_modules, ping_proposer_validator, ModuleInfo
-from smartdrive.validator.api.middleware.sign import verify_block, verify_json_signature, sign_json
+from smartdrive.models.event import Event
+from smartdrive.validator.api.middleware.sign import verify_block, verify_data_signature, sign_data
 from smartdrive.validator.database.database import Database
-from smartdrive.validator.models import ModuleType, Event, Chunk, File, Block
+from smartdrive.validator.models.block import Block
+from smartdrive.validator.models.models import ModuleType, Chunk, File
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.node import Node
 from smartdrive.validator.network.node.util.message_code import MessageCode
@@ -51,7 +53,12 @@ class Network:
         self._comx_client = comx_client
         self._database = database
         self._node = Node(keypair=keypair, ip=ip, netuid=netuid)
-        asyncio.run(self.start_creation_block())
+        # asyncio.run(self.start_creation_block())
+
+    async def start_creation_block(self):
+        loop = asyncio.get_running_loop()
+        loop.create_task(self.create_blocks())
+        await asyncio.Event().wait()
 
     async def create_blocks(self):
         # TODO: retrieve last block from other leader validator
@@ -77,9 +84,7 @@ class Network:
                 block_number += 1
 
                 # Process events
-                block_events = []
-                while not self._node.mempool_queue.empty() and len(block_events) < self.MAX_EVENTS_PER_BLOCK:
-                    block_events.append(await self._node.get_all_mempool_items())
+                block_events = self._node.consume_mempool_items(self.MAX_EVENTS_PER_BLOCK)
                 await self.process_events(events=block_events)
 
                 # Create and send block
@@ -127,20 +132,20 @@ class Network:
         processed_events = []
         if verify_block(block, leader_validator.ss58_address, block.signature):
             for event in block.events:
-                if verify_json_signature(event.params, event.signature, event.params.get("user_ss58_address")):
+                if verify_data_signature(event.params, event.signature, event.params.get("user_ss58_address")):
                     processed_events.append(event)
 
             await self.process_events(processed_events)
 
     async def send_block_to_validators(self, block_number: int):
-        connections = self._node._connection_pool.get_all_connections()
+        connections = self._node.get_all_connections()
 
         for c in connections:
             body = {
                 "code": MessageCode.MESSAGE_CODE_IDENTIFIER,
                 "data": {"block_number": block_number}
             }
-            body_sign = sign_json(body, self._keypair)
+            body_sign = sign_data(body, self._keypair)
             message = {
                 "body": body,
                 "signature_hex": body_sign.hex(),
@@ -149,11 +154,29 @@ class Network:
 
             send_json(c[ConnectionPool.CONNECTION], message)
 
-    async def start_creation_block(self):
-        loop = asyncio.get_running_loop()
-        loop.create_task(self.create_blocks())
-        await asyncio.Event().wait()
-
     def emit_event(self, event: Event):
-        identifiers_connections = self._node.get_identifiers_connections()
-        # TODO: Emit event
+        connections = self._node.get_all_connections()
+
+        body = {
+            "code": MessageCode.MESSAGE_CODE_EVENT.value,
+            "data": {
+                "event": event.get_event_action().value,
+                "event_code": event.json()
+            }
+        }
+        body_sign = sign_data(body, self._keypair)
+        message = {
+            "body": body,
+            "signature_hex": body_sign.hex(),
+            "public_key_hex": self._keypair.public_key.hex()
+        }
+
+        print("EMIT EVENT")
+        print(message)
+        print(connections)
+
+        for c in connections:
+            try:
+                send_json(c[ConnectionPool.CONNECTION], message)
+            except Exception as e:
+                print(e)

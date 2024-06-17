@@ -41,14 +41,12 @@ from smartdrive.commune.module._protocol import create_headers
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.api.api import API
 from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
-from smartdrive.models.event import Event
-from smartdrive.validator.models.block import Block
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.network.network import Network
 from smartdrive.validator.step import validate_step
 from smartdrive.validator.utils import extract_sql_file, fetch_validator
-from smartdrive.validator.api.middleware.sign import sign_data, verify_data_signature, verify_block
-from smartdrive.commune.request import (get_modules, get_active_validators, ConnectionInfo, ModuleInfo, get_truthful_validators, ping_leader_validator, get_filtered_modules)
+from smartdrive.validator.api.middleware.sign import sign_data
+from smartdrive.commune.request import (get_modules, get_active_validators, ConnectionInfo, get_filtered_modules)
 
 
 def get_config():
@@ -101,7 +99,7 @@ class Validator(Module):
         self._key = classic_load_key(config.key)
         self._database = Database(config.database_file, config.database_export_file)
         self._comx_client = CommuneClient(url=get_node_url(use_testnet=self._config.testnet), num_connections=5)
-        self._network = Network(keypair=self._key, ip=self._config.ip, netuid=self._config.netuid)
+        self._network = Network(keypair=self._key, ip=self._config.ip, netuid=self._config.netuid, comx_client=self._comx_client, database=self._database)
         self.api = API(self._config, self._key, self._database, self._comx_client, self._network)
 
     async def validation_loop(self):
@@ -175,7 +173,7 @@ class Validator(Module):
                 try:
                     active_validators_database.append({
                         "uid": validator.uid,
-                        "ss58_address": validator.miner_ss58_address,
+                        "ss58_address": validator.ss58_address,
                         "connection": {
                             "ip": validator.connection.ip,
                             "port": validator.connection.port
@@ -230,12 +228,12 @@ if __name__ == "__main__":
 
     if key.ss58_address in [module.ss58_address for module in registered_modules]:
         nat_type, external_ip, external_port = stun.get_ip_info()
-        # _comx_client.update_module(
-        #     key=key,
-        #     name=config.name,
-        #     address=f"127.0.0.1:{config.port}",
-        #     netuid=config.netuid
-        # )
+        _comx_client.update_module(
+            key=key,
+            name=config.name,
+            address=f"127.0.0.1:{config.port}",
+            netuid=config.netuid
+        )
         config.ip = "127.0.0.1"
     else:
         raise Exception(f"Your key: {key.ss58_address} is not registered.")
@@ -246,9 +244,8 @@ if __name__ == "__main__":
     async def run_tasks():
         await asyncio.gather(
             _validator.api.run_server(),
-            # _validator.initial_sync(),
-            # _validator.validation_loop(),
-            # _validator.create_blocks()
+            _validator.initial_sync(),
+            _validator.validation_loop()
         )
 
     asyncio.run(run_tasks())

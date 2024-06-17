@@ -21,7 +21,6 @@
 # SOFTWARE.
 
 import multiprocessing
-from multiprocessing import Queue, Lock
 
 from substrateinterface import Keypair
 
@@ -36,29 +35,30 @@ class Node:
     _netuid = None
 
     _server_process = None
-    _mempool_process = None
+    _mempool = multiprocessing.Manager().list()
     _connection_pool = ConnectionPool(cache_size=Server.MAX_N_CONNECTIONS)
-    mempool_queue = Queue()
-    mempool_lock = Lock()
 
     def __init__(self, keypair: Keypair, ip: str, netuid: int):
         self._keypair = keypair
         self._ip = ip
         self._netuid = netuid
 
-        self._server_process = multiprocessing.Process(target=self.run_server)
+        self._server_process = multiprocessing.Process(target=self.run_server, args=(self._mempool,))
         self._server_process.start()
 
-    def run_server(self):
-        server = Server(self._ip, self._connection_pool, self._keypair, self._netuid, self.mempool_queue, self.mempool_lock)
+    def run_server(self, mempool):
+        server = Server(self._ip, self._connection_pool, self._keypair, self._netuid, mempool)
         server.run()
 
-    def get_identifiers_connections(self):
-        return self._connection_pool.get_identifiers_connections()
+    def get_all_connections(self):
+        return self._connection_pool.get_all_connections()
+
+    def consume_mempool_items(self, count: int):
+        items = []
+        with multiprocessing.Lock():
+            for _ in range(min(count, len(self._mempool))):
+                items.append(self._mempool.pop(0))
+        return items
 
     def get_all_mempool_items(self):
-        with self.mempool_lock:
-            items = []
-            while not self.mempool_queue.empty():
-                items.append(self.mempool_queue.get())
-            return items
+        return list(self._mempool)

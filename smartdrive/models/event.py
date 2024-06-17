@@ -64,6 +64,18 @@ class Event(BaseModel):
     event_params: EventParams
     event_signed_params: str
 
+    def get_event_action(self) -> Action:
+        if isinstance(self, StoreEvent):
+            return Action.STORE
+        elif isinstance(self, RemoveEvent):
+            return Action.REMOVE
+        elif isinstance(self, RetrieveEvent):
+            return Action.RETRIEVE
+        elif isinstance(self, ValidateEvent):
+            return Action.VALIDATION
+        else:
+            raise ValueError("Unknown event type")
+
 
 class UserEvent(Event):
     user_ss58_address: Ss58Address

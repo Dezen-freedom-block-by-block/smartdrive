@@ -21,25 +21,23 @@
 # SOFTWARE.
 
 import multiprocessing
-from multiprocessing import Queue, Lock
 
 from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.util import packing
 from smartdrive.validator.network.node.util.exceptions import MessageException, ClientDisconnectedException, MessageFormatException, InvalidSignatureException
-from smartdrive.validator.network.node.util.message import MESSAGE_CODE_TYPES
+from smartdrive.validator.network.node.util.message_code import MessageCode
 
 
 class Client(multiprocessing.Process):
 
-    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, mempool: Queue, mempool_lock: Lock):
+    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, mempool):
         multiprocessing.Process.__init__(self)
         self.client_socket = client_socket
         self.identifier = identifier
         self.connection_pool = connection_pool
         self.mempool = mempool
-        self.mempool_lock = mempool_lock
 
     def run(self):
         try:
@@ -72,9 +70,11 @@ class Client(multiprocessing.Process):
         process.start()
 
     def process_message(self, msg):
+        print("PROCESS MESSAGE")
+        print(msg)
         body = msg["body"]
 
-        if body['code'] in MESSAGE_CODE_TYPES.keys():
+        if body['code'] in [code.value for code in MessageCode]:
             try:
                 signature_hex = msg["signature_hex"]
                 public_key_hex = msg["public_key_hex"]
@@ -85,8 +85,11 @@ class Client(multiprocessing.Process):
                 if not is_verified_signature:
                     raise InvalidSignatureException()
 
-                with self.mempool_lock:
-                    self.mempool.put(f"Message {self.identifier}: {body}")
+                message = None
+                if body['code'] == MessageCode.MESSAGE_CODE_EVENT:
+                    message = body['data']
+
+                self.mempool.append(message)
 
             except InvalidSignatureException as e:
                 raise e
