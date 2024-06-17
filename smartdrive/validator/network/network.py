@@ -81,7 +81,7 @@ class Network:
                 block_number += 1
 
                 # Create and process block
-                block_events = self._node.get_mempool_items(max_items=self.MAX_EVENTS_PER_BLOCK)
+                block_events = self._node.consume_mempool_items(max_items=self.MAX_EVENTS_PER_BLOCK)
                 self._database.create_block(Block(block_number=block_number, events=block_events,
                                                   proposer_signature=Ss58Address(self._keypair.ss58_address)))
                 await process_events(events=block_events, is_proposer_validator=True)

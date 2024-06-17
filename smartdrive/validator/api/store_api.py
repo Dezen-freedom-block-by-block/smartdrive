@@ -104,7 +104,7 @@ async def store_new_file(
         miners: list[ModuleInfo],
         validator_keypair: Keypair,
         user_ss58_address: Ss58Address,
-        input_signed_params
+        input_signed_params: str
 ) -> StoreEvent:
     """
     Stores a new file across a list of miners.

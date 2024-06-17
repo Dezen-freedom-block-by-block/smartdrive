@@ -26,3 +26,4 @@ from enum import Enum
 class MessageCode(Enum):
     MESSAGE_CODE_IDENTIFIER = 0
     MESSAGE_CODE_BLOCK = 1
+    MESSAGE_CODE_EVENT = 2

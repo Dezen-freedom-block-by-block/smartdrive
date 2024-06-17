@@ -43,7 +43,7 @@ class ConnectionPool:
 
             if identifier not in self._connections:
                 self._connections[identifier] = {ConnectionPool.CONNECTION: connection, ConnectionPool.SERVER_IDENTIFIER: server_identifier}
-                print(f"Added new connection {identifier}")
+                # print(f"Added new connection {identifier}")
                 self._pool_lock.release()
             else:
                 self._pool_lock.release()

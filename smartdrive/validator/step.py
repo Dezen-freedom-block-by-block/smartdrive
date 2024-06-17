@@ -103,7 +103,7 @@ async def validate_step(database: Database, key: Keypair, comx_client: CommuneCl
             miners=miners_to_store,
             validator_keypair=key,
             user_ss58_address=Ss58Address(key.ss58_address),
-            input_signed_params=input_signed_params
+            input_signed_params=input_signed_params.hex()
         )
 
     return remove_events, validate_events, store_event
@@ -163,8 +163,8 @@ async def _remove_files(files: List[File], keypair: Keypair, comx_client: Commun
             event_params=event_params,
             event_signed_params=signed_params.hex(),
             user_ss58_address=Ss58Address(file.user_owner_ss58address),
-            input_params=input_signed_params,
-            input_signed_params=input_signed_params
+            input_params=input_params,
+            input_signed_params=input_signed_params.hex()
         )
         events.append(event)
 

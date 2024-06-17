@@ -20,15 +20,10 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import json
 import multiprocessing
-from multiprocessing import Queue, Lock
 
 from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
-from smartdrive.validator.api.utils import process_events
-from smartdrive.validator.models.block import Block
-from smartdrive.validator.network.network import Network
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.util import packing
 from smartdrive.validator.network.node.util.exceptions import MessageException, ClientDisconnectedException, MessageFormatException, InvalidSignatureException
@@ -37,14 +32,12 @@ from smartdrive.validator.network.node.util.message_code import MessageCode
 
 class Client(multiprocessing.Process):
 
-    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, mempool: Queue, mempool_lock: Lock, network: Network):
+    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, mempool):
         multiprocessing.Process.__init__(self)
         self.client_socket = client_socket
         self.identifier = identifier
         self.connection_pool = connection_pool
         self.mempool = mempool
-        self.mempool_lock = mempool_lock
-        self.network = network
 
     def run(self):
         try:
@@ -77,6 +70,8 @@ class Client(multiprocessing.Process):
         process.start()
 
     def process_message(self, msg):
+        print("PROCESS MESSAGE")
+        print(msg)
         body = msg["body"]
 
         try:
