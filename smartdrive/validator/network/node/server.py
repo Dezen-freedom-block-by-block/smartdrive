@@ -59,13 +59,14 @@ class Server(multiprocessing.Process):
         server_socket = None
 
         try:
-            self.initialize_validators()
-            self.start_check_connections_process()
+            # self.initialize_validators()
+            # self.start_check_connections_process()
             server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_socket.bind((self.bind_address, self.TCP_PORT))
             server_socket.listen(self.MAX_N_CONNECTIONS)
 
+            print("LISTEN NEW CONNECTIONS")
             while True:
                 client_socket, address = server_socket.accept()
                 process = multiprocessing.Process(target=self.handle_connection, args=(client_socket, address))
@@ -87,7 +88,7 @@ class Server(multiprocessing.Process):
             for validator in validators:
                 validator_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 try:
-                    # TODO: Remove port configuration and set it fixed to self.tcp_port, this is only to not connect a validator node to itself
+                    # TODO: Remove port configuration and set it fixed to self.TCP_PORT, this is only to not connect a validator node to itself
                     validator_socket.connect((validator.connection.ip, validator.connection.port + 1000))
                     body = {
                         "code": MessageCode.MESSAGE_CODE_IDENTIFIER.value,
@@ -175,6 +176,9 @@ class Server(multiprocessing.Process):
     def check_connections_process(self):
         while True:
             time.sleep(10)
+            print("check_connections_process")
+            print("check_connections_process")
+            print("check_connections_process")
             validators = get_filtered_modules(self.comx_client, self.netuid, ModuleType.VALIDATOR)
             active_ss58_addresses = {validator.ss58_address for validator in validators}
             to_remove = [ss58_address for ss58_address in self.connection_pool.get_identifiers() if ss58_address not in active_ss58_addresses]
@@ -185,4 +189,10 @@ class Server(multiprocessing.Process):
 
             identifiers = self.connection_pool.get_identifiers()
             new_validators = [validator for validator in validators if validator.ss58_address not in identifiers and validator.ss58_address != self.keypair.ss58_address]
+
+            print("new_validators")
+            print("new_validators")
+            print("new_validators")
+            print(new_validators)
+
             self.initialize_validators(new_validators)

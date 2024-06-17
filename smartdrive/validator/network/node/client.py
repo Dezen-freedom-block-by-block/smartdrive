@@ -85,17 +85,17 @@ class Client(multiprocessing.Process):
 
             if body['code'] == MessageCode.MESSAGE_CODE_BLOCK:
                 processed_events = []
-                data = json.loads(body["data"])
-                block = Block(**data)
-
-                for event in block.events:
-                    if verify_data_signature(event.input_params, event.input_signed_params, event.user_ss58_address):
-                        processed_events.append(event)
-
-                block.events = processed_events
-                self.database.create_block(block=block)
-
-                await process_events(events=processed_events, is_proposer_validator=False)
+                # data = json.loads(body["data"])
+                # block = Block(**data)
+                #
+                # for event in block.events:
+                #     if verify_data_signature(event.input_params, event.input_signed_params, event.user_ss58_address):
+                #         processed_events.append(event)
+                #
+                # block.events = processed_events
+                # self.database.create_block(block=block)
+                #
+                # await process_events(events=processed_events, is_proposer_validator=False)
 
             elif body['code'] in MessageCode.MESSAGE_CODE_IDENTIFIER:
                 with self.mempool_lock:
