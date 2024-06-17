@@ -30,7 +30,8 @@ import zipfile
 from typing import List, Optional
 from datetime import datetime, timedelta
 
-from smartdrive.models.event import Event
+from smartdrive.models.event import Event, UserEvent, StoreParams, RemoveParams, MinerProcess
+from smartdrive.validator.models.block import Block
 from smartdrive.validator.models.models import MinerWithChunk, SubChunk, File, Chunk
 
 from communex.types import Ss58Address
@@ -116,12 +117,29 @@ class Database:
                 '''
 
                 create_event_table = '''
-                    CREATE TABLE event (
-                        miner_ss58_address TEXT,
-                        action VARCHAR,
-                        succeed INTEGER,
-                        time REAL,
-                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    CREATE TABLE events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        validator_ss58_address TEXT NOT NULL,
+                        user_ss58_address TEXT,
+                        event_type TEXT NOT NULL,
+                        event_params TEXT NOT NULL,
+                        event_signed_params TEXT NOT NULL,
+                        input_params TEXT,
+                        input_signed_params TEXT,
+                        block_id INTEGER NOT NULL,
+                        FOREIGN KEY (block_id) REFERENCES block(id) ON DELETE CASCADE
+                    )
+                '''
+
+                create_miner_process = '''
+                    CREATE TABLE miner_processes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        chunk_uuid TEXT,
+                        miner_ss58_address TEXT NOT NULL,
+                        succeed BOOLEAN,
+                        processing_time REAL,
+                        event_id INTEGER NOT NULL,
+                        FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
                     )
                 '''
 
@@ -133,6 +151,7 @@ class Database:
                     _create_table_if_not_exists(cursor, 'miner_chunk', create_miner_chunk_table)
                     _create_table_if_not_exists(cursor, 'block', create_block_table)
                     _create_table_if_not_exists(cursor, 'event', create_event_table)
+                    _create_table_if_not_exists(cursor, 'miner_process', create_miner_process)
                     connection.commit()
 
                 except sqlite3.Error as e:
@@ -510,33 +529,6 @@ class Database:
 
         return True
 
-    def insert_event(self, event: Event):
-        """
-        Insert a record into the event table.
-
-        Params:
-            event (Event): Event carry out by the miner.
-
-        Raises:
-            sqlite3.Error: If there is an error inserting the record into the database.
-        """
-        pass
-        # TODO: Insert event
-        # try:
-        #     connection = sqlite3.connect(self._database_file_path)
-        #     with connection:
-        #         cursor = connection.cursor()
-        #
-        #
-        #         cursor.execute('''
-        #             INSERT INTO event (miner_ss58_address, action, succeed, time)
-        #             VALUES (?, ?, ?, ?)
-        #         ''', (event., action, succeed, time))
-        #
-        #         connection.commit()
-        # except sqlite3.Error as e:
-        #     print(f"Database error: {e}")
-
     def get_successful_responses_and_total(self, miner_ss58_address: Ss58Address, action: str = None,
                                            days_interval: int = 7) -> tuple:
         """
@@ -613,22 +605,75 @@ class Database:
             if connection:
                 connection.close()
 
-    def create_block(self, block_number: int) -> int | None:
+    def create_block(self, block: Block) -> bool:
+        connection = None
         try:
             connection = sqlite3.connect(self._database_file_path)
             with connection:
                 cursor = connection.cursor()
+                connection.execute('BEGIN TRANSACTION')
 
                 cursor.execute(f'''
-                    INSERT INTO block (id) VALUES ({block_number})
+                    INSERT INTO block (id) VALUES ({block.block_number})
                 ''')
 
+                block_id = cursor.lastrowid
+
+                for event in block.events:
+                    event_type = type(event).__name__
+                    event_params = event.event_params.json()
+                    event_signed_params = event.event_signed_params
+                    validator_ss58_address = event.validator_ss58_address
+
+                    if isinstance(event, UserEvent):
+                        user_ss58_address = event.user_ss58_address
+                        input_params = event.input_params
+                        input_signed_params = event.input_signed_params
+                    else:
+                        user_ss58_address = None
+                        input_params = None
+                        input_signed_params = None
+
+                    cursor.execute('''
+                        INSERT INTO events (validator_ss58_address, user_ss58_address, event_type, event_params, event_signed_params, input_params, input_signed_params, block_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (validator_ss58_address, user_ss58_address, event_type, event_params, event_signed_params, input_params, input_signed_params, block_id))
+
+                    event_id = cursor.lastrowid
+
+                    if isinstance(event.event_params, StoreParams) or isinstance(event.event_params, RemoveParams):
+                        for miner_process in event.event_params.miners_processes:
+                            self.create_miner_processes(cursor=cursor, miner_process=miner_process, event_id=event_id)
+
+            return True
+        except sqlite3.Error as e:
+            if connection:
+                connection.rollback()
+            print(f"Database error: {e}")
+            return False
+
+    def create_miner_processes(self, cursor, miner_process: MinerProcess, event_id: int) -> bool:
+        connection = None
+        try:
+            if not cursor:
+                connection = sqlite3.connect(self._database_file_path)
+                cursor = connection.cursor()
+
+            cursor.execute('''
+                INSERT INTO miner_processes (event_id, chunk_uuid, miner_ss58_address, succeed, processing_time)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (event_id, miner_process.chunk_uuid, miner_process.miner_ss58_address, miner_process.succeed, miner_process.processing_time))
+
+            if connection:
                 connection.commit()
 
-            return cursor.lastrowid
+            return True
         except sqlite3.Error as e:
             print(f"Database error: {e}")
-            return None
+            return False
+        finally:
+            if connection:
+                connection.close()
 
 
 def _create_table_if_not_exists(cursor: sqlite3.Cursor, table_name: str, create_statement: str) -> None:

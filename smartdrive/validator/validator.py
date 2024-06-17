@@ -41,14 +41,12 @@ from smartdrive.commune.module._protocol import create_headers
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.api.api import API
 from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
-from smartdrive.models.event import Event
-from smartdrive.validator.models.block import Block
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.network.network import Network
 from smartdrive.validator.step import validate_step
 from smartdrive.validator.utils import extract_sql_file, fetch_validator
-from smartdrive.validator.api.middleware.sign import sign_data, verify_data_signature, verify_block
-from smartdrive.commune.request import (get_modules, get_active_validators, ConnectionInfo, ModuleInfo, get_truthful_validators, ping_leader_validator, get_filtered_modules)
+from smartdrive.validator.api.middleware.sign import sign_data
+from smartdrive.commune.request import (get_modules, get_active_validators, ConnectionInfo, get_filtered_modules)
 
 
 def get_config():

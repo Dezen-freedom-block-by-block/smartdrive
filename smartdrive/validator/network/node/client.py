@@ -20,26 +20,31 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import json
 import multiprocessing
 from multiprocessing import Queue, Lock
 
 from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
+from smartdrive.validator.api.utils import process_events
+from smartdrive.validator.models.block import Block
+from smartdrive.validator.network.network import Network
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.util import packing
 from smartdrive.validator.network.node.util.exceptions import MessageException, ClientDisconnectedException, MessageFormatException, InvalidSignatureException
-from smartdrive.validator.network.node.util.message import MESSAGE_CODE_TYPES
+from smartdrive.validator.network.node.util.message_code import MessageCode
 
 
 class Client(multiprocessing.Process):
 
-    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, mempool: Queue, mempool_lock: Lock):
+    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, mempool: Queue, mempool_lock: Lock, network: Network):
         multiprocessing.Process.__init__(self)
         self.client_socket = client_socket
         self.identifier = identifier
         self.connection_pool = connection_pool
         self.mempool = mempool
         self.mempool_lock = mempool_lock
+        self.network = network
 
     def run(self):
         try:
@@ -74,23 +79,36 @@ class Client(multiprocessing.Process):
     def process_message(self, msg):
         body = msg["body"]
 
-        if body['code'] in MESSAGE_CODE_TYPES.keys():
-            try:
-                signature_hex = msg["signature_hex"]
-                public_key_hex = msg["public_key_hex"]
-                ss58_address = get_ss58_address_from_public_key(public_key_hex)
+        try:
+            signature_hex = msg["signature_hex"]
+            public_key_hex = msg["public_key_hex"]
+            ss58_address = get_ss58_address_from_public_key(public_key_hex)
+            is_verified_signature = verify_data_signature(body, signature_hex, ss58_address)
 
-                is_verified_signature = verify_data_signature(body, signature_hex, ss58_address)
+            if not is_verified_signature:
+                raise InvalidSignatureException()
 
-                if not is_verified_signature:
-                    raise InvalidSignatureException()
+            if body['code'] == MessageCode.MESSAGE_CODE_BLOCK:
+                processed_events = []
+                data = json.loads(body["data"])
+                block = Block(**data)
 
+                for event in block.events:
+                    if verify_data_signature(event.input_params, event.input_signed_params, event.user_ss58_address):
+                        processed_events.append(event)
+
+                block.events = processed_events
+                self.database.create_block(block=block)
+
+                await process_events(events=processed_events, is_proposer_validator=False)
+
+            elif body['code'] in MessageCode.MESSAGE_CODE_IDENTIFIER:
                 with self.mempool_lock:
                     self.mempool.put(f"Message {self.identifier}: {body}")
 
-            except InvalidSignatureException as e:
-                raise e
+        except InvalidSignatureException as e:
+            raise e
 
-            except Exception as e:
-                print(e)
-                raise MessageFormatException('%s' % e)
+        except Exception as e:
+            print(e)
+            raise MessageFormatException('%s' % e)

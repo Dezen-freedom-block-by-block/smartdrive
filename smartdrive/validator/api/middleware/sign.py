@@ -71,18 +71,3 @@ def verify_data_signature(data: Union[dict, bytes], signature_hex: str, ss58_add
     is_valid = keypair.verify(message, signature)
 
     return is_valid
-
-
-def sign_block(block: Block, keypair: Keypair) -> str:
-    message = json.dumps(block.__dict__).encode('utf-8')
-    signature = keypair.sign(message)
-
-    return signature.hex()
-
-
-def verify_block(block: Block, ss58_address: Ss58Address, signature_hex: str) -> bool:
-    keypair = Keypair(ss58_address=ss58_address)
-    message = json.dumps(block.__dict__).encode('utf-8')
-    signature = bytes.fromhex(signature_hex)
-
-    return keypair.verify(message, signature)

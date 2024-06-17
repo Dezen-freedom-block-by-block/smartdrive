@@ -56,9 +56,12 @@ class Node:
     def get_identifiers_connections(self):
         return self._connection_pool.get_identifiers_connections()
 
-    def get_all_mempool_items(self):
+    def get_all_connections(self):
+        return self._connection_pool.get_all_connections()
+
+    def get_mempool_items(self, max_items: int):
         with self.mempool_lock:
             items = []
-            while not self.mempool_queue.empty():
+            while not self.mempool_queue.empty() and len(items) < max_items:
                 items.append(self.mempool_queue.get())
             return items

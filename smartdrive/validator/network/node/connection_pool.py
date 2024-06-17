@@ -65,15 +65,6 @@ class ConnectionPool:
         with self._pool_lock:
             return list(self._connections.values())
 
-    # def get_connection(self, identifier):
-    #     self._pool_lock.acquire()
-    #     connection = self._connections.get(identifier, None)
-    #     if connection:
-    #         self._pool_lock.release()
-    #         return connection[ConnectionPool.CONNECTION]
-    #     else:
-    #         self._pool_lock.release()
-
     def get_identifiers(self):
         self._pool_lock.acquire()
         identifiers = self._connections.keys()

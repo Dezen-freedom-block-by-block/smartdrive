@@ -19,9 +19,18 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+import time
 
-from smartdrive.commune.request import ModuleInfo
-from smartdrive.validator.models.models import MinerWithChunk, MinerWithSubChunk
+from communex.client import CommuneClient
+from communex.types import Ss58Address
+from substrateinterface import Keypair
+
+from smartdrive.commune.request import ModuleInfo, execute_miner_request, get_active_miners, ConnectionInfo
+from smartdrive.models.event import StoreEvent, Event, RemoveEvent, MinerProcess
+from smartdrive.validator.api.middleware.sign import verify_data_signature
+from smartdrive.validator.database.database import Database
+from smartdrive.validator.models.block import Block
+from smartdrive.validator.models.models import MinerWithChunk, MinerWithSubChunk, Chunk, SubChunk, File
 
 
 def get_miner_info_with_chunk(active_miners: list[ModuleInfo], miner_chunks: list[MinerWithChunk] | list[MinerWithSubChunk]) -> list:
@@ -64,3 +73,77 @@ def get_miner_info_with_chunk(active_miners: list[ModuleInfo], miner_chunks: lis
                 miner_info_with_chunk.append(data)
 
     return miner_info_with_chunk
+
+
+async def remove_chunk_request(keypair: Keypair, user_ss58_address: Ss58Address, miner: ModuleInfo, chunk_uuid: str) -> bool:
+    """
+    Sends a request to a miner to remove a specific data chunk.
+
+    This method sends an asynchronous request to a specified miner to remove a data chunk
+    identified by its UUID. The request is executed using the miner's connection and
+    address information.
+
+    Params:
+        keypair (Keypair): The validator key used to authorize the request.
+        user_ss58_address (Ss58Address): The SS58 address of the user associated with the data chunk.
+        miner (ModuleInfo): The miner's module information.
+        chunk_uuid (str): The UUID of the data chunk to be removed.
+
+    Returns:
+        bool: Returns True if the miner confirms the removal request, otherwise False.
+    """
+    miner_answer = await execute_miner_request(
+        keypair, miner.connection, miner.ss58_address, "remove",
+        {
+            "folder": user_ss58_address,
+            "chunk_uuid": chunk_uuid
+        }
+    )
+    return True if miner_answer else False
+
+
+async def process_events(events: list[Event], is_proposer_validator: bool, keypair: Keypair, comx_client: CommuneClient, netuid: int, database: Database):
+    # TODO: check result
+    for event in events:
+        if isinstance(event, StoreEvent):
+            chunks = []
+            for miner_chunk in event.event_params.miners_processes:
+                chunks.append(Chunk(
+                    miner_owner_ss58address=miner_chunk.miner_ss58_address,
+                    chunk_uuid=miner_chunk.chunk_uuid,
+                    file_uuid=event.event_params.file_uuid,
+                    sub_chunk=SubChunk(id=None, start=event.event_params.sub_chunk_start, end=event.event_params.sub_chunk_end,
+                                       data=event.event_params.sub_chunk_encoded, chunk_uuid=miner_chunk.chunk_uuid)
+                ))
+            file = File(
+                user_owner_ss58address=event.user_ss58_address,
+                file_uuid=event.event_params.file_uuid,
+                chunks=chunks,
+                created_at=None,
+                expiration_ms=None
+            )
+            database.insert_file(file)
+        elif isinstance(event, RemoveEvent):
+            if is_proposer_validator:
+                miner_chunks = database.get_miner_chunks(event.event_params.file_uuid)
+                active_miners = await get_active_miners(keypair, comx_client, netuid)
+                miner_with_chunks = get_miner_info_with_chunk(active_miners, miner_chunks)
+                miner_processes = []
+
+                for miner in miner_with_chunks:
+                    start_time = time.time()
+
+                    connection = ConnectionInfo(miner["connection"]["ip"], miner["connection"]["port"])
+                    miner_info = ModuleInfo(miner["uid"], miner["ss58_address"], connection)
+                    result = await remove_chunk_request(keypair, event.user_ss58_address, miner_info, miner["chunk_uuid"])
+
+                    final_time = time.time() - start_time
+                    miner_process = MinerProcess(chunk_uuid=miner["chunk_uuid"], miner_ss58_address=miner["ss58_address"],
+                                                 succeed=True if result else False, processing_time=final_time)
+                    miner_processes.append(miner_process)
+
+                event.event_params.miners_processes = miner_processes
+                # TODO: Emit event
+                #emit_event(event)
+
+            database.remove_file(event.event_params.file_uuid)

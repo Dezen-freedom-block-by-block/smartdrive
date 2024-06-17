@@ -30,8 +30,8 @@ from communex.types import Ss58Address
 
 from smartdrive.commune.request import get_active_miners, ModuleInfo, get_filtered_modules
 from smartdrive.validator.api.middleware.sign import sign_data
-from smartdrive.validator.api.remove_api import remove_chunk_request
 from smartdrive.validator.api.store_api import store_new_file
+from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.api.validate_api import validate_chunk_request
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.evaluation.utils import generate_data
