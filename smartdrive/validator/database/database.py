@@ -30,7 +30,7 @@ import zipfile
 from typing import List, Optional
 from datetime import datetime, timedelta
 
-from smartdrive.models.event import Event, UserEvent, StoreParams, RemoveParams, MinerProcess
+from smartdrive.models.event import UserEvent, StoreParams, RemoveParams, MinerProcess
 from smartdrive.validator.models.block import Block
 from smartdrive.validator.models.models import MinerWithChunk, SubChunk, File, Chunk
 
@@ -119,11 +119,11 @@ class Database:
                 create_event_table = '''
                     CREATE TABLE events (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        event_type INTEGER NOT NULL,
                         validator_ss58_address TEXT NOT NULL,
-                        user_ss58_address TEXT,
-                        event_type TEXT NOT NULL,
                         event_params TEXT NOT NULL,
                         event_signed_params TEXT NOT NULL,
+                        user_ss58_address TEXT,
                         input_params TEXT,
                         input_signed_params TEXT,
                         block_id INTEGER NOT NULL,
@@ -620,7 +620,7 @@ class Database:
                 block_id = cursor.lastrowid
 
                 for event in block.events:
-                    event_type = type(event).__name__
+                    event_type = event.get_event_action().value
                     event_params = event.event_params.json()
                     event_signed_params = event.event_signed_params
                     validator_ss58_address = event.validator_ss58_address
@@ -635,15 +635,14 @@ class Database:
                         input_signed_params = None
 
                     cursor.execute('''
-                        INSERT INTO events (validator_ss58_address, user_ss58_address, event_type, event_params, event_signed_params, input_params, input_signed_params, block_id)
+                        INSERT INTO events (event_type, validator_ss58_address, event_params, event_signed_params, user_ss58_address, input_params, input_signed_params, block_id)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (validator_ss58_address, user_ss58_address, event_type, event_params, event_signed_params, input_params, input_signed_params, block_id))
+                    ''', (event_type, validator_ss58_address, event_params, event_signed_params, user_ss58_address, input_params, input_signed_params, block_id))
 
                     event_id = cursor.lastrowid
 
-                    if isinstance(event.event_params, StoreParams) or isinstance(event.event_params, RemoveParams):
-                        for miner_process in event.event_params.miners_processes:
-                            self.create_miner_processes(cursor=cursor, miner_process=miner_process, event_id=event_id)
+                    for miner_process in event.event_params.miners_processes:
+                        self.create_miner_processes(cursor=cursor, miner_process=miner_process, event_id=event_id)
 
             return True
         except sqlite3.Error as e:
