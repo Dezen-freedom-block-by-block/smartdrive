@@ -43,12 +43,12 @@ class MinerProcess(BaseModel):
 
 
 class EventParams(BaseModel):
-    file_uuid: Optional[str]
+    file_uuid: str
     miners_processes: Optional[List[MinerProcess]]
 
 
 class StoreParams(EventParams):
-    file_uuid: Optional[str]
+    file_uuid: str
     miners_processes: List[MinerProcess]
     sub_chunk_start: int
     sub_chunk_end: int

@@ -141,6 +141,7 @@ class Network:
 
         for c in connections:
             try:
+                self._node.insert_event(event)
                 send_json(c[ConnectionPool.CONNECTION], message)
             except Exception as e:
                 print(e)

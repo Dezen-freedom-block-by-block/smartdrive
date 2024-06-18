@@ -24,6 +24,7 @@ import multiprocessing
 
 from substrateinterface import Keypair
 
+from smartdrive.models.event import Event
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.server import Server
 
@@ -65,3 +66,6 @@ class Node:
 
     def get_all_mempool_items(self):
         return list(self._mempool)
+
+    def insert_event(self, event: Event):
+        return self._mempool.append(event)
