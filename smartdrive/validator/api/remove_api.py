@@ -19,6 +19,8 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+import time
+import uuid
 
 from fastapi import HTTPException, Form, Request
 from substrateinterface import Keypair
@@ -87,6 +89,7 @@ class RemoveAPI:
         signed_params = sign_data(event_params.dict(), self._key)
 
         event = RemoveEvent(
+            uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
             validator_ss58_address=Ss58Address(self._key.ss58_address),
             event_params=event_params,
             event_signed_params=signed_params.hex(),

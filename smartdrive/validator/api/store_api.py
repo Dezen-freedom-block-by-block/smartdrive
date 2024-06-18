@@ -169,6 +169,7 @@ async def store_new_file(
     signed_params = sign_data(event_params.dict(), validator_keypair)
 
     event = StoreEvent(
+        uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
         validator_ss58_address=Ss58Address(validator_keypair.ss58_address),
         event_params=event_params,
         event_signed_params=signed_params.hex(),

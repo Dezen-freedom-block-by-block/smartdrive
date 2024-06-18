@@ -70,8 +70,6 @@ class Client(multiprocessing.Process):
         process.start()
 
     def process_message(self, msg):
-        print("PROCESS MESSAGE")
-        print(msg)
         body = msg["body"]
 
         try:

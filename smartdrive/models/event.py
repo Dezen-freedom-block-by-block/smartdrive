@@ -60,6 +60,7 @@ class RemoveParams(EventParams):
 
 
 class Event(BaseModel):
+    uuid: str
     validator_ss58_address: Ss58Address
     event_params: EventParams
     event_signed_params: str
@@ -101,12 +102,14 @@ class ValidateEvent(Event):
 
 def parse_event(action: Action, json_data: str) -> Event:
     data = json.loads(json_data)
+    uuid = data['uuid'],
     validator_ss58_address = Ss58Address(data['validator_ss58_address'])
     event_params = data['event_params']
     event_signed_params = data['event_signed_params']
 
     if action == Action.STORE:
         return StoreEvent(
+            uuid=uuid,
             user_ss58_address=Ss58Address(data['user_ss58_address']),
             input_params=data['input_params'],
             input_signed_params=data['input_signed_params'],
@@ -116,6 +119,7 @@ def parse_event(action: Action, json_data: str) -> Event:
         )
     elif action == Action.REMOVE:
         return RemoveEvent(
+            uuid=uuid,
             user_ss58_address=Ss58Address(data['user_ss58_address']),
             input_params=data['input_params'],
             input_signed_params=data['input_signed_params'],
@@ -125,6 +129,7 @@ def parse_event(action: Action, json_data: str) -> Event:
         )
     elif action == Action.RETRIEVE:
         return RetrieveEvent(
+            uuid=uuid,
             user_ss58_address=Ss58Address(data['user_ss58_address']),
             input_params=data['input_params'],
             input_signed_params=data['input_signed_params'],
@@ -134,6 +139,7 @@ def parse_event(action: Action, json_data: str) -> Event:
         )
     elif action == Action.VALIDATION:
         return ValidateEvent(
+            uuid=uuid,
             validator_ss58_address=validator_ss58_address,
             event_params=event_params,
             event_signed_params=event_signed_params

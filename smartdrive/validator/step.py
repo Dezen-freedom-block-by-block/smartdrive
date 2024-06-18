@@ -22,6 +22,7 @@
 
 import asyncio
 import time
+import uuid
 from typing import List, Optional, Tuple
 from substrateinterface import Keypair
 
@@ -159,6 +160,7 @@ async def _remove_files(files: List[File], keypair: Keypair, comx_client: Commun
         input_signed_params = sign_data(input_params, keypair)
 
         event = RemoveEvent(
+            uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
             validator_ss58_address=Ss58Address(keypair.ss58_address),
             event_params=event_params,
             event_signed_params=signed_params.hex(),
@@ -227,6 +229,7 @@ async def _validate_miners(files: list[File], keypair: Keypair, comx_client: Com
         signed_params = sign_data(event_params.dict(), keypair)
 
         event = ValidateEvent(
+            uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
             validator_ss58_address=Ss58Address(keypair.ss58_address),
             event_params=event_params,
             event_signed_params=signed_params.hex(),

@@ -21,6 +21,7 @@
 # SOFTWARE.
 
 import time
+import uuid
 from typing import Optional, List
 from fastapi import HTTPException, Request
 from substrateinterface import Keypair
@@ -121,6 +122,7 @@ class RetrieveAPI:
         signed_params = sign_data(event_params.dict(), self._key)
 
         event = RetrieveEvent(
+            uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
             validator_ss58_address=Ss58Address(self._key.ss58_address),
             event_params=event_params,
             event_signed_params=signed_params.hex(),
