@@ -23,9 +23,13 @@ import asyncio
 import json
 import multiprocessing
 
+from communex.client import CommuneClient
+from substrateinterface import Keypair
+
 from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.api.utils import process_events
+from smartdrive.validator.database.database import Database
 from smartdrive.validator.models.block import Block
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.util import packing
@@ -35,12 +39,16 @@ from smartdrive.validator.network.node.util.message_code import MessageCode
 
 class Client(multiprocessing.Process):
 
-    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, mempool):
+    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, mempool, keypair: Keypair, comx_client: CommuneClient, netuid: int, database: Database):
         multiprocessing.Process.__init__(self)
         self.client_socket = client_socket
         self.identifier = identifier
         self.connection_pool = connection_pool
         self.mempool = mempool
+        self.keypair = keypair
+        self.comx_client = comx_client
+        self.netuid = netuid
+        self.database = database
 
     def run(self):
         try:
@@ -102,10 +110,10 @@ class Client(multiprocessing.Process):
                     process_events(
                         events=processed_events,
                         is_proposer_validator=False,
-                        keypair="",
-                        comx_client="",
-                        netuid="",
-                        database=""
+                        keypair=self.keypair,
+                        comx_client=self.comx_client,
+                        netuid=self.netuid,
+                        database=self.database
                     ), asyncio.get_event_loop()
                 )
 

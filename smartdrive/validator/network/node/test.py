@@ -25,7 +25,10 @@ import socket
 import struct
 import time
 from communex.compat.key import classic_load_key
+from communex.types import Ss58Address
+
 from smartdrive.validator.api.middleware.sign import sign_data
+from smartdrive.validator.models.block import Block
 from smartdrive.validator.network.node.util.message_code import MessageCode
 
 
@@ -47,14 +50,14 @@ def receive_json(sock):
 
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 try:
-    client_socket.connect(('127.0.0.1', 9902))
+    client_socket.connect(('127.0.0.1', 9002))
     print("Connection established with the server")
 
-    keypair = classic_load_key("validator")
+    keypair = classic_load_key("smartdrive-validator2")
 
     # Identification message
     body = {
-        "code": MessageCode.MESSAGE_CODE_IDENTIFIER,
+        "code": MessageCode.MESSAGE_CODE_IDENTIFIER.value,
         "data": {"ss58_address": keypair.ss58_address}
     }
     body_sign = sign_data(body, keypair)
@@ -65,13 +68,13 @@ try:
     }
     send_json(client_socket, message)
 
+    print(f"Message sent: {message}")
+
     for i in range(255):
         # Normal message
         body = {
-            "code": MessageCode.MESSAGE_CODE_BLOCK,
-            "data": [
-                {"id": i, "uuid": "9789283RO2NCOV2HOFIDJ"},
-            ]
+            "code": MessageCode.MESSAGE_CODE_BLOCK.value,
+            "data": Block(block_number=i, events=[], proposer_signature=Ss58Address(keypair.ss58_address)).__dict__
         }
         body_sign = sign_data(body, keypair)
         message = {

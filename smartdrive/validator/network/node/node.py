@@ -24,6 +24,7 @@ import multiprocessing
 
 from substrateinterface import Keypair
 
+from smartdrive.validator.database.database import Database
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.server import Server
 
@@ -38,10 +39,11 @@ class Node:
     _mempool = multiprocessing.Manager().list()
     _connection_pool = ConnectionPool(cache_size=Server.MAX_N_CONNECTIONS)
 
-    def __init__(self, keypair: Keypair, ip: str, netuid: int):
+    def __init__(self, keypair: Keypair, ip: str, netuid: int, database: Database):
         self._keypair = keypair
         self._ip = ip
         self._netuid = netuid
+        self._database = database
 
         self._server_process = multiprocessing.Process(target=self.run_server, args=(self._mempool,))
         self._server_process.start()

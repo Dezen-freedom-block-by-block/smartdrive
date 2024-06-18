@@ -32,4 +32,4 @@ class Block:
         self.proposer_signature = proposer_signature
 
     def __repr__(self):
-        return f"Block(block_number={self.block_number}, events={self.events.__repr__}, proposer_signature={self.proposer_signature})"
+        return f"Block(block_number={self.block_number}, events={self.events}, proposer_signature={self.proposer_signature})"

@@ -55,8 +55,7 @@ class Network:
         self._netuid = netuid
         self._comx_client = comx_client
         self._database = database
-        self._node = Node(keypair=keypair, ip=ip, netuid=netuid)
-        # asyncio.run(self.start_creation_block())
+        self._node = Node(keypair=keypair, ip=ip, netuid=netuid, database=database)
 
     async def create_blocks(self):
         # TODO: retrieve last block from other leader validator
@@ -67,11 +66,13 @@ class Network:
         while True:
             start_time = time.time()
 
-            truthful_validators = await get_truthful_validators(self._keypair, self._comx_client, self._netuid)
+            # truthful_validators = await get_truthful_validators(self._keypair, self._comx_client, self._netuid)
             all_validators = get_filtered_modules(self._comx_client, self._netuid, ModuleType.VALIDATOR)
 
-            proposer_active_validator = max(truthful_validators, key=lambda v: v.stake or 0)
-            proposer_validator = max(all_validators, key=lambda v: v.stake or 0)
+            validators = [all_validators[2]]
+
+            proposer_active_validator = max(validators, key=lambda v: v.stake or 0)
+            proposer_validator = max(validators, key=lambda v: v.stake or 0)
 
             if proposer_validator.ss58_address != proposer_active_validator.ss58_address:
                 ping_validator = await ping_proposer_validator(self._keypair, proposer_validator)
@@ -82,15 +83,14 @@ class Network:
                 block_number += 1
 
                 # Create and process block
-                block_events = self._node.get_all_mempool_items()
-                self._database.create_block(Block(block_number=block_number, events=block_events,
-                                                  proposer_signature=Ss58Address(self._keypair.ss58_address)))
-                await process_events(events=block_events, is_proposer_validator=True)
+                block_events = self._node.get_all_mempool_items()[:self.MAX_EVENTS_PER_BLOCK]
+                block = Block(block_number=block_number, events=block_events, proposer_signature=Ss58Address(self._keypair.ss58_address))
+                print(block.__repr__)
+                self._database.create_block(block=block)
+                await process_events(events=block_events, is_proposer_validator=True, keypair=self._keypair, comx_client=self._comx_client, netuid=self._netuid, database=self._database)
 
                 # Propagate block to other validators
-                block = Block(block_number=block_number, events=block_events,
-                              proposer_signature=Ss58Address(self._keypair.ss58_address))
-                await asyncio.to_thread(self.send_block_to_validators(block=block))
+                asyncio.create_task(self.send_block_to_validators(block=block))
 
             elapsed = time.time() - start_time
             if elapsed < self.BLOCK_INTERVAL:
@@ -98,27 +98,23 @@ class Network:
                 print(f"Sleeping for {sleep_time} seconds before trying to create the next block.")
                 await asyncio.sleep(sleep_time)
 
-
     async def send_block_to_validators(self, block: Block):
         connections = self._node.get_all_connections()
-        body = {
-            "code": MessageCode.MESSAGE_CODE_BLOCK,
-            "data": block.__dict__
-        }
-        body_sign = sign_data(body, self._keypair)
-        message = {
-            "body": body,
-            "signature_hex": body_sign,
-            "public_key_hex": self._keypair.public_key.hex()
-        }
+        if connections:
+            body = {
+                "code": MessageCode.MESSAGE_CODE_BLOCK.value,
+                "data": block.__dict__
+            }
 
-        for c in connections:
-            send_json(c[ConnectionPool.CONNECTION], message)
+            body_sign = sign_data(body, self._keypair)
+            message = {
+                "body": body,
+                "signature_hex": body_sign,
+                "public_key_hex": self._keypair.public_key.hex()
+            }
 
-    async def start_creation_block(self):
-        loop = asyncio.get_running_loop()
-        loop.create_task(self.create_blocks())
-        await asyncio.Event().wait()
+            for c in connections:
+                send_json(c[ConnectionPool.CONNECTION], message)
 
     def emit_event(self, event: Event):
         connections = self._node.get_all_connections()

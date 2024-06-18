@@ -32,6 +32,7 @@ from substrateinterface import Keypair
 from smartdrive.commune.request import get_filtered_modules
 from smartdrive.validator.api.middleware.sign import verify_data_signature, sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
+from smartdrive.validator.database.database import Database
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.network.node.client import Client
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
@@ -46,7 +47,7 @@ class Server(multiprocessing.Process):
     IDENTIFIER_TIMEOUT_SECONDS = 5
     TCP_PORT = 9002
 
-    def __init__(self, bind_address: str, connection_pool: ConnectionPool, keypair: Keypair, netuid: int, mempool):
+    def __init__(self, bind_address: str, connection_pool: ConnectionPool, keypair: Keypair, netuid: int, mempool, database: Database):
         multiprocessing.Process.__init__(self)
         self.bind_address = bind_address
         self.connection_pool = connection_pool
@@ -54,6 +55,7 @@ class Server(multiprocessing.Process):
         self.comx_client = CommuneClient(url=get_node_url())
         self.netuid = netuid
         self.mempool = mempool
+        self.database = database
 
     def run(self):
         server_socket = None
@@ -150,7 +152,7 @@ class Server(multiprocessing.Process):
                         if self.connection_pool.get_remaining_capacity() > 0:
                             self.connection_pool.add_connection(connection_identifier, client_socket)
                             print(f"Connection added {connection_identifier}")
-                            client_receiver = Client(client_socket, connection_identifier, self.connection_pool, self.mempool)
+                            client_receiver = Client(client_socket, connection_identifier, self.connection_pool, self.mempool, self.keypair, self.comx_client, self.netuid, self.database)
                             client_receiver.start()
                         else:
                             print(f"No space available in the connection pool for connection {connection_identifier}.")
