@@ -28,7 +28,7 @@ from communex.compat.key import classic_load_key
 from communex.types import Ss58Address
 
 from smartdrive.validator.api.middleware.sign import sign_data
-from smartdrive.validator.models.block import Block
+from smartdrive.models.block import Block
 from smartdrive.validator.network.node.util.message_code import MessageCode
 
 

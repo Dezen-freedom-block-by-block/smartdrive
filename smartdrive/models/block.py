@@ -23,10 +23,30 @@
 from communex.types import Ss58Address
 from pydantic import BaseModel
 
-from smartdrive.models.event import Event
+from smartdrive.models.event import Event, MessageEvent, parse_event
 
 
 class Block(BaseModel):
     block_number: int
     events: list[Event]
     proposer_signature: Ss58Address
+
+
+class BlockEvent(Block):
+    events: list[MessageEvent]
+
+
+def block_to_block_event(block: Block) -> BlockEvent:
+    return BlockEvent(
+        block_number=block.block_number,
+        events=list(map(lambda event: MessageEvent(event_action=event.get_event_action(), event=event), block.events)),
+        proposer_signature=block.proposer_signature
+    )
+
+
+def block_event_to_block(block_event: BlockEvent) -> Block:
+    return Block(
+        block_number=block_event.block_number,
+        events=list(map(lambda event: parse_event(event.event), block_event.events)),
+        proposer_signature=block_event.proposer_signature
+    )

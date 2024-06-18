@@ -21,18 +21,17 @@
 # SOFTWARE.
 
 import asyncio
-import json
 import multiprocessing
 
 from communex.client import CommuneClient
 from substrateinterface import Keypair
 
-from smartdrive.models.event import parse_event, Action
+from smartdrive.models.event import parse_event, UserEvent, MessageEvent
 from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.api.utils import process_events
 from smartdrive.validator.database.database import Database
-from smartdrive.validator.models.block import Block
+from smartdrive.models.block import Block, BlockEvent, block_event_to_block
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.util import packing
 from smartdrive.validator.network.node.util.exceptions import MessageException, ClientDisconnectedException, MessageFormatException, InvalidSignatureException
@@ -101,11 +100,18 @@ class Client(multiprocessing.Process):
                 message = None
 
                 if body['code'] == MessageCode.MESSAGE_CODE_BLOCK.value:
-                    processed_events = []
-                    block = Block(**body['data'])
+                    block_event = BlockEvent(**body["data"])
+                    block = block_event_to_block(block_event)
 
+                    processed_events = []
                     for event in block.events:
-                        if verify_data_signature(event.input_params, event.input_signed_params, event.user_ss58_address):
+                        input_params_verified = True
+                        if isinstance(event, UserEvent):
+                            input_params_verified = verify_data_signature(event.input_params.dict(), event.input_signed_params, event.user_ss58_address)
+
+                        event_params_verified = verify_data_signature(event.event_params.dict(), event.event_signed_params, event.validator_ss58_address)
+
+                        if input_params_verified and event_params_verified:
                             processed_events.append(event)
 
                     block.events = processed_events
@@ -122,7 +128,8 @@ class Client(multiprocessing.Process):
                         ), asyncio.get_event_loop()
                     )
                 elif body['code'] == MessageCode.MESSAGE_CODE_EVENT.value:
-                    message = body["data"]["event"]
+                    message_event = MessageEvent(**body["data"])
+                    message = parse_event(message_event)
 
                 self.mempool.append(message)
 

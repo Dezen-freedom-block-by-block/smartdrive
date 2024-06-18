@@ -22,7 +22,6 @@
 
 import re
 import os
-import traceback
 import uuid
 import time
 import tempfile
@@ -31,9 +30,8 @@ import zipfile
 from typing import List, Optional
 from datetime import datetime, timedelta
 
-from smartdrive.models.event import UserEvent, StoreParams, RemoveParams, MinerProcess, StoreEvent, Event, RemoveEvent, \
-    RetrieveEvent
-from smartdrive.validator.models.block import Block
+from smartdrive.models.event import StoreParams, RemoveParams, MinerProcess, StoreEvent, Event
+from smartdrive.models.block import Block
 from smartdrive.validator.models.models import MinerWithChunk, SubChunk, File, Chunk
 
 from communex.types import Ss58Address
@@ -622,11 +620,10 @@ class Database:
 
                 # Insert block
                 cursor.execute('INSERT INTO block (id) VALUES (?)', (block.block_number,))
-                block_id = cursor.lastrowid
 
                 # Insert events and associated miner processes
                 for event in block.events:
-                    self._insert_event(cursor, event, block_id)
+                    self._insert_event(cursor, event, block.block_number)
 
                 connection.commit()
             return True

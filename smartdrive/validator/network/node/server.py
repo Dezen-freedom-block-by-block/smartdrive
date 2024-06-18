@@ -30,7 +30,7 @@ from communex._common import get_node_url
 from communex.client import CommuneClient
 from substrateinterface import Keypair
 
-from smartdrive.commune.request import get_filtered_modules, ModuleInfo, ConnectionInfo
+from smartdrive.commune.request import get_filtered_modules
 from smartdrive.validator.api.middleware.sign import verify_data_signature, sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.database.database import Database
@@ -39,14 +39,14 @@ from smartdrive.validator.network.node.client import Client
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.util import packing
 from smartdrive.validator.network.node.util.message_code import MessageCode
-from smartdrive.validator.network.node.utils import send_json
+from smartdrive.validator.network.utils import send_json
 
 
 class Server(multiprocessing.Process):
     # TODO: Replace with production validators number
     MAX_N_CONNECTIONS = 255
     IDENTIFIER_TIMEOUT_SECONDS = 5
-    TCP_PORT = 9002
+    TCP_PORT = 9001
 
     def __init__(self, bind_address: str, connection_pool: ConnectionPool, keypair: Keypair, netuid: int, mempool, database: Database, testnet: bool):
         multiprocessing.Process.__init__(self)

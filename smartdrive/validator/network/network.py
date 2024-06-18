@@ -28,17 +28,18 @@ from communex.client import CommuneClient
 from communex.types import Ss58Address
 from substrateinterface import Keypair
 
-from smartdrive.commune.request import get_truthful_validators, get_filtered_modules, ping_proposer_validator
+from smartdrive.commune.request import get_filtered_modules, ping_proposer_validator
 from smartdrive.models.event import Event
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.utils import process_events
 from smartdrive.validator.database.database import Database
-from smartdrive.validator.models.block import Block
+from smartdrive.models.block import Block, block_to_block_event
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.node import Node
+from smartdrive.models.event import MessageEvent
 from smartdrive.validator.network.node.util.message_code import MessageCode
-from smartdrive.validator.network.node.utils import send_json
+from smartdrive.validator.network.utils import send_json
 
 
 class Network:
@@ -86,8 +87,8 @@ class Network:
                 block_events = self._node.consume_mempool_items(count=self.MAX_EVENTS_PER_BLOCK)
                 block = Block(block_number=block_number, events=block_events, proposer_signature=Ss58Address(self._keypair.ss58_address))
                 print(f"Creating block - {block}")
-                self._database.create_block(block=block)
                 await process_events(events=block_events, is_proposer_validator=True, keypair=self._keypair, comx_client=self._comx_client, netuid=self._netuid, database=self._database)
+                self._database.create_block(block=block)
 
                 # Propagate block to other validators
                 asyncio.create_task(self.send_block_to_validators(block=block))
@@ -101,9 +102,11 @@ class Network:
     async def send_block_to_validators(self, block: Block):
         connections = self._node.get_all_connections()
         if connections:
+            block_event = block_to_block_event(block)
+
             body = {
                 "code": MessageCode.MESSAGE_CODE_BLOCK.value,
-                "data": block.dict()
+                "data": block_event.dict()
             }
 
             body_sign = sign_data(body, self._keypair)
@@ -125,10 +128,10 @@ class Network:
 
         body = {
             "code": MessageCode.MESSAGE_CODE_EVENT.value,
-            "data": {
-                "event_code": event.get_event_action().value,
-                "event": event.dict()
-            }
+            "data": MessageEvent(
+                event_action=event.get_event_action(),
+                event=event.dict()
+            ).json()
         }
         body_sign = sign_data(body, self._keypair)
         message = {
@@ -140,9 +143,10 @@ class Network:
         print("END EMIT EVENT")
         print(message)
 
+        self._node.insert_event(event)
+
         for c in connections:
             try:
-                self._node.insert_event(event)
                 send_json(c[ConnectionPool.CONNECTION], message)
             except Exception as e:
                 print(e)

@@ -27,9 +27,7 @@ from substrateinterface import Keypair
 
 from smartdrive.commune.request import ModuleInfo, execute_miner_request, get_active_miners, ConnectionInfo
 from smartdrive.models.event import StoreEvent, Event, RemoveEvent, MinerProcess
-from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.database.database import Database
-from smartdrive.validator.models.block import Block
 from smartdrive.validator.models.models import MinerWithChunk, MinerWithSubChunk, Chunk, SubChunk, File
 
 
@@ -143,7 +141,5 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
                     miner_processes.append(miner_process)
 
                 event.event_params.miners_processes = miner_processes
-                # TODO: Emit event
-                #emit_event(event)
 
             database.remove_file(event.event_params.file_uuid)
