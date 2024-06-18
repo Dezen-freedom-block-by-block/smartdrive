@@ -27,6 +27,7 @@ import multiprocessing
 from communex.client import CommuneClient
 from substrateinterface import Keypair
 
+from smartdrive.models.event import parse_event, Action
 from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.api.utils import process_events
@@ -99,10 +100,9 @@ class Client(multiprocessing.Process):
 
                 message = None
 
-                if body['code'] == MessageCode.MESSAGE_CODE_BLOCK:
+                if body['code'] == MessageCode.MESSAGE_CODE_BLOCK.value:
                     processed_events = []
-                    data = json.loads(body["data"])
-                    block = Block(**data)
+                    block = Block(**body['data'])
 
                     for event in block.events:
                         if verify_data_signature(event.input_params, event.input_signed_params, event.user_ss58_address):
@@ -121,8 +121,8 @@ class Client(multiprocessing.Process):
                             database=self.database
                         ), asyncio.get_event_loop()
                     )
-                elif body['code'] == MessageCode.MESSAGE_CODE_EVENT:
-                    message = body['data']
+                elif body['code'] == MessageCode.MESSAGE_CODE_EVENT.value:
+                    message = body["data"]["event"]
 
                 self.mempool.append(message)
 

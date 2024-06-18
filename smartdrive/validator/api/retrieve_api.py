@@ -21,6 +21,7 @@
 # SOFTWARE.
 
 import time
+import uuid
 from typing import Optional, List
 from fastapi import HTTPException, Request
 from substrateinterface import Keypair
@@ -33,7 +34,7 @@ from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_addre
 from smartdrive.validator.api.utils import get_miner_info_with_chunk
 from smartdrive.validator.database.database import Database
 from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo, ConnectionInfo
-from smartdrive.models.event import RetrieveEvent, MinerProcess, EventParams
+from smartdrive.models.event import RetrieveEvent, MinerProcess, EventParams, RetrieveInputParams
 from smartdrive.validator.network.network import Network
 
 
@@ -121,11 +122,12 @@ class RetrieveAPI:
         signed_params = sign_data(event_params.dict(), self._key)
 
         event = RetrieveEvent(
+            uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
             validator_ss58_address=Ss58Address(self._key.ss58_address),
             event_params=event_params,
             event_signed_params=signed_params.hex(),
             user_ss58_address=user_ss58_address,
-            input_params={"file_uuid":file_uuid},
+            input_params=RetrieveInputParams(file_uuid=file_uuid),
             input_signed_params=input_signed_params
         )
 

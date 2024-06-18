@@ -21,6 +21,7 @@
 #  SOFTWARE.
 
 import asyncio
+import multiprocessing
 import time
 
 from communex.client import CommuneClient
@@ -50,12 +51,13 @@ class Network:
     _netuid: int = None
     _database: Database = None
 
-    def __init__(self, keypair: Keypair, ip: str, netuid: int, comx_client: CommuneClient, database: Database):
+    def __init__(self, keypair: Keypair, ip: str, netuid: int, comx_client: CommuneClient, database: Database, testnet: bool):
         self._keypair = keypair
         self._netuid = netuid
         self._comx_client = comx_client
         self._database = database
-        self._node = Node(keypair=keypair, ip=ip, netuid=netuid, database=database)
+        multiprocessing.set_start_method("fork")
+        self._node = Node(keypair=keypair, ip=ip, netuid=netuid, database=database, testnet=testnet)
 
     async def create_blocks(self):
         # TODO: retrieve last block from other leader validator
@@ -81,9 +83,9 @@ class Network:
                 block_number += 1
 
                 # Create and process block
-                block_events = self._node.get_all_mempool_items()[:self.MAX_EVENTS_PER_BLOCK]
+                block_events = self._node.consume_mempool_items(count=self.MAX_EVENTS_PER_BLOCK)
                 block = Block(block_number=block_number, events=block_events, proposer_signature=Ss58Address(self._keypair.ss58_address))
-                print(block.__repr__)
+                print(f"Creating block - {block}")
                 self._database.create_block(block=block)
                 await process_events(events=block_events, is_proposer_validator=True, keypair=self._keypair, comx_client=self._comx_client, netuid=self._netuid, database=self._database)
 
@@ -101,27 +103,31 @@ class Network:
         if connections:
             body = {
                 "code": MessageCode.MESSAGE_CODE_BLOCK.value,
-                "data": block.__dict__
+                "data": block.dict()
             }
 
             body_sign = sign_data(body, self._keypair)
             message = {
                 "body": body,
-                "signature_hex": body_sign,
+                "signature_hex": body_sign.hex(),
                 "public_key_hex": self._keypair.public_key.hex()
             }
+
+            print(f"Emit block to validators: {message}")
 
             for c in connections:
                 send_json(c[ConnectionPool.CONNECTION], message)
 
     def emit_event(self, event: Event):
         connections = self._node.get_all_connections()
+        print("START EMIT EVENT")
+        print(event)
 
         body = {
             "code": MessageCode.MESSAGE_CODE_EVENT.value,
             "data": {
-                "event": event.get_event_action().value,
-                "event_code": event.json()
+                "event_code": event.get_event_action().value,
+                "event": event.dict()
             }
         }
         body_sign = sign_data(body, self._keypair)
@@ -131,12 +137,12 @@ class Network:
             "public_key_hex": self._keypair.public_key.hex()
         }
 
-        print("EMIT EVENT")
+        print("END EMIT EVENT")
         print(message)
-        print(connections)
 
         for c in connections:
             try:
+                self._node.insert_event(event)
                 send_json(c[ConnectionPool.CONNECTION], message)
             except Exception as e:
                 print(e)

@@ -22,6 +22,7 @@
 
 import re
 import os
+import traceback
 import uuid
 import time
 import tempfile
@@ -30,7 +31,8 @@ import zipfile
 from typing import List, Optional
 from datetime import datetime, timedelta
 
-from smartdrive.models.event import UserEvent, StoreParams, RemoveParams, MinerProcess
+from smartdrive.models.event import UserEvent, StoreParams, RemoveParams, MinerProcess, StoreEvent, Event, RemoveEvent, \
+    RetrieveEvent
 from smartdrive.validator.models.block import Block
 from smartdrive.validator.models.models import MinerWithChunk, SubChunk, File, Chunk
 
@@ -116,15 +118,19 @@ class Database:
                     )
                 '''
 
+                # TODO: Don't store sub_chunk info in params must be stored in MineProcess once the split system it's completed
                 create_event_table = '''
                     CREATE TABLE events (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        event_type INTEGER NOT NULL,
+                        uuid TEXT PRIMARY KEY,
                         validator_ss58_address TEXT NOT NULL,
-                        event_params TEXT NOT NULL,
+                        event_type INTEGER NOT NULL,
+                        file_uuid TEXT NOT NULL,
+                        sub_chunk_start INTEGER,
+                        sub_chunk_end INTEGER,
+                        sub_chunk_encoded TEXT,
                         event_signed_params TEXT NOT NULL,
-                        user_ss58_address TEXT,
-                        input_params TEXT,
+                        user_ss58_address TEXT NOT NULL,
+                        file TEXT,
                         input_signed_params TEXT,
                         block_id INTEGER NOT NULL,
                         FOREIGN KEY (block_id) REFERENCES block(id) ON DELETE CASCADE
@@ -606,6 +612,7 @@ class Database:
                 connection.close()
 
     def create_block(self, block: Block) -> bool:
+        print("----- CREATING BLOCK DATABASE------")
         connection = None
         try:
             connection = sqlite3.connect(self._database_file_path)
@@ -613,37 +620,15 @@ class Database:
                 cursor = connection.cursor()
                 connection.execute('BEGIN TRANSACTION')
 
-                cursor.execute(f'''
-                    INSERT INTO block (id) VALUES ({block.block_number})
-                ''')
-
+                # Insert block
+                cursor.execute('INSERT INTO block (id) VALUES (?)', (block.block_number,))
                 block_id = cursor.lastrowid
 
+                # Insert events and associated miner processes
                 for event in block.events:
-                    event_type = event.get_event_action().value
-                    event_params = event.event_params.json()
-                    event_signed_params = event.event_signed_params
-                    validator_ss58_address = event.validator_ss58_address
+                    self._insert_event(cursor, event, block_id)
 
-                    if isinstance(event, UserEvent):
-                        user_ss58_address = event.user_ss58_address
-                        input_params = event.input_params
-                        input_signed_params = event.input_signed_params
-                    else:
-                        user_ss58_address = None
-                        input_params = None
-                        input_signed_params = None
-
-                    cursor.execute('''
-                        INSERT INTO events (event_type, validator_ss58_address, event_params, event_signed_params, user_ss58_address, input_params, input_signed_params, block_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (event_type, validator_ss58_address, event_params, event_signed_params, user_ss58_address, input_params, input_signed_params, block_id))
-
-                    event_id = cursor.lastrowid
-
-                    for miner_process in event.event_params.miners_processes:
-                        self.create_miner_processes(cursor=cursor, miner_process=miner_process, event_id=event_id)
-
+                connection.commit()
             return True
         except sqlite3.Error as e:
             if connection:
@@ -651,28 +636,49 @@ class Database:
             print(f"Database error: {e}")
             return False
 
-    def create_miner_processes(self, cursor, miner_process: MinerProcess, event_id: int) -> bool:
-        connection = None
+    def _insert_event(self, cursor, event: Event, block_id: int):
+        event_type = event.get_event_action().value
+        validator_ss58_address = event.validator_ss58_address
+        event_signed_params = event.event_signed_params
+
+        # Initialize common fields
+        file_uuid = event.event_params.file_uuid
+        sub_chunk_start = None
+        sub_chunk_end = None
+        sub_chunk_encoded = None
+        user_ss58_address = event.user_ss58_address
+        input_signed_params = event.input_signed_params
+        file = None
+
+        # Populate specific fields based on event type
+        if isinstance(event, StoreEvent):
+            sub_chunk_start = event.event_params.sub_chunk_start
+            sub_chunk_end = event.event_params.sub_chunk_end
+            sub_chunk_encoded = event.event_params.sub_chunk_encoded
+            file = event.input_params.file
+
+        cursor.execute('''
+            INSERT INTO events (uuid, validator_ss58_address, event_type, file_uuid, sub_chunk_start, sub_chunk_end, sub_chunk_encoded, event_signed_params, user_ss58_address, file, input_signed_params, block_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (event.uuid, validator_ss58_address, event_type, file_uuid, sub_chunk_start, sub_chunk_end, sub_chunk_encoded, event_signed_params, user_ss58_address, file, input_signed_params, block_id))
+
+        event_id = cursor.lastrowid
+
+        # Insert miner processes if applicable
+        if isinstance(event.event_params, StoreParams) or isinstance(event.event_params, RemoveParams):
+            for miner_process in event.event_params.miners_processes:
+                self._insert_miner_process(cursor, miner_process, event_id)
+
+    def _insert_miner_process(self, cursor, miner_process: MinerProcess, event_id: int) -> bool:
         try:
-            if not cursor:
-                connection = sqlite3.connect(self._database_file_path)
-                cursor = connection.cursor()
-
             cursor.execute('''
-                INSERT INTO miner_processes (event_id, chunk_uuid, miner_ss58_address, succeed, processing_time)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (event_id, miner_process.chunk_uuid, miner_process.miner_ss58_address, miner_process.succeed, miner_process.processing_time))
-
-            if connection:
-                connection.commit()
-
+                INSERT INTO miner_processes (chunk_uuid, miner_ss58_address, succeed, processing_time, event_id)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (miner_process.chunk_uuid, miner_process.miner_ss58_address, miner_process.succeed, miner_process.processing_time, event_id))
             return True
         except sqlite3.Error as e:
             print(f"Database error: {e}")
             return False
-        finally:
-            if connection:
-                connection.close()
 
 
 def _create_table_if_not_exists(cursor: sqlite3.Cursor, table_name: str, create_statement: str) -> None:

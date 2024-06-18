@@ -35,6 +35,22 @@ class Action(Enum):
     VALIDATION = 3
 
 
+class InputParams(BaseModel):
+    pass
+
+
+class RemoveInputParams(InputParams):
+    file_uuid: str
+
+
+class RetrieveInputParams(InputParams):
+    file_uuid: str
+
+
+class StoreInputParams(InputParams):
+    file: str
+
+
 class MinerProcess(BaseModel):
     chunk_uuid: Optional[str]
     miner_ss58_address: Ss58Address
@@ -43,12 +59,12 @@ class MinerProcess(BaseModel):
 
 
 class EventParams(BaseModel):
-    file_uuid: Optional[str]
+    file_uuid: str
     miners_processes: Optional[List[MinerProcess]]
 
 
 class StoreParams(EventParams):
-    file_uuid: Optional[str]
+    file_uuid: str
     miners_processes: List[MinerProcess]
     sub_chunk_start: int
     sub_chunk_end: int
@@ -60,6 +76,7 @@ class RemoveParams(EventParams):
 
 
 class Event(BaseModel):
+    uuid: str
     validator_ss58_address: Ss58Address
     event_params: EventParams
     event_signed_params: str
@@ -79,20 +96,22 @@ class Event(BaseModel):
 
 class UserEvent(Event):
     user_ss58_address: Ss58Address
-    input_params: Dict[str, Any]
+    input_params: InputParams
     input_signed_params: str
 
 
 class StoreEvent(UserEvent):
     event_params: StoreParams
+    input_params: StoreInputParams
 
 
 class RemoveEvent(UserEvent):
     event_params: RemoveParams
+    input_params: RemoveInputParams
 
 
 class RetrieveEvent(UserEvent):
-    pass
+    input_params: RetrieveInputParams
 
 
 class ValidateEvent(Event):
@@ -101,41 +120,52 @@ class ValidateEvent(Event):
 
 def parse_event(action: Action, json_data: str) -> Event:
     data = json.loads(json_data)
+    uuid = data['uuid']
     validator_ss58_address = Ss58Address(data['validator_ss58_address'])
     event_params = data['event_params']
     event_signed_params = data['event_signed_params']
-
+    print(action)
+    print(Action.STORE)
     if action == Action.STORE:
+        input_params = StoreInputParams(**data['input_params'])
+        event_params = StoreParams(**event_params)
         return StoreEvent(
+            uuid=uuid,
             user_ss58_address=Ss58Address(data['user_ss58_address']),
-            input_params=data['input_params'],
+            input_params=input_params,
             input_signed_params=data['input_signed_params'],
             validator_ss58_address=validator_ss58_address,
             event_params=event_params,
             event_signed_params=event_signed_params
         )
     elif action == Action.REMOVE:
+        input_params = RemoveInputParams(**data['input_params'])
+        event_params = RemoveParams(**event_params)
         return RemoveEvent(
+            uuid=uuid,
             user_ss58_address=Ss58Address(data['user_ss58_address']),
-            input_params=data['input_params'],
+            input_params=input_params,
             input_signed_params=data['input_signed_params'],
             validator_ss58_address=validator_ss58_address,
             event_params=event_params,
             event_signed_params=event_signed_params
         )
     elif action == Action.RETRIEVE:
+        input_params = RetrieveInputParams(**data['input_params'])
         return RetrieveEvent(
+            uuid=uuid,
             user_ss58_address=Ss58Address(data['user_ss58_address']),
-            input_params=data['input_params'],
+            input_params=input_params,
             input_signed_params=data['input_signed_params'],
             validator_ss58_address=validator_ss58_address,
-            event_params=event_params,
+            event_params=EventParams(**event_params),
             event_signed_params=event_signed_params
         )
     elif action == Action.VALIDATION:
         return ValidateEvent(
+            uuid=uuid,
             validator_ss58_address=validator_ss58_address,
-            event_params=event_params,
+            event_params=EventParams(**event_params),
             event_signed_params=event_signed_params
         )
     else:

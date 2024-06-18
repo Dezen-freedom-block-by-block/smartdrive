@@ -43,6 +43,7 @@ from smartdrive.cli.errors import NoValidatorsAvailableException
 from smartdrive.cli.spinner import Spinner
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_active_validators
+from smartdrive.models.event import StoreInputParams, RetrieveInputParams, RemoveInputParams
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.utils import decode_b64_to_bytes, calculate_hash
 
@@ -99,7 +100,8 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
         spinner = Spinner("Signing request")
         spinner.start()
 
-        signed_data = sign_data({"file": calculate_hash(compressed_data)}, key)
+        input_params = StoreInputParams(file=calculate_hash(compressed_data))
+        signed_data = sign_data(input_params.dict(), key)
 
         spinner.stop_with_message("¡Done!")
 
@@ -175,10 +177,10 @@ def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testn
         spinner.start()
 
         validator_url = _get_validator_url(key, testnet)
-        body = {"file_uuid": file_uuid}
-        headers = create_headers(sign_data(body, key), key)
+        input_params = RetrieveInputParams(file_uuid=file_uuid)
+        headers = create_headers(sign_data(input_params.dict(), key), key)
 
-        response = requests.get(f"{validator_url}/retrieve", params=body, headers=headers, verify=False)
+        response = requests.get(f"{validator_url}/retrieve", params=input_params.dict(), headers=headers, verify=False)
 
         response.raise_for_status()
         spinner.stop_with_message("¡Done!")
@@ -244,9 +246,9 @@ def remove_handler(file_uuid: str, key_name: str = None, testnet: bool = False):
         spinner.start()
 
         validator_url = _get_validator_url(key, testnet)
-        body = {"file_uuid": file_uuid}
-        headers = create_headers(sign_data(body, key), key, content_type="application/x-www-form-urlencoded")
-        response = requests.post(f"{validator_url}/remove", body, headers=headers, verify=False)
+        input_params = RemoveInputParams(file_uuid=file_uuid)
+        headers = create_headers(sign_data(input_params.dict(), key), key, content_type="application/x-www-form-urlencoded")
+        response = requests.post(f"{validator_url}/remove", input_params.dict(), headers=headers, verify=False)
 
         response.raise_for_status()
         spinner.stop_with_message("¡Done!")

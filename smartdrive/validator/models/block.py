@@ -21,15 +21,12 @@
 #  SOFTWARE.
 
 from communex.types import Ss58Address
+from pydantic import BaseModel
 
 from smartdrive.models.event import Event
 
 
-class Block:
-    def __init__(self, block_number: int, events: list[Event], proposer_signature: Ss58Address):
-        self.block_number = block_number
-        self.events = events
-        self.proposer_signature = proposer_signature
-
-    def __repr__(self):
-        return f"Block(block_number={self.block_number}, events={self.events}, proposer_signature={self.proposer_signature})"
+class Block(BaseModel):
+    block_number: int
+    events: list[Event]
+    proposer_signature: Ss58Address

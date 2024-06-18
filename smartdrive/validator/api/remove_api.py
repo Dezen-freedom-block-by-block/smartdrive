@@ -19,6 +19,8 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+import time
+import uuid
 
 from fastapi import HTTPException, Form, Request
 from substrateinterface import Keypair
@@ -29,7 +31,7 @@ from communex.types import Ss58Address
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.database.database import Database
-from smartdrive.models.event import RemoveEvent, RemoveParams
+from smartdrive.models.event import RemoveEvent, RemoveParams, RemoveInputParams
 from smartdrive.validator.network.network import Network
 from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo
 
@@ -87,11 +89,12 @@ class RemoveAPI:
         signed_params = sign_data(event_params.dict(), self._key)
 
         event = RemoveEvent(
+            uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
             validator_ss58_address=Ss58Address(self._key.ss58_address),
             event_params=event_params,
             event_signed_params=signed_params.hex(),
             user_ss58_address=user_ss58_address,
-            input_params={"file_uuid": file_uuid},
+            input_params=RemoveInputParams(file_uuid=file_uuid),
             input_signed_params=input_signed_params
         )
 
