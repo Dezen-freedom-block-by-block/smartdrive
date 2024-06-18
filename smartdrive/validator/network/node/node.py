@@ -36,8 +36,8 @@ class Node:
     _netuid = None
 
     _server_process = None
-    _mempool = multiprocessing.Manager().list()
-    _connection_pool = ConnectionPool(cache_size=Server.MAX_N_CONNECTIONS)
+    _mempool = None
+    _connection_pool = None
 
     def __init__(self, keypair: Keypair, ip: str, netuid: int, database: Database):
         self._keypair = keypair
@@ -45,11 +45,14 @@ class Node:
         self._netuid = netuid
         self._database = database
 
+        self._mempool = multiprocessing.Manager().list()
+        self._connection_pool = ConnectionPool(cache_size=Server.MAX_N_CONNECTIONS)
+
         self._server_process = multiprocessing.Process(target=self.run_server, args=(self._mempool,))
         self._server_process.start()
 
     def run_server(self, mempool):
-        server = Server(self._ip, self._connection_pool, self._keypair, self._netuid, mempool)
+        server = Server(self._ip, self._connection_pool, self._keypair, self._netuid, mempool, self._database)
         server.run()
 
     def get_all_connections(self):

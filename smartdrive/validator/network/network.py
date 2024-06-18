@@ -66,13 +66,11 @@ class Network:
         while True:
             start_time = time.time()
 
-            # truthful_validators = await get_truthful_validators(self._keypair, self._comx_client, self._netuid)
+            #truthful_validators = await get_truthful_validators(self._keypair, self._comx_client, self._netuid)
             all_validators = get_filtered_modules(self._comx_client, self._netuid, ModuleType.VALIDATOR)
 
-            validators = [all_validators[2]]
-
-            proposer_active_validator = max(validators, key=lambda v: v.stake or 0)
-            proposer_validator = max(validators, key=lambda v: v.stake or 0)
+            proposer_active_validator = max(all_validators, key=lambda v: v.stake or 0)
+            proposer_validator = max(all_validators, key=lambda v: v.stake or 0)
 
             if proposer_validator.ss58_address != proposer_active_validator.ss58_address:
                 ping_validator = await ping_proposer_validator(self._keypair, proposer_validator)

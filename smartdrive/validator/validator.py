@@ -245,9 +245,8 @@ if __name__ == "__main__":
         await asyncio.gather(
             _validator.api.run_server(),
             _validator.initial_sync(),
-            #_validator.validation_loop(),
-            _validator._network.create_blocks(),
-            _validator._network.run_server()
+            _validator.validation_loop(),
+            _validator._network.create_blocks()
         )
 
     asyncio.run(run_tasks())

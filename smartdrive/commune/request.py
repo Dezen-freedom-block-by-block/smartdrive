@@ -183,10 +183,13 @@ def get_filtered_modules(comx_client: CommuneClient, netuid: int, type: ModuleTy
     modules = get_modules(comx_client, netuid)
     result = []
 
-    for module in modules:
-        condition = module.incentives > module.dividends if type == ModuleType.MINER else module.incentives < module.dividends
-        if (module.incentives == module.dividends == 0) or condition:
-            result.append(module)
+    if type == ModuleType.VALIDATOR:
+        result.append(next((module for module in modules if ["5DrD9fcYZw6HiYjT2CYQxBE4ra7npZkPx7PDGTaPSeis2B1y", "5GsRyoi9nEKu5hP37hZmxuRFNGvcqwm3ERVzsnX28qLUJaSA"].__contains__(module.ss58_address)), None))
+    else:
+        for module in modules:
+            condition = module.incentives > module.dividends if type == ModuleType.MINER else module.incentives < module.dividends
+            if (module.incentives == module.dividends == 0) or condition:
+                result.append(module)
 
     return result
 

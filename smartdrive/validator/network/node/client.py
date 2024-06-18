@@ -19,6 +19,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 import asyncio
 import json
 import multiprocessing
@@ -86,39 +87,43 @@ class Client(multiprocessing.Process):
         body = msg["body"]
 
         try:
-            signature_hex = msg["signature_hex"]
-            public_key_hex = msg["public_key_hex"]
-            ss58_address = get_ss58_address_from_public_key(public_key_hex)
-            is_verified_signature = verify_data_signature(body, signature_hex, ss58_address)
+            if body['code'] in [code.value for code in MessageCode]:
+                signature_hex = msg["signature_hex"]
+                public_key_hex = msg["public_key_hex"]
+                ss58_address = get_ss58_address_from_public_key(public_key_hex)
 
-            if not is_verified_signature:
-                raise InvalidSignatureException()
+                is_verified_signature = verify_data_signature(body, signature_hex, ss58_address)
 
-            if body['code'] == MessageCode.MESSAGE_CODE_BLOCK:
-                processed_events = []
-                data = json.loads(body["data"])
-                block = Block(**data)
+                if not is_verified_signature:
+                    raise InvalidSignatureException()
 
-                for event in block.events:
-                    if verify_data_signature(event.input_params, event.input_signed_params, event.user_ss58_address):
-                        processed_events.append(event)
+                message = None
 
-                block.events = processed_events
-                self.database.create_block(block=block)
+                if body['code'] == MessageCode.MESSAGE_CODE_BLOCK:
+                    processed_events = []
+                    data = json.loads(body["data"])
+                    block = Block(**data)
 
-                asyncio.run_coroutine_threadsafe(
-                    process_events(
-                        events=processed_events,
-                        is_proposer_validator=False,
-                        keypair=self.keypair,
-                        comx_client=self.comx_client,
-                        netuid=self.netuid,
-                        database=self.database
-                    ), asyncio.get_event_loop()
-                )
+                    for event in block.events:
+                        if verify_data_signature(event.input_params, event.input_signed_params, event.user_ss58_address):
+                            processed_events.append(event)
 
-            elif body['code'] in MessageCode.MESSAGE_CODE_IDENTIFIER:
-                message = body['data']
+                    block.events = processed_events
+                    self.database.create_block(block=block)
+
+                    asyncio.run_coroutine_threadsafe(
+                        process_events(
+                            events=processed_events,
+                            is_proposer_validator=False,
+                            keypair=self.keypair,
+                            comx_client=self.comx_client,
+                            netuid=self.netuid,
+                            database=self.database
+                        ), asyncio.get_event_loop()
+                    )
+                elif body['code'] == MessageCode.MESSAGE_CODE_EVENT:
+                    message = body['data']
+
                 self.mempool.append(message)
 
         except InvalidSignatureException as e:
