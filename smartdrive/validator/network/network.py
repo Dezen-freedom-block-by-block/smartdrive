@@ -124,8 +124,8 @@ class Network:
         body = {
             "code": MessageCode.MESSAGE_CODE_EVENT.value,
             "data": {
-                "event": event.get_event_action().value,
-                "event_code": event.json()
+                "event_code": event.get_event_action().value,
+                "event": event.json()
             }
         }
         body_sign = sign_data(body, self._keypair)

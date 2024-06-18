@@ -22,6 +22,7 @@
 
 import multiprocessing
 
+from smartdrive.models.event import parse_event, Action
 from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
@@ -100,7 +101,7 @@ class Client(multiprocessing.Process):
                     # await process_events(events=processed_events, is_proposer_validator=False)
 
                 elif body['code'] == MessageCode.MESSAGE_CODE_EVENT:
-                    message = body['data']
+                    message = parse_event(Action(body["data"]["event_code"]), body["data"]["event"])
 
                 self.mempool.append(message)
 
