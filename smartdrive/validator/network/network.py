@@ -28,7 +28,7 @@ from communex.client import CommuneClient
 from communex.types import Ss58Address
 from substrateinterface import Keypair
 
-from smartdrive.commune.request import get_filtered_modules, ping_proposer_validator
+from smartdrive.commune.request import get_filtered_modules, ping_proposer_validator, get_truthful_validators
 from smartdrive.models.event import Event
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.utils import process_events
@@ -69,10 +69,10 @@ class Network:
         while True:
             start_time = time.time()
 
-            #truthful_validators = await get_truthful_validators(self._keypair, self._comx_client, self._netuid)
+            truthful_validators = await get_truthful_validators(self._keypair, self._comx_client, self._netuid)
             all_validators = get_filtered_modules(self._comx_client, self._netuid, ModuleType.VALIDATOR)
 
-            proposer_active_validator = max(all_validators, key=lambda v: v.stake or 0)
+            proposer_active_validator = max(truthful_validators if truthful_validators else all_validators, key=lambda v: v.stake or 0)
             proposer_validator = max(all_validators, key=lambda v: v.stake or 0)
 
             if proposer_validator.ss58_address != proposer_active_validator.ss58_address:
@@ -85,6 +85,7 @@ class Network:
 
                 # Create and process block
                 block_events = self._node.consume_mempool_items(count=self.MAX_EVENTS_PER_BLOCK)
+                print(f"BLOCK EVENTS -> {block_events} ")
                 block = Block(block_number=block_number, events=block_events, proposer_signature=Ss58Address(self._keypair.ss58_address))
                 print(f"Creating block - {block}")
                 await process_events(events=block_events, is_proposer_validator=True, keypair=self._keypair, comx_client=self._comx_client, netuid=self._netuid, database=self._database)
@@ -126,13 +127,20 @@ class Network:
         print("START EMIT EVENT")
         print(event)
 
+        print("--------------")
+        print("--------------")
+        print(event.dict())
+        print("++++++++++++++")
+        print("++++++++++++++")
         body = {
             "code": MessageCode.MESSAGE_CODE_EVENT.value,
             "data": MessageEvent(
                 event_action=event.get_event_action(),
                 event=event.dict()
-            ).json()
+            ).dict()
         }
+
+        print(body)
         body_sign = sign_data(body, self._keypair)
         message = {
             "body": body,

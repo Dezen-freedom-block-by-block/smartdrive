@@ -180,16 +180,13 @@ def get_filtered_modules(comx_client: CommuneClient, netuid: int, type: ModuleTy
     Returns:
         List[ModuleInfo]: A list of `ModuleInfo` objects representing miners.
     """
+    modules = get_modules(comx_client, netuid)
     result = []
 
-    if type == ModuleType.VALIDATOR:
-        return [ModuleInfo(uid="2", ss58_address="5GsRyoi9nEKu5hP37hZmxuRFNGvcqwm3ERVzsnX28qLUJaSA", connection=ConnectionInfo(ip="127.0.0.1", port=8002), incentives=0, dividends=0, stake=450011100000000), ModuleInfo(uid="0", ss58_address="5DrD9fcYZw6HiYjT2CYQxBE4ra7npZkPx7PDGTaPSeis2B1y", connection=ConnectionInfo(ip="127.0.0.1", port=8001), incentives=0, dividends=0, stake=450011100000000)]
-    else:
-        modules = get_modules(comx_client, netuid)
-        for module in modules:
-            condition = module.incentives > module.dividends if type == ModuleType.MINER else module.incentives < module.dividends
-            if (module.incentives == module.dividends == 0) or condition:
-                result.append(module)
+    for module in modules:
+        condition = module.incentives > module.dividends if type == ModuleType.MINER else module.incentives < module.dividends
+        if (module.incentives == module.dividends == 0) or condition:
+            result.append(module)
 
     return result
 

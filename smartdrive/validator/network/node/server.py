@@ -46,7 +46,7 @@ class Server(multiprocessing.Process):
     # TODO: Replace with production validators number
     MAX_N_CONNECTIONS = 255
     IDENTIFIER_TIMEOUT_SECONDS = 5
-    TCP_PORT = 9001
+    TCP_PORT = 9002
 
     def __init__(self, bind_address: str, connection_pool: ConnectionPool, keypair: Keypair, netuid: int, mempool, database: Database, testnet: bool):
         multiprocessing.Process.__init__(self)

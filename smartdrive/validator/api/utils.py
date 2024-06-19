@@ -120,6 +120,7 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
                 created_at=None,
                 expiration_ms=None
             )
+            print(f"PROCESS EVENT -> {event} -> {file}")
             database.insert_file(file)
         elif isinstance(event, RemoveEvent):
             if is_proposer_validator:

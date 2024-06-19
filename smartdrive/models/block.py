@@ -47,6 +47,6 @@ def block_to_block_event(block: Block) -> BlockEvent:
 def block_event_to_block(block_event: BlockEvent) -> Block:
     return Block(
         block_number=block_event.block_number,
-        events=list(map(lambda event: parse_event(event.event), block_event.events)),
+        events=list(map(lambda message_event: parse_event(message_event), block_event.events)),
         proposer_signature=block_event.proposer_signature
     )

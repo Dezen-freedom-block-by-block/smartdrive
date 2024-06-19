@@ -280,7 +280,7 @@ class Database:
             if connection:
                 connection.close()
 
-    def insert_file(self, file: File) -> Optional[str]:
+    def insert_file(self, file: File) -> bool:
         """
         Inserts a file and its associated chunks into the database.
 
@@ -292,7 +292,7 @@ class Database:
             file (File): File to be inserted
 
         Returns:
-            str: The uuid of the inserted file record, or None if the operation was not successful.
+            bool: True if the operation was successful, or False if was not successful.
 
         Raises:
             sqlite3.Error: If an error occurs during the database transaction.
@@ -303,24 +303,22 @@ class Database:
                 cursor = connection.cursor()
                 connection.execute('BEGIN TRANSACTION')
 
-                file_uuid = f"{int(time.time())}_{str(uuid.uuid4())}"
-
                 cursor.execute('''
                     INSERT INTO file (uuid, user_ss58_address)
                     VALUES (?, ?)
-                ''', (file_uuid, file.user_owner_ss58address,))
+                ''', (file.file_uuid, file.user_owner_ss58address,))
 
                 if file.has_expiration():
                     cursor.execute('''
                         INSERT INTO file_expiration (file_uuid, expiration_ms, created_at)
                         VALUES (?, ?, ?)
-                    ''', (file_uuid, file.expiration_ms, file.created_at,))
+                    ''', (file.file_uuid, file.expiration_ms, file.created_at,))
 
                 for chunk in file.chunks:
                     cursor.execute('''
                         INSERT INTO chunk (uuid, file_uuid)
                         VALUES (?, ?)
-                    ''', (chunk.chunk_uuid, file_uuid))
+                    ''', (chunk.chunk_uuid, file.file_uuid))
 
                     cursor.execute('''
                         INSERT INTO miner_chunk (miner_ss58_address, chunk_uuid)
@@ -335,12 +333,11 @@ class Database:
 
                 connection.commit()
 
-            return file_uuid
+            return True
 
         except sqlite3.Error as e:
             print(f"Database error: {e}")
-            return None
-
+            return False
 
     def check_if_file_exists(self, user_ss58_address: str, file_uuid: str) -> bool:
         """
