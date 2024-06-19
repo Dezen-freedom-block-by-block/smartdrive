@@ -21,21 +21,25 @@
 #  SOFTWARE.
 
 import asyncio
+import multiprocessing
 import time
 
 from communex.client import CommuneClient
+from communex.types import Ss58Address
 from substrateinterface import Keypair
 
-from smartdrive.commune.request import get_truthful_validators, get_filtered_modules
+from smartdrive.commune.request import get_filtered_modules, ping_proposer_validator, get_truthful_validators
 from smartdrive.models.event import Event
 from smartdrive.validator.api.middleware.sign import sign_data
+from smartdrive.validator.api.utils import process_events
 from smartdrive.validator.database.database import Database
-from smartdrive.validator.models.block import Block
+from smartdrive.models.block import Block, block_to_block_event
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.node import Node
+from smartdrive.models.event import MessageEvent
 from smartdrive.validator.network.node.util.message_code import MessageCode
-from smartdrive.validator.network.node.utils import send_json
+from smartdrive.validator.network.utils import send_json
 
 
 class Network:
@@ -48,13 +52,13 @@ class Network:
     _netuid: int = None
     _database: Database = None
 
-    def __init__(self, keypair: Keypair, ip: str, netuid: int, comx_client: CommuneClient, database: Database):
+    def __init__(self, keypair: Keypair, ip: str, netuid: int, comx_client: CommuneClient, database: Database, testnet: bool):
         self._keypair = keypair
         self._netuid = netuid
         self._comx_client = comx_client
         self._database = database
-        self._node = Node(keypair=keypair, ip=ip, netuid=netuid)
-        # asyncio.run(self.start_creation_block())
+        multiprocessing.set_start_method("fork")
+        self._node = Node(keypair=keypair, ip=ip, netuid=netuid, database=database, testnet=testnet)
 
     async def create_blocks(self):
         # TODO: retrieve last block from other leader validator
@@ -68,27 +72,26 @@ class Network:
             truthful_validators = await get_truthful_validators(self._keypair, self._comx_client, self._netuid)
             all_validators = get_filtered_modules(self._comx_client, self._netuid, ModuleType.VALIDATOR)
 
-            # proposer_active_validator = max(truthful_validators, key=lambda v: v.stake or 0)
-            # proposer_validator = max(all_validators, key=lambda v: v.stake or 0)
-            #
-            # if proposer_validator.ss58_address != proposer_active_validator.ss58_address:
-            #     ping_validator = await ping_proposer_validator(self._keypair, proposer_validator)
-            #     if not ping_validator:
-            #         proposer_validator = proposer_active_validator
-            #
-            # if proposer_validator.ss58_address == self._keypair.ss58_address:
-            #     block_number += 1
-            #
-            #     # Create and process block
-            #     block_events = self._node.consume_mempool_items(max_items=self.MAX_EVENTS_PER_BLOCK)
-            #     self._database.create_block(Block(block_number=block_number, events=block_events,
-            #                                       proposer_signature=Ss58Address(self._keypair.ss58_address)))
-            #     await process_events(events=block_events, is_proposer_validator=True)
-            #
-            #     # Propagate block to other validators
-            #     block = Block(block_number=block_number, events=block_events,
-            #                   proposer_signature=Ss58Address(self._keypair.ss58_address))
-            #     await asyncio.to_thread(self.send_block_to_validators(block=block))
+            proposer_active_validator = max(truthful_validators if truthful_validators else all_validators, key=lambda v: v.stake or 0)
+            proposer_validator = max(all_validators, key=lambda v: v.stake or 0)
+
+            if proposer_validator.ss58_address != proposer_active_validator.ss58_address:
+                ping_validator = await ping_proposer_validator(self._keypair, proposer_validator)
+                if not ping_validator:
+                    proposer_validator = proposer_active_validator
+
+            if proposer_validator.ss58_address == self._keypair.ss58_address:
+                block_number += 1
+
+                # Create and process block
+                block_events = self._node.consume_mempool_items(count=self.MAX_EVENTS_PER_BLOCK)
+                block = Block(block_number=block_number, events=block_events, proposer_signature=Ss58Address(self._keypair.ss58_address))
+                print(f"Creating block - {block.block_number}")
+                await process_events(events=block_events, is_proposer_validator=True, keypair=self._keypair, comx_client=self._comx_client, netuid=self._netuid, database=self._database)
+                self._database.create_block(block=block)
+
+                # Propagate block to other validators
+                asyncio.create_task(self.send_block_to_validators(block=block))
 
             elapsed = time.time() - start_time
             if elapsed < self.BLOCK_INTERVAL:
@@ -96,38 +99,35 @@ class Network:
                 print(f"Sleeping for {sleep_time} seconds before trying to create the next block.")
                 await asyncio.sleep(sleep_time)
 
-
     async def send_block_to_validators(self, block: Block):
         connections = self._node.get_all_connections()
-        body = {
-            "code": MessageCode.MESSAGE_CODE_BLOCK,
-            "data": block.__dict__
-        }
-        body_sign = sign_data(body, self._keypair)
-        message = {
-            "body": body,
-            "signature_hex": body_sign,
-            "public_key_hex": self._keypair.public_key.hex()
-        }
+        if connections:
+            block_event = block_to_block_event(block)
 
-        for c in connections:
-            send_json(c[ConnectionPool.CONNECTION], message)
+            body = {
+                "code": MessageCode.MESSAGE_CODE_BLOCK.value,
+                "data": block_event.dict()
+            }
 
-    async def start_creation_block(self):
-        loop = asyncio.get_running_loop()
-        loop.create_task(self.create_blocks())
-        await asyncio.Event().wait()
+            body_sign = sign_data(body, self._keypair)
+            message = {
+                "body": body,
+                "signature_hex": body_sign.hex(),
+                "public_key_hex": self._keypair.public_key.hex()
+            }
+
+            for c in connections:
+                send_json(c[ConnectionPool.CONNECTION], message)
 
     def emit_event(self, event: Event):
         connections = self._node.get_all_connections()
 
+        message_event = MessageEvent.from_json(event.dict(), event.get_event_action())
         body = {
             "code": MessageCode.MESSAGE_CODE_EVENT.value,
-            "data": {
-                "event_code": event.get_event_action().value,
-                "event": event.json()
-            }
+            "data": message_event.dict()
         }
+
         body_sign = sign_data(body, self._keypair)
         message = {
             "body": body,
@@ -135,13 +135,10 @@ class Network:
             "public_key_hex": self._keypair.public_key.hex()
         }
 
-        print("EMIT EVENT")
-        print(message)
-        print(connections)
+        self._node.insert_event(event)
 
         for c in connections:
             try:
-                self._node.insert_event(event)
                 send_json(c[ConnectionPool.CONNECTION], message)
             except Exception as e:
                 print(e)

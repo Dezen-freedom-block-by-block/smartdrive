@@ -34,7 +34,7 @@ from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_addre
 from smartdrive.validator.api.utils import get_miner_info_with_chunk
 from smartdrive.validator.database.database import Database
 from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo, ConnectionInfo
-from smartdrive.models.event import RetrieveEvent, MinerProcess, EventParams
+from smartdrive.models.event import RetrieveEvent, MinerProcess, EventParams, RetrieveInputParams
 from smartdrive.validator.network.network import Network
 
 
@@ -127,7 +127,7 @@ class RetrieveAPI:
             event_params=event_params,
             event_signed_params=signed_params.hex(),
             user_ss58_address=user_ss58_address,
-            input_params={"file_uuid":file_uuid},
+            input_params=RetrieveInputParams(file_uuid=file_uuid),
             input_signed_params=input_signed_params
         )
 

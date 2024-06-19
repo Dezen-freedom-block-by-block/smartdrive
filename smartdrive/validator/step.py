@@ -36,7 +36,8 @@ from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.api.validate_api import validate_chunk_request
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.evaluation.utils import generate_data
-from smartdrive.models.event import RemoveEvent, ValidateEvent, StoreEvent, MinerProcess, EventParams, RemoveParams
+from smartdrive.models.event import RemoveEvent, ValidateEvent, StoreEvent, MinerProcess, EventParams, RemoveParams, \
+    RemoveInputParams
 from smartdrive.validator.models.models import File, ModuleType, SubChunk
 
 
@@ -156,8 +157,8 @@ async def _remove_files(files: List[File], keypair: Keypair, comx_client: Commun
 
         signed_params = sign_data(event_params.dict(), keypair)
 
-        input_params = {"file_uuid": file.file_uuid}
-        input_signed_params = sign_data(input_params, keypair)
+        input_params = RemoveInputParams(file_uuid=file.file_uuid)
+        input_signed_params = sign_data(input_params.dict(), keypair)
 
         event = RemoveEvent(
             uuid=f"{int(time.time())}_{str(uuid.uuid4())}",

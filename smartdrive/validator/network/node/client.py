@@ -20,11 +20,18 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import asyncio
 import multiprocessing
 
-from smartdrive.models.event import parse_event, Action
+from communex.client import CommuneClient
+from substrateinterface import Keypair
+
+from smartdrive.models.event import parse_event, UserEvent, MessageEvent, Action
 from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
+from smartdrive.validator.api.utils import process_events
+from smartdrive.validator.database.database import Database
+from smartdrive.models.block import Block, BlockEvent, block_event_to_block
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.util import packing
 from smartdrive.validator.network.node.util.exceptions import MessageException, ClientDisconnectedException, MessageFormatException, InvalidSignatureException
@@ -33,12 +40,16 @@ from smartdrive.validator.network.node.util.message_code import MessageCode
 
 class Client(multiprocessing.Process):
 
-    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, mempool):
+    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, mempool, keypair: Keypair, comx_client: CommuneClient, netuid: int, database: Database):
         multiprocessing.Process.__init__(self)
         self.client_socket = client_socket
         self.identifier = identifier
         self.connection_pool = connection_pool
         self.mempool = mempool
+        self.keypair = keypair
+        self.comx_client = comx_client
+        self.netuid = netuid
+        self.database = database
 
     def run(self):
         try:
@@ -66,7 +77,6 @@ class Client(multiprocessing.Process):
     def receive(self):
         # Here the process is waiting till a new message is sended.
         msg = packing.receive_msg(self.client_socket)
-        print(f"Message received")
         process = multiprocessing.Process(target=self.process_message, args=(msg,))
         process.start()
 
@@ -84,26 +94,34 @@ class Client(multiprocessing.Process):
                 if not is_verified_signature:
                     raise InvalidSignatureException()
 
-                message = None
+                if body['code'] == MessageCode.MESSAGE_CODE_BLOCK.value:
+                    block_event = BlockEvent(
+                        block_number=body["data"]["block_number"],
+                        events=list(map(lambda event: MessageEvent.from_json(event["event"], Action(event["event_action"])), body["data"]["events"])),
+                        proposer_signature=body["data"]["proposer_signature"]
+                    )
+                    block = block_event_to_block(block_event)
 
-                if body['code'] == MessageCode.MESSAGE_CODE_BLOCK:
                     processed_events = []
-                    # data = json.loads(body["data"])
-                    # block = Block(**data)
-                    #
-                    # for event in block.events:
-                    #     if verify_data_signature(event.input_params, event.input_signed_params, event.user_ss58_address):
-                    #         processed_events.append(event)
-                    #
-                    # block.events = processed_events
-                    # self.database.create_block(block=block)
-                    #
-                    # await process_events(events=processed_events, is_proposer_validator=False)
+                    for event in block.events:
+                        input_params_verified = True
+                        if isinstance(event, UserEvent):
+                            input_params_verified = verify_data_signature(event.input_params.dict(), event.input_signed_params, event.user_ss58_address)
 
-                elif body['code'] == MessageCode.MESSAGE_CODE_EVENT:
-                    message = parse_event(Action(body["data"]["event_code"]), body["data"]["event"])
+                        event_params_verified = verify_data_signature(event.event_params.dict(), event.event_signed_params, event.validator_ss58_address)
 
-                self.mempool.append(message)
+                        if input_params_verified and event_params_verified:
+                            processed_events.append(event)
+
+                    block.events = processed_events
+                    self.run_process_events(processed_events)
+                    self.database.create_block(block=block)
+
+                elif body['code'] == MessageCode.MESSAGE_CODE_EVENT.value:
+                    message_event = MessageEvent.from_json(body["data"]["event"], Action(body["data"]["event_action"]))
+                    message = parse_event(message_event)
+
+                    self.mempool.append(message)
 
         except InvalidSignatureException as e:
             raise e
@@ -111,3 +129,17 @@ class Client(multiprocessing.Process):
         except Exception as e:
             print(e)
             raise MessageFormatException('%s' % e)
+
+    def run_process_events(self, processed_events):
+        async def _run_process_events():
+            await process_events(
+                events=processed_events,
+                is_proposer_validator=False,
+                keypair=self.keypair,
+                comx_client=self.comx_client,
+                netuid=self.netuid,
+                database=self.database
+            )
+
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(_run_process_events())

@@ -20,9 +20,8 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 
-import json
 from enum import Enum
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Union
 from pydantic import BaseModel
 
 from communex.types import Ss58Address
@@ -33,6 +32,22 @@ class Action(Enum):
     REMOVE = 1
     RETRIEVE = 2
     VALIDATION = 3
+
+
+class InputParams(BaseModel):
+    pass
+
+
+class RemoveInputParams(InputParams):
+    file_uuid: str
+
+
+class RetrieveInputParams(InputParams):
+    file_uuid: str
+
+
+class StoreInputParams(InputParams):
+    file: str
 
 
 class MinerProcess(BaseModel):
@@ -80,64 +95,91 @@ class Event(BaseModel):
 
 class UserEvent(Event):
     user_ss58_address: Ss58Address
-    input_params: Dict[str, Any]
+    input_params: InputParams
     input_signed_params: str
 
 
 class StoreEvent(UserEvent):
     event_params: StoreParams
+    input_params: StoreInputParams
 
 
 class RemoveEvent(UserEvent):
     event_params: RemoveParams
+    input_params: RemoveInputParams
 
 
 class RetrieveEvent(UserEvent):
-    pass
+    input_params: RetrieveInputParams
 
 
 class ValidateEvent(Event):
     pass
 
 
-def parse_event(action: Action, json_data: str) -> Event:
-    data = json.loads(json_data)
-    uuid = data['uuid'],
-    validator_ss58_address = Ss58Address(data['validator_ss58_address'])
-    event_params = data['event_params']
-    event_signed_params = data['event_signed_params']
+class MessageEvent(BaseModel):
+    event_action: Action
+    event: Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]
 
-    if action == Action.STORE:
+    class Config:
+        use_enum_values = True
+
+    @classmethod
+    def from_json(cls, data: dict, event_action: Action):
+        if event_action == Action.STORE:
+            event = StoreEvent(**data)
+        elif event_action == Action.REMOVE:
+            event = RemoveEvent(**data)
+        elif event_action == Action.RETRIEVE:
+            event = RetrieveEvent(**data)
+        elif event_action == Action.VALIDATION:
+            event = ValidateEvent(**data)
+        else:
+            raise ValueError(f"Unknown action: {event_action}")
+
+        return cls(event_action=event_action, event=event)
+
+
+def parse_event(message_event: MessageEvent) -> Event:
+    uuid = message_event.event.uuid
+    user_ss58_address = Ss58Address(message_event.event.user_ss58_address)
+    validator_ss58_address = Ss58Address(message_event.event.validator_ss58_address)
+    event_params = message_event.event.event_params
+    event_signed_params = message_event.event.event_signed_params
+    input_params = message_event.event.input_params
+    input_signed_params = message_event.event.input_signed_params
+
+    if message_event.event_action == Action.STORE.value:
         return StoreEvent(
             uuid=uuid,
-            user_ss58_address=Ss58Address(data['user_ss58_address']),
-            input_params=data['input_params'],
-            input_signed_params=data['input_signed_params'],
+            user_ss58_address=user_ss58_address,
+            input_params=input_params,
+            input_signed_params=input_signed_params,
             validator_ss58_address=validator_ss58_address,
             event_params=event_params,
             event_signed_params=event_signed_params
         )
-    elif action == Action.REMOVE:
+    elif message_event.event_action == Action.REMOVE.value:
         return RemoveEvent(
             uuid=uuid,
-            user_ss58_address=Ss58Address(data['user_ss58_address']),
-            input_params=data['input_params'],
-            input_signed_params=data['input_signed_params'],
+            user_ss58_address=user_ss58_address,
+            input_params=input_params,
+            input_signed_params=input_signed_params,
             validator_ss58_address=validator_ss58_address,
             event_params=event_params,
             event_signed_params=event_signed_params
         )
-    elif action == Action.RETRIEVE:
+    elif message_event.event_action == Action.RETRIEVE.value:
         return RetrieveEvent(
             uuid=uuid,
-            user_ss58_address=Ss58Address(data['user_ss58_address']),
-            input_params=data['input_params'],
-            input_signed_params=data['input_signed_params'],
+            user_ss58_address=user_ss58_address,
+            input_params=input_params,
+            input_signed_params=input_signed_params,
             validator_ss58_address=validator_ss58_address,
             event_params=event_params,
             event_signed_params=event_signed_params
         )
-    elif action == Action.VALIDATION:
+    elif message_event.event_action == Action.VALIDATION.value:
         return ValidateEvent(
             uuid=uuid,
             validator_ss58_address=validator_ss58_address,
@@ -145,4 +187,4 @@ def parse_event(action: Action, json_data: str) -> Event:
             event_signed_params=event_signed_params
         )
     else:
-        raise ValueError(f"Unknown action: {action}")
+        raise ValueError(f"Unknown action: {message_event.event_action}")

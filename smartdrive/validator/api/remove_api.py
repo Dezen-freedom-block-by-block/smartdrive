@@ -31,7 +31,7 @@ from communex.types import Ss58Address
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.database.database import Database
-from smartdrive.models.event import RemoveEvent, RemoveParams
+from smartdrive.models.event import RemoveEvent, RemoveParams, RemoveInputParams
 from smartdrive.validator.network.network import Network
 from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo
 
@@ -94,7 +94,7 @@ class RemoveAPI:
             event_params=event_params,
             event_signed_params=signed_params.hex(),
             user_ss58_address=user_ss58_address,
-            input_params={"file_uuid": file_uuid},
+            input_params=RemoveInputParams(file_uuid=file_uuid),
             input_signed_params=input_signed_params
         )
 

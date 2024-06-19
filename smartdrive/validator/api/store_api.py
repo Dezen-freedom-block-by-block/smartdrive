@@ -36,7 +36,7 @@ from communex.types import Ss58Address
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.database.database import Database
-from smartdrive.models.event import MinerProcess, StoreEvent, StoreParams
+from smartdrive.models.event import MinerProcess, StoreEvent, StoreParams, StoreInputParams
 from smartdrive.validator.models.models import MinerWithChunk
 from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo
 from smartdrive.validator.network.network import Network
@@ -174,7 +174,7 @@ async def store_new_file(
         event_params=event_params,
         event_signed_params=signed_params.hex(),
         user_ss58_address=user_ss58_address,
-        input_params={"file": calculate_hash(file_bytes)},
+        input_params=StoreInputParams(file=calculate_hash(file_bytes)),
         input_signed_params=input_signed_params
     )
 

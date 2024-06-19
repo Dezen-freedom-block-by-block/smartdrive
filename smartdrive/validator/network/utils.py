@@ -28,5 +28,4 @@ def send_json(sock, obj):
     msg = json.dumps(obj).encode('utf-8')
     msg_len = len(msg)
     packed_len = struct.pack('!I', msg_len)
-    print(packed_len)
     sock.sendall(packed_len + msg)

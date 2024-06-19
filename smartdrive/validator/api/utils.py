@@ -19,6 +19,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 import time
 
 from communex.client import CommuneClient
@@ -27,9 +28,8 @@ from substrateinterface import Keypair
 
 from smartdrive.commune.request import ModuleInfo, execute_miner_request, get_active_miners, ConnectionInfo
 from smartdrive.models.event import StoreEvent, Event, RemoveEvent, MinerProcess
-from smartdrive.validator.api.middleware.sign import verify_data_signature
+from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.database.database import Database
-from smartdrive.validator.models.block import Block
 from smartdrive.validator.models.models import MinerWithChunk, MinerWithSubChunk, Chunk, SubChunk, File
 
 
@@ -103,7 +103,6 @@ async def remove_chunk_request(keypair: Keypair, user_ss58_address: Ss58Address,
 
 
 async def process_events(events: list[Event], is_proposer_validator: bool, keypair: Keypair, comx_client: CommuneClient, netuid: int, database: Database):
-    # TODO: check result
     for event in events:
         if isinstance(event, StoreEvent):
             chunks = []
@@ -142,8 +141,12 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
                                                  succeed=True if result else False, processing_time=final_time)
                     miner_processes.append(miner_process)
 
+                # Since in the remove call processed by a validator it cannot finish completing the event_params
+                # (since it does not fill in the miners processes), the already signed event must be replaced with a new
+                # event in which the miner processes are added to the file_uuid parameter that already existed.
+                # Once the parameters of this event have been replaced, they must be signed again, thus replacing
+                # the validator's signature with that of the proposer.
                 event.event_params.miners_processes = miner_processes
-                # TODO: Emit event
-                #emit_event(event)
+                event.event_signed_params = sign_data(event.event_params.dict(), keypair).hex()
 
             database.remove_file(event.event_params.file_uuid)

@@ -99,7 +99,7 @@ class Validator(Module):
         self._key = classic_load_key(config.key)
         self._database = Database(config.database_file, config.database_export_file)
         self._comx_client = CommuneClient(url=get_node_url(use_testnet=self._config.testnet), num_connections=5)
-        self._network = Network(keypair=self._key, ip=self._config.ip, netuid=self._config.netuid, comx_client=self._comx_client, database=self._database)
+        self._network = Network(keypair=self._key, ip=self._config.ip, netuid=self._config.netuid, comx_client=self._comx_client, database=self._database, testnet=self._config.testnet)
         self.api = API(self._config, self._key, self._database, self._comx_client, self._network)
 
     async def validation_loop(self):
@@ -245,7 +245,8 @@ if __name__ == "__main__":
         await asyncio.gather(
             _validator.api.run_server(),
             _validator.initial_sync(),
-            _validator.validation_loop()
+            # _validator.validation_loop(),
+            _validator._network.create_blocks()
         )
 
     asyncio.run(run_tasks())
