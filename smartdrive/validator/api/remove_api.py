@@ -77,7 +77,7 @@ class RemoveAPI:
             raise HTTPException(status_code=404, detail="Currently there are no miners with this file name")
 
         # Get active miners
-        active_miners = await get_active_miners(self._key, self._comx_client, self._config.netuid)
+        active_miners = await get_active_miners(self._key, self._comx_client, self._config._netuid)
         if not active_miners:
             raise HTTPException(status_code=404, detail="Currently there are no active miners")
 

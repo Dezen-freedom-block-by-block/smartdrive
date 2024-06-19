@@ -76,12 +76,14 @@ class Client(multiprocessing.Process):
             raise ClientDisconnectedException(f"Lost {self.identifier}")
 
     def receive(self):
-        # Here the process is waiting till a new message is sended.
+        # Here the process is waiting till a new message is sent.
         msg = packing.receive_msg(self.client_socket)
-        process = multiprocessing.Process(target=self.process_message, args=(msg,))
+        # Although mempool is managed by multiprocessing.Manager(),
+        # we explicitly pass it as parameters to make it clear that it is dependency of the process_message process.
+        process = multiprocessing.Process(target=self.process_message, args=(msg, self.mempool,))
         process.start()
 
-    def process_message(self, msg):
+    def process_message(self, msg, mempool):
         body = msg["body"]
 
         try:
@@ -116,13 +118,13 @@ class Client(multiprocessing.Process):
 
                     block.events = processed_events
                     self.run_process_events(processed_events)
-                    self.remove_events(processed_events)
+                    self.remove_events(processed_events, mempool)
                     self.database.create_block(block=block)
 
                 elif body['code'] == MessageCode.MESSAGE_CODE_EVENT.value:
                     message_event = MessageEvent.from_json(body["data"]["event"], Action(body["data"]["event_action"]))
                     event = parse_event(message_event)
-                    self.mempool.append(event)
+                    mempool.append(event)
 
         except InvalidSignatureException as e:
             raise e
@@ -145,9 +147,9 @@ class Client(multiprocessing.Process):
         loop = asyncio.get_event_loop()
         loop.run_until_complete(_run_process_events())
 
-    def remove_events(self, events: List[Event]):
+    def remove_events(self, events: List[Event], mempool):
         uuids_to_remove = {event.uuid for event in events}
         with multiprocessing.Lock():
-            updated_mempool = [event for event in self.mempool if event.uuid not in uuids_to_remove]
-            self.mempool[:] = updated_mempool
+            updated_mempool = [event for event in mempool if event.uuid not in uuids_to_remove]
+            mempool[:] = updated_mempool
 

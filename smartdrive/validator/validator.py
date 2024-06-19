@@ -99,7 +99,7 @@ class Validator(Module):
         self._key = classic_load_key(config.key)
         self._database = Database(config.database_file, config.database_export_file)
         self._comx_client = CommuneClient(url=get_node_url(use_testnet=self._config.testnet), num_connections=5)
-        self._network = Network(keypair=self._key, ip=self._config.ip, netuid=self._config.netuid, comx_client=self._comx_client, database=self._database, testnet=self._config.testnet)
+        self._network = Network(keypair=self._key, ip=self._config.ip, netuid=self._config._netuid, comx_client=self._comx_client, database=self._database, testnet=self._config.testnet)
         self.api = API(self._config, self._key, self._database, self._comx_client, self._network)
 
     async def validation_loop(self):
@@ -120,7 +120,7 @@ class Validator(Module):
                 database=self._database,
                 key=self._key,
                 comx_client=self._comx_client,
-                netuid=self._config.netuid
+                netuid=self._config._netuid
             )
 
             if result is not None:
@@ -129,7 +129,7 @@ class Validator(Module):
 
             # Set weights to miners
             score_dict = {}
-            for miner in get_filtered_modules(self._comx_client, self._config.netuid, ModuleType.MINER):
+            for miner in get_filtered_modules(self._comx_client, self._config._netuid, ModuleType.MINER):
                 if miner.ss58_address == self._key.ss58_address:
                     continue
                 avg_miner_response_time = self._database.get_avg_miner_response_time(miner.ss58_address)
@@ -142,7 +142,7 @@ class Validator(Module):
                 print("Skipping set weights")
                 return
 
-            await set_weights(score_dict, self._config.netuid, self._comx_client, self._key, self._config.testnet)
+            await set_weights(score_dict, self._config._netuid, self._comx_client, self._key, self._config.testnet)
 
             elapsed = time.time() - start_time
 
@@ -156,7 +156,7 @@ class Validator(Module):
         Performs the initial synchronization by fetching database versions from active validators,
         selecting the validator with the highest version, downloading the database, and importing it.
         """
-        active_validators = await get_active_validators(self._key, self._comx_client, self._config.netuid)
+        active_validators = await get_active_validators(self._key, self._comx_client, self._config._netuid)
         active_validators = [validator for validator in active_validators if validator.ss58_address != self._key.ss58_address]
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:

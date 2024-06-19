@@ -61,7 +61,7 @@ class API:
         self.retrieve_api = RetrieveAPI(config, key, database, comx_client, network)
         self.remove_api = RemoveAPI(config, key, database, comx_client, network)
 
-        self.app.add_middleware(SubnetMiddleware, key=key, comx_client=comx_client, netuid=self._config.netuid)
+        self.app.add_middleware(SubnetMiddleware, key=key, comx_client=comx_client, netuid=self._config._netuid)
 
         self.app.add_api_route("/method/ping", self.ping_endpoint, methods=["POST"])
         self.app.add_api_route("/database-block", self.database_api.database_block_endpoint, methods=["GET"])

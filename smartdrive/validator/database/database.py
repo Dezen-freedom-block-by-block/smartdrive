@@ -22,15 +22,13 @@
 
 import re
 import os
-import uuid
-import time
 import tempfile
 import sqlite3
 import zipfile
 from typing import List, Optional
 from datetime import datetime, timedelta
 
-from smartdrive.models.event import StoreParams, RemoveParams, MinerProcess, StoreEvent, Event
+from smartdrive.models.event import MinerProcess, StoreEvent, Event
 from smartdrive.models.block import Block
 from smartdrive.validator.models.models import MinerWithChunk, SubChunk, File, Chunk
 

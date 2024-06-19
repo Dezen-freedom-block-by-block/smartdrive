@@ -51,25 +51,35 @@ class Node:
         self._connection_pool = ConnectionPool(cache_size=Server.MAX_N_CONNECTIONS)
         self._testnet = testnet
 
-        self._server_process = multiprocessing.Process(target=self.run_server, args=(self._mempool,))
+        # Although these variables are managed by multiprocessing.Manager(),
+        # we explicitly pass them as parameters to make it clear that they are dependencies of the server process.
+        self._server_process = multiprocessing.Process(target=self.run_server, args=(self._mempool, self._connection_pool,))
         self._server_process.start()
 
-    def run_server(self, mempool):
-        server = Server(self._ip, self._connection_pool, self._keypair, self._netuid, mempool, self._database, self._testnet)
+    def run_server(self, mempool, connection_pool: ConnectionPool):
+        server = Server(
+            mempool=mempool,
+            connection_pool=connection_pool,
+            bind_address=self._ip,
+            keypair=self._keypair,
+            netuid=self._netuid,
+            database=self._database,
+            testnet=self._testnet
+        )
         server.run()
 
-    def get_all_connections(self):
+    def get_connections(self):
         return self._connection_pool.get_all_connections()
 
-    def consume_mempool_items(self, count: int):
+    def get_mempool_events(self):
+        return list(self._mempool)
+
+    def consume_mempool_events(self, count: int):
         items = []
         with multiprocessing.Lock():
             for _ in range(min(count, len(self._mempool))):
                 items.append(self._mempool.pop(0))
         return items
 
-    def get_all_mempool_items(self):
-        return list(self._mempool)
-
-    def insert_event(self, event: Event):
+    def insert_mempool_event(self, event: Event):
         return self._mempool.append(event)

@@ -82,7 +82,7 @@ class Network:
                 block_number += 1
 
                 # Create and process block
-                block_events = self._node.consume_mempool_items(count=self.MAX_EVENTS_PER_BLOCK)
+                block_events = self._node.consume_mempool_events(count=self.MAX_EVENTS_PER_BLOCK)
                 block = Block(block_number=block_number, events=block_events, proposer_signature=Ss58Address(self._keypair.ss58_address))
                 print(f"Creating block - {block.block_number}")
                 await process_events(events=block_events, is_proposer_validator=True, keypair=self._keypair, comx_client=self._comx_client, netuid=self._netuid, database=self._database)
@@ -98,7 +98,7 @@ class Network:
                 await asyncio.sleep(sleep_time)
 
     async def send_block_to_validators(self, block: Block):
-        connections = self._node.get_all_connections()
+        connections = self._node.get_connections()
         if connections:
             block_event = block_to_block_event(block)
 
@@ -118,7 +118,7 @@ class Network:
                 send_json(c[ConnectionPool.CONNECTION], message)
 
     def emit_event(self, event: Event):
-        connections = self._node.get_all_connections()
+        connections = self._node.get_connections()
 
         message_event = MessageEvent.from_json(event.dict(), event.get_event_action())
         body = {
@@ -133,7 +133,7 @@ class Network:
             "public_key_hex": self._keypair.public_key.hex()
         }
 
-        self._node.insert_event(event)
+        self._node.insert_mempool_event(event)
 
         for c in connections:
             try:

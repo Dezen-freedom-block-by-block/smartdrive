@@ -84,7 +84,7 @@ class RetrieveAPI:
             print("Currently no miner has any chunk")
             raise HTTPException(status_code=404, detail="Currently no miner has any chunk")
 
-        active_miners = await get_active_miners(self._key, self._comx_client, self._config.netuid)
+        active_miners = await get_active_miners(self._key, self._comx_client, self._config._netuid)
         if not active_miners:
             print("Currently there are no active miners")
             raise HTTPException(status_code=404, detail="Currently there are no active miners")

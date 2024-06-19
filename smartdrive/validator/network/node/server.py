@@ -48,31 +48,30 @@ class Server(multiprocessing.Process):
     IDENTIFIER_TIMEOUT_SECONDS = 5
     TCP_PORT = 9001
 
-    def __init__(self, bind_address: str, connection_pool: ConnectionPool, keypair: Keypair, netuid: int, mempool, database: Database, testnet: bool):
+    def __init__(self, mempool, connection_pool: ConnectionPool, bind_address: str, keypair: Keypair, netuid: int, database: Database, testnet: bool):
         multiprocessing.Process.__init__(self)
-        self.bind_address = bind_address
-        self.netuid = netuid
+        self._bind_address = bind_address
+        self._netuid = netuid
         self._testnet = testnet
-        self.connection_pool = connection_pool
-        self.keypair = keypair
-        self.mempool = mempool
-        self.database = database
-        self.comx_client = CommuneClient(url=get_node_url(use_testnet=self._testnet))
+        self._connection_pool = connection_pool
+        self._keypair = keypair
+        self._mempool = mempool
+        self._database = database
+        self._comx_client = CommuneClient(url=get_node_url(use_testnet=self._testnet))
 
     def run(self):
         server_socket = None
 
         try:
-            self.initialize_validators()
-            self.start_check_connections_process()
+            self._start_check_connections_process()
             server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            server_socket.bind((self.bind_address, self.TCP_PORT))
+            server_socket.bind((self._bind_address, self.TCP_PORT))
             server_socket.listen(self.MAX_N_CONNECTIONS)
 
             while True:
                 client_socket, address = server_socket.accept()
-                process = multiprocessing.Process(target=self.handle_connection, args=(client_socket, address))
+                process = multiprocessing.Process(target=self._handle_connection, args=(self._connection_pool, self._mempool, client_socket, address))
                 process.start()
 
         except Exception as e:
@@ -81,12 +80,35 @@ class Server(multiprocessing.Process):
             if server_socket:
                 server_socket.close()
 
-    def initialize_validators(self, validators=None):
+    def _start_check_connections_process(self):
+        # Although these variables are managed by multiprocessing.Manager(),
+        # we explicitly pass them as parameters to make it clear that they are dependencies of the server process.
+        process = multiprocessing.Process(target=self._check_connections_process, args=(self._connection_pool, self._mempool,))
+        process.start()
+
+    def _check_connections_process(self, connection_pool: ConnectionPool, mempool):
+        while True:
+            validators = get_filtered_modules(self._comx_client, self._netuid, ModuleType.VALIDATOR)
+            active_ss58_addresses = {validator.ss58_address for validator in validators}
+            to_remove = [ss58_address for ss58_address in connection_pool.get_identifiers() if ss58_address not in active_ss58_addresses]
+            for ss58_address in to_remove:
+                removed_connection = connection_pool.remove_connection(ss58_address)
+                if removed_connection:
+                    removed_connection.close()
+
+            identifiers = connection_pool.get_identifiers()
+            new_validators = [validator for validator in validators if validator.ss58_address not in identifiers and validator.ss58_address != self._keypair.ss58_address]
+
+            self._initialize_validators(connection_pool, mempool, new_validators)
+
+            time.sleep(10)
+
+    def _initialize_validators(self, connection_pool: ConnectionPool, mempool, validators):
         # TODO: Each connection try in for loop should be async and we should wait for all of them
         try:
             if validators is None:
-                validators = get_filtered_modules(self.comx_client, self.netuid, ModuleType.VALIDATOR)
-                validators = [validator for validator in validators if validator.ss58_address != self.keypair.ss58_address]
+                validators = get_filtered_modules(self._comx_client, self._netuid, ModuleType.VALIDATOR)
+                validators = [validator for validator in validators if validator.ss58_address != self._keypair.ss58_address]
 
             for validator in validators:
                 validator_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -95,27 +117,27 @@ class Server(multiprocessing.Process):
                     validator_socket.connect((validator.connection.ip, validator.connection.port + 1000))
                     body = {
                         "code": MessageCode.MESSAGE_CODE_IDENTIFIER.value,
-                        "data": {"ss58_address": self.keypair.ss58_address}
+                        "data": {"ss58_address": self._keypair.ss58_address}
                     }
-                    body_sign = sign_data(body, self.keypair)
+                    body_sign = sign_data(body, self._keypair)
                     message = {
                         "body": body,
                         "signature_hex": body_sign.hex(),
-                        "public_key_hex": self.keypair.public_key.hex()
+                        "public_key_hex": self._keypair.public_key.hex()
                     }
                     send_json(validator_socket, message)
-                    self.connection_pool.add_connection(validator.ss58_address, validator_socket)
-                    client_receiver = Client(validator_socket, validator.ss58_address, self.connection_pool, self.mempool, self.keypair, self.comx_client, self.netuid, self.database)
+                    connection_pool.add_connection(validator.ss58_address, validator, validator_socket)
+                    client_receiver = Client(validator_socket, validator.ss58_address, connection_pool, mempool, self._keypair, self._comx_client, self._netuid, self._database)
                     client_receiver.start()
                     print(f"Validator {validator.ss58_address} connected and added to the pool.")
                 except Exception as e:
-                    self.connection_pool.remove_connection(validator.ss58_address)
+                    connection_pool.remove_connection(validator.ss58_address)
                     validator_socket.close()
                     print(f"Error connecting to validator {validator.ss58_address}: {e}")
         except Exception as e:
             print(f"Error initializing validators: {e}")
 
-    def handle_connection(self, client_socket, address):
+    def _handle_connection(self, connection_pool: ConnectionPool, mempool, client_socket, address):
         print("HANDLE CONNECTION")
         try:
             # Wait IDENTIFIER_TIMEOUT_SECONDS as maximum time to get the identifier message
@@ -137,25 +159,25 @@ class Server(multiprocessing.Process):
                 connection_identifier = identification_message["body"]["data"]["ss58_address"]
                 print(f"Connection reached {connection_identifier}")
 
-                if connection_identifier in self.connection_pool.get_identifiers():
+                if connection_identifier in connection_pool.get_identifiers():
                     print(f"Connection {connection_identifier} is already in the connection pool.")
                     return
 
-                if self.connection_pool.get_remaining_capacity() == 0:
+                if connection_pool.get_remaining_capacity() == 0:
                     print(f"Connection pool is full.")
                     client_socket.close()
                     return
 
-                validators = get_filtered_modules(self.comx_client, self.netuid, ModuleType.VALIDATOR)
+                validators = get_filtered_modules(self._comx_client, self._netuid, ModuleType.VALIDATOR)
 
                 if validators:
-                    is_connection_validator = next((validator for validator in validators if validator.ss58_address == connection_identifier), None)
+                    validator_connection = next((validator for validator in validators if validator.ss58_address == connection_identifier), None)
 
-                    if is_connection_validator:
-                        if self.connection_pool.get_remaining_capacity() > 0:
-                            self.connection_pool.add_connection(connection_identifier, client_socket)
-                            print(f"Connection added {connection_identifier}")
-                            client_receiver = Client(client_socket, connection_identifier, self.connection_pool, self.mempool, self.keypair, self.comx_client, self.netuid, self.database)
+                    if validator_connection:
+                        if connection_pool.get_remaining_capacity() > 0:
+                            connection_pool.add_connection(validator_connection.ss58_address, validator_connection, client_socket)
+                            print(f"Connection added {validator_connection}")
+                            client_receiver = Client(client_socket, connection_identifier, connection_pool, mempool, self._keypair, self._comx_client, self._netuid, self._database)
                             client_receiver.start()
                         else:
                             print(f"No space available in the connection pool for connection {connection_identifier}.")
@@ -173,23 +195,3 @@ class Server(multiprocessing.Process):
         except Exception as e:
             print(f"Error handling connection: {e}")
             client_socket.close()
-
-    def start_check_connections_process(self):
-        process = multiprocessing.Process(target=self.check_connections_process)
-        process.start()
-
-    def check_connections_process(self):
-        while True:
-            time.sleep(10)
-            validators = get_filtered_modules(self.comx_client, self.netuid, ModuleType.VALIDATOR)
-            active_ss58_addresses = {validator.ss58_address for validator in validators}
-            to_remove = [ss58_address for ss58_address in self.connection_pool.get_identifiers() if ss58_address not in active_ss58_addresses]
-            for ss58_address in to_remove:
-                removed_connection = self.connection_pool.remove_connection(ss58_address)
-                if removed_connection:
-                    removed_connection.close()
-
-            identifiers = self.connection_pool.get_identifiers()
-            new_validators = [validator for validator in validators if validator.ss58_address not in identifiers and validator.ss58_address != self.keypair.ss58_address]
-
-            self.initialize_validators(new_validators)
