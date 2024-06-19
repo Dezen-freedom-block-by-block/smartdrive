@@ -31,7 +31,7 @@ from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.api.utils import process_events
 from smartdrive.validator.database.database import Database
-from smartdrive.models.block import Block, BlockEvent, block_event_to_block
+from smartdrive.models.block import BlockEvent, block_event_to_block
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.util import packing
 from smartdrive.validator.network.node.util.exceptions import MessageException, ClientDisconnectedException, MessageFormatException, InvalidSignatureException

@@ -607,7 +607,7 @@ class Database:
                 connection.close()
 
     def create_block(self, block: Block) -> bool:
-        print("----- CREATING BLOCK DATABASE------")
+        print(f"Creating block database - {block.block_number}")
         connection = None
         try:
             connection = sqlite3.connect(self._database_file_path)

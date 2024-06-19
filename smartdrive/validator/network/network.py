@@ -78,6 +78,7 @@ class Network:
             if proposer_validator.ss58_address != proposer_active_validator.ss58_address:
                 ping_validator = await ping_proposer_validator(self._keypair, proposer_validator)
                 if not ping_validator:
+                    block_number = self._database.get_database_block()
                     proposer_validator = proposer_active_validator
 
             if proposer_validator.ss58_address == self._keypair.ss58_address:
