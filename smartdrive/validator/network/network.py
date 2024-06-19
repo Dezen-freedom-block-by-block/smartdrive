@@ -85,9 +85,8 @@ class Network:
 
                 # Create and process block
                 block_events = self._node.consume_mempool_items(count=self.MAX_EVENTS_PER_BLOCK)
-                print(f"BLOCK EVENTS -> {block_events} ")
                 block = Block(block_number=block_number, events=block_events, proposer_signature=Ss58Address(self._keypair.ss58_address))
-                print(f"Creating block - {block}")
+                print(f"Creating block - {block.block_number}")
                 await process_events(events=block_events, is_proposer_validator=True, keypair=self._keypair, comx_client=self._comx_client, netuid=self._netuid, database=self._database)
                 self._database.create_block(block=block)
 
@@ -117,39 +116,24 @@ class Network:
                 "public_key_hex": self._keypair.public_key.hex()
             }
 
-            print(f"Emit block to validators: {message}")
-
             for c in connections:
                 send_json(c[ConnectionPool.CONNECTION], message)
 
     def emit_event(self, event: Event):
         connections = self._node.get_all_connections()
-        print("START EMIT EVENT")
-        print(event)
 
-        print("--------------")
-        print("--------------")
-        print(event.dict())
-        print("++++++++++++++")
-        print("++++++++++++++")
+        message_event = MessageEvent.from_json(event.dict(), event.get_event_action())
         body = {
             "code": MessageCode.MESSAGE_CODE_EVENT.value,
-            "data": MessageEvent(
-                event_action=event.get_event_action(),
-                event=event.dict()
-            ).dict()
+            "data": message_event.dict()
         }
 
-        print(body)
         body_sign = sign_data(body, self._keypair)
         message = {
             "body": body,
             "signature_hex": body_sign.hex(),
             "public_key_hex": self._keypair.public_key.hex()
         }
-
-        print("END EMIT EVENT")
-        print(message)
 
         self._node.insert_event(event)
 

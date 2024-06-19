@@ -39,7 +39,7 @@ class BlockEvent(Block):
 def block_to_block_event(block: Block) -> BlockEvent:
     return BlockEvent(
         block_number=block.block_number,
-        events=list(map(lambda event: MessageEvent(event_action=event.get_event_action(), event=event), block.events)),
+        events=list(map(lambda event: MessageEvent.from_json(event.dict(), event.get_event_action()), block.events)),
         proposer_signature=block.proposer_signature
     )
 

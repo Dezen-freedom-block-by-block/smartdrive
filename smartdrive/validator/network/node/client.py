@@ -77,13 +77,10 @@ class Client(multiprocessing.Process):
     def receive(self):
         # Here the process is waiting till a new message is sended.
         msg = packing.receive_msg(self.client_socket)
-        print(f"Message received")
         process = multiprocessing.Process(target=self.process_message, args=(msg,))
         process.start()
 
     def process_message(self, msg):
-        print("PROCESS MESSAGE")
-        print(msg)
         body = msg["body"]
 
         try:
@@ -97,10 +94,12 @@ class Client(multiprocessing.Process):
                 if not is_verified_signature:
                     raise InvalidSignatureException()
 
-                message = None
-
                 if body['code'] == MessageCode.MESSAGE_CODE_BLOCK.value:
-                    block_event = BlockEvent(**body["data"])
+                    block_event = BlockEvent(
+                        block_number=body["data"]["block_number"],
+                        events=list(map(lambda event: MessageEvent.from_json(event["event"], Action(event["event_action"])), body["data"]["events"])),
+                        proposer_signature=body["data"]["proposer_signature"]
+                    )
                     block = block_event_to_block(block_event)
 
                     processed_events = []
@@ -115,26 +114,14 @@ class Client(multiprocessing.Process):
                             processed_events.append(event)
 
                     block.events = processed_events
-                    print(f"EVENTS PROCESSED -> {processed_events}")
-                    asyncio.run_coroutine_threadsafe(
-                        process_events(
-                            events=processed_events,
-                            is_proposer_validator=False,
-                            keypair=self.keypair,
-                            comx_client=self.comx_client,
-                            netuid=self.netuid,
-                            database=self.database
-                        ), asyncio.get_event_loop()
-                    )
+                    self.run_process_events(processed_events)
                     self.database.create_block(block=block)
 
-            elif body['code'] == MessageCode.MESSAGE_CODE_EVENT.value:
-                print(f"LLEGA UN MESSAGE CODE EVENT - {body['data']}")
-                print(f"CODE ACTION -> {Action(body['data']['event_action'])}")
-                message_event = MessageEvent(event_action=Action(body["data"]["event_action"]), event=body["data"]["event"])
-                message = parse_event(message_event)
+                elif body['code'] == MessageCode.MESSAGE_CODE_EVENT.value:
+                    message_event = MessageEvent.from_json(body["data"]["event"], Action(body["data"]["event_action"]))
+                    message = parse_event(message_event)
 
-                self.mempool.append(message)
+                    self.mempool.append(message)
 
         except InvalidSignatureException as e:
             raise e
@@ -142,3 +129,17 @@ class Client(multiprocessing.Process):
         except Exception as e:
             print(e)
             raise MessageFormatException('%s' % e)
+
+    def run_process_events(self, processed_events):
+        async def _run_process_events():
+            await process_events(
+                events=processed_events,
+                is_proposer_validator=False,
+                keypair=self.keypair,
+                comx_client=self.comx_client,
+                netuid=self.netuid,
+                database=self.database
+            )
+
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(_run_process_events())

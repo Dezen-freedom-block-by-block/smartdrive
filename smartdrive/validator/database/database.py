@@ -659,9 +659,8 @@ class Database:
         event_id = cursor.lastrowid
 
         # Insert miner processes if applicable
-        if isinstance(event.event_params, StoreParams) or isinstance(event.event_params, RemoveParams):
-            for miner_process in event.event_params.miners_processes:
-                self._insert_miner_process(cursor, miner_process, event_id)
+        for miner_process in event.event_params.miners_processes:
+            self._insert_miner_process(cursor, miner_process, event_id)
 
     def _insert_miner_process(self, cursor, miner_process: MinerProcess, event_id: int) -> bool:
         try:

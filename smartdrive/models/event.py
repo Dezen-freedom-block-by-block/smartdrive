@@ -22,7 +22,7 @@
 
 from enum import Enum
 from typing import List, Optional, Union
-from pydantic import BaseModel, root_validator, model_validator
+from pydantic import BaseModel
 
 from communex.types import Ss58Address
 
@@ -124,6 +124,21 @@ class MessageEvent(BaseModel):
     class Config:
         use_enum_values = True
 
+    @classmethod
+    def from_json(cls, data: dict, event_action: Action):
+        if event_action == Action.STORE:
+            event = StoreEvent(**data)
+        elif event_action == Action.REMOVE:
+            event = RemoveEvent(**data)
+        elif event_action == Action.RETRIEVE:
+            event = RetrieveEvent(**data)
+        elif event_action == Action.VALIDATION:
+            event = ValidateEvent(**data)
+        else:
+            raise ValueError(f"Unknown action: {event_action}")
+
+        return cls(event_action=event_action, event=event)
+
 
 def parse_event(message_event: MessageEvent) -> Event:
     uuid = message_event.event.uuid
@@ -133,8 +148,6 @@ def parse_event(message_event: MessageEvent) -> Event:
     event_signed_params = message_event.event.event_signed_params
     input_params = message_event.event.input_params
     input_signed_params = message_event.event.input_signed_params
-
-    print(f"EVENT ACTIONNNN ES -> {message_event.event_action}")
 
     if message_event.event_action == Action.STORE.value:
         return StoreEvent(
