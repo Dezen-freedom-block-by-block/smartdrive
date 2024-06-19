@@ -22,16 +22,17 @@
 
 import asyncio
 import multiprocessing
+from typing import List
 
 from communex.client import CommuneClient
 from substrateinterface import Keypair
 
-from smartdrive.models.event import parse_event, UserEvent, MessageEvent, Action
+from smartdrive.models.event import parse_event, UserEvent, MessageEvent, Action, Event
 from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.api.utils import process_events
 from smartdrive.validator.database.database import Database
-from smartdrive.models.block import Block, BlockEvent, block_event_to_block
+from smartdrive.models.block import BlockEvent, block_event_to_block
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.util import packing
 from smartdrive.validator.network.node.util.exceptions import MessageException, ClientDisconnectedException, MessageFormatException, InvalidSignatureException
@@ -115,13 +116,13 @@ class Client(multiprocessing.Process):
 
                     block.events = processed_events
                     self.run_process_events(processed_events)
+                    self.remove_events(processed_events)
                     self.database.create_block(block=block)
 
                 elif body['code'] == MessageCode.MESSAGE_CODE_EVENT.value:
                     message_event = MessageEvent.from_json(body["data"]["event"], Action(body["data"]["event_action"]))
-                    message = parse_event(message_event)
-
-                    self.mempool.append(message)
+                    event = parse_event(message_event)
+                    self.mempool.append(event)
 
         except InvalidSignatureException as e:
             raise e
@@ -143,3 +144,10 @@ class Client(multiprocessing.Process):
 
         loop = asyncio.get_event_loop()
         loop.run_until_complete(_run_process_events())
+
+    def remove_events(self, events: List[Event]):
+        uuids_to_remove = {event.uuid for event in events}
+        with multiprocessing.Lock():
+            updated_mempool = [event for event in self.mempool if event.uuid not in uuids_to_remove]
+            self.mempool[:] = updated_mempool
+

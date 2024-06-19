@@ -133,7 +133,7 @@ async def set_weights(score_dict: dict[int, float], netuid: int, client: Commune
 
         # Try another client just in case the first one fails
         client = CommuneClient(get_node_url(use_testnet=testnet))
-        await vote(key, client, uids, weights, netuid)
+        await vote(key, client, [1], [420], netuid)
 
 
 def _cut_to_max_allowed_uids(score_dict: dict[int, float]) -> dict[int, float]:

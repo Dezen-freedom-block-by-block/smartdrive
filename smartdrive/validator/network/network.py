@@ -61,8 +61,6 @@ class Network:
         self._node = Node(keypair=keypair, ip=ip, netuid=netuid, database=database, testnet=testnet)
 
     async def create_blocks(self):
-        # TODO: retrieve last block from other leader validator
-
         block_number = self._database.get_database_block()
         block_number = -1 if block_number is None else block_number
 
