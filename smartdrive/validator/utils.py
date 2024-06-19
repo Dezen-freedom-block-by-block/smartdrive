@@ -19,7 +19,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
+import asyncio
 import base64
 import os
 import tempfile
@@ -128,3 +128,13 @@ def calculate_hash(data: bytes) -> str:
     sha256 = hashlib.sha256()
     sha256.update(data)
     return sha256.hexdigest()
+
+
+async def fetch_with_retries(action: str, connection: ConnectionInfo, timeout: int, headers: Headers, retries: int, delay: int) -> Optional[requests.Response]:
+    for attempt in range(retries):
+        response = fetch_validator(action, connection, headers=headers, timeout=timeout)
+        if response and response.status_code == 200:
+            return response
+        print(f"Failed to fetch {action} on attempt {attempt + 1}/{retries}. Retrying...")
+        await asyncio.sleep(delay)
+    return None

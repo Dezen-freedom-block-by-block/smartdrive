@@ -26,8 +26,6 @@ import argparse
 import time
 import asyncio
 import tempfile
-import concurrent.futures
-import multiprocessing
 import zipfile
 from substrateinterface import Keypair
 
@@ -44,9 +42,9 @@ from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.network.network import Network
 from smartdrive.validator.step import validate_step
-from smartdrive.validator.utils import extract_sql_file, fetch_validator
+from smartdrive.validator.utils import extract_sql_file, fetch_with_retries
 from smartdrive.validator.api.middleware.sign import sign_data
-from smartdrive.commune.request import (get_modules, get_active_validators, ConnectionInfo, get_filtered_modules)
+from smartdrive.commune.request import (get_modules, ConnectionInfo, get_filtered_modules, get_truthful_validators)
 
 
 def get_config():
@@ -84,6 +82,9 @@ class Validator(Module):
     ITERATION_INTERVAL = 60
     MAX_EVENTS_PER_BLOCK = 25
     BLOCK_INTERVAL = 12
+
+    MAX_RETRIES = 3
+    RETRY_DELAY = 5
 
     _config = None
     _key: Keypair = None
@@ -153,22 +154,23 @@ class Validator(Module):
 
     async def initial_sync(self):
         """
-        Performs the initial synchronization by fetching database versions from active validators,
+        Performs the initial synchronization by fetching database versions from truthful active validators,
         selecting the validator with the highest version, downloading the database, and importing it.
         """
-        active_validators = await get_active_validators(self._key, self._comx_client, self._config.netuid)
-        active_validators = [validator for validator in active_validators if validator.ss58_address != self._key.ss58_address]
+        active_validators = await get_truthful_validators(self._key, self._comx_client, self._config.netuid)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
-            headers = create_headers(sign_data({}, self._key), self._key)
-            futures = [
-                executor.submit(fetch_validator, "database-block", validator.connection, 10, headers)
-                for validator in active_validators
-            ]
-            answers = [future.result() for future in concurrent.futures.as_completed(futures)]
+        if not active_validators:
+            # Retry once more if no active validators are found initially
+            active_validators = await get_truthful_validators(self._key, self._comx_client, self._config.netuid)
 
+        if not active_validators:
+            return
+
+        headers = create_headers(sign_data({}, self._key), self._key)
         active_validators_database = []
-        for response, validator in zip(answers, active_validators):
+
+        for validator in active_validators:
+            response = await fetch_with_retries("database-block", validator.connection, headers=headers, timeout=30, retries=self.MAX_RETRIES, delay=self.RETRY_DELAY)
             if response and response.status_code == 200:
                 try:
                     active_validators_database.append({
@@ -182,42 +184,42 @@ class Validator(Module):
                     })
                 except Exception as e:
                     print(e)
-                    pass
+                    continue
 
         if not active_validators_database:
             return
 
-        max_database_block = max(obj["database_block"] for obj in active_validators_database)
-        max_block_validators = [
-            obj for obj in active_validators_database
-            if obj["database_block"] == max_database_block
-        ]
-        validator = max_block_validators[0]
+        while active_validators_database:
+            validator = max(active_validators_database, key=lambda obj: obj["database_block"])
 
-        connection = ConnectionInfo(validator["connection"]["ip"], validator["connection"]["port"])
-        headers = create_headers(sign_data({}, self._key), self._key)
-        answer = fetch_validator("database", connection, headers=headers)
+            connection = ConnectionInfo(validator["connection"]["ip"], validator["connection"]["port"])
+            headers = create_headers(sign_data({}, self._key), self._key)
+            answer = await fetch_with_retries("database", connection, headers=headers, timeout=30, retries=self.MAX_RETRIES, delay=self.RETRY_DELAY)
 
-        if answer and answer.status_code == 200:
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_zip:
-                temp_zip.write(answer.content)
-                temp_zip_path = temp_zip.name
+            if answer and answer.status_code == 200:
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_zip:
+                    temp_zip.write(answer.content)
+                    temp_zip_path = temp_zip.name
 
-            if zipfile.is_zipfile(temp_zip_path):
-                sql_file_path = extract_sql_file(temp_zip_path)
-                if sql_file_path:
-                    self._database.import_database(sql_file_path)
-                    os.remove(temp_zip_path)
-                    os.remove(sql_file_path)
+                if zipfile.is_zipfile(temp_zip_path):
+                    sql_file_path = extract_sql_file(temp_zip_path)
+                    if sql_file_path:
+                        self._database.import_database(sql_file_path)
+                        os.remove(temp_zip_path)
+                        os.remove(sql_file_path)
+                        return
+                    else:
+                        print("Failed to extract SQL file.")
+                        os.remove(temp_zip_path)
                 else:
-                    print("Failed to extract SQL file.")
+                    print("The downloaded file is not a valid ZIP file.")
                     os.remove(temp_zip_path)
             else:
-                print("The downloaded file is not a valid ZIP file.")
-                os.remove(temp_zip_path)
-        else:
-            print("Failed to fetch the database.")
-            return None
+                print("Failed to fetch the database, trying the next validator.")
+                active_validators_database.remove(validator)
+
+        print("No more validators available.")
+        return
 
 
 if __name__ == "__main__":
@@ -242,9 +244,9 @@ if __name__ == "__main__":
     _validator = Validator(config)
 
     async def run_tasks():
+        await _validator.initial_sync()
         await asyncio.gather(
             _validator.api.run_server(),
-            _validator.initial_sync(),
             # _validator.validation_loop(),
             _validator._network.create_blocks()
         )

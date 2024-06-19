@@ -63,11 +63,11 @@ class Network:
     async def create_blocks(self):
         # TODO: retrieve last block from other leader validator
 
-        block_number = self._database.get_database_block()
-        block_number = -1 if block_number is None else block_number
-
         while True:
             start_time = time.time()
+
+            block_number = self._database.get_database_block()
+            block_number = -1 if block_number is None else block_number
 
             truthful_validators = await get_truthful_validators(self._keypair, self._comx_client, self._netuid)
             all_validators = get_filtered_modules(self._comx_client, self._netuid, ModuleType.VALIDATOR)
@@ -78,7 +78,6 @@ class Network:
             if proposer_validator.ss58_address != proposer_active_validator.ss58_address:
                 ping_validator = await ping_proposer_validator(self._keypair, proposer_validator)
                 if not ping_validator:
-                    block_number = self._database.get_database_block()
                     proposer_validator = proposer_active_validator
 
             if proposer_validator.ss58_address == self._keypair.ss58_address:
