@@ -182,6 +182,7 @@ def get_filtered_modules(comx_client: CommuneClient, netuid: int, type: ModuleTy
     """
     result = []
 
+    # TODO: Remove mocked module info
     if type == ModuleType.VALIDATOR:
         return [ModuleInfo(uid="2", ss58_address="5FHeUvUwYKZFFimywMpGtFs7WBErgs2oDdkjnspqSLE3Fjn7",
                            connection=ConnectionInfo(ip="127.0.0.1", port=8001), incentives=0, dividends=0,
