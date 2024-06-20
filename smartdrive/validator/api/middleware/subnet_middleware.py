@@ -21,6 +21,8 @@
 # SOFTWARE.
 import json
 from urllib.parse import parse_qs
+
+from communex.compat.key import classic_load_key
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
@@ -34,6 +36,7 @@ from communex.client import CommuneClient
 from communex.types import Ss58Address
 
 from smartdrive.validator.api.middleware.sign import verify_data_signature
+from smartdrive.validator.config import config_manager
 from smartdrive.validator.utils import calculate_hash
 
 Callback = Callable[[Request], Awaitable[Response]]
@@ -41,11 +44,14 @@ exclude_paths = ["/method/ping"]
 
 
 class SubnetMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: ASGIApp, key: Keypair, comx_client: CommuneClient, netuid: int):
+
+    _comx_client: CommuneClient = None
+    _key: Keypair = None
+
+    def __init__(self, app: ASGIApp, comx_client: CommuneClient):
         super().__init__(app)
-        self._key = key
         self._comx_client = comx_client
-        self._netuid = netuid
+        self._key = classic_load_key(config_manager.config.key)
 
     async def dispatch(self, request: Request, call_next: Callback) -> Response:
         def unauthorized_response(detail: str) -> JSONResponse:
@@ -68,7 +74,7 @@ class SubnetMiddleware(BaseHTTPMiddleware):
         if not ss58_address:
             return unauthorized_response("Not a valid public key provided")
 
-        staketo_modules = self._comx_client.get_staketo(ss58_address, self._netuid)
+        staketo_modules = self._comx_client.get_staketo(ss58_address, config_manager.config.netuid)
         if not staketo_modules.keys():
             return unauthorized_response("You must stake to at least one active validator in the subnet")
 

@@ -25,16 +25,17 @@ import random
 import time
 import base64
 import uuid
-
-from substrateinterface import Keypair
 from typing import Optional
+from substrateinterface import Keypair
 from fastapi import Form, UploadFile, HTTPException, Request
 
+from communex.compat.key import classic_load_key
 from communex.client import CommuneClient
 from communex.types import Ss58Address
 
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
+from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.models.event import MinerProcess, StoreEvent, StoreParams, StoreInputParams
 from smartdrive.validator.models.models import MinerWithChunk
@@ -44,18 +45,16 @@ from smartdrive.validator.utils import calculate_hash
 
 
 class StoreAPI:
-    _config = None
-    _key: Keypair = None
-    _database: Database = None
     _comx_client: CommuneClient = None
     _network: Network = None
+    _key: Keypair = None
+    _database: Database = None
 
-    def __init__(self, config, key, database, comx_client, network: Network):
-        self._config = config
-        self._key = key
-        self._database = database
+    def __init__(self, comx_client, network: Network):
         self._comx_client = comx_client
         self._network = network
+        self._key = classic_load_key(config_manager.config.key)
+        self._database = Database()
 
     async def store_endpoint(self, request: Request, file: UploadFile = Form(...)):
         """
@@ -75,7 +74,7 @@ class StoreAPI:
         user_ss58_address = get_ss58_address_from_public_key(user_public_key)
         file_bytes = await file.read()
 
-        active_miners = await get_active_miners(self._key, self._comx_client, self._config.netuid)
+        active_miners = await get_active_miners(self._key, self._comx_client, config_manager.config.netuid)
 
         if not active_miners:
             raise HTTPException(status_code=404, detail="Currently there are no active miners")
@@ -125,7 +124,7 @@ async def store_new_file(
     # TODO: Split in chunks
     # TODO: Don't use base64, file need be transferred directly.
     # TODO: Set max length for sub_chunk
-    # TODO: Don't store sub_chunk info in params must be store in MineProcess one the split system it's complete
+    # TODO: Don't store sub_chunk info in params must be stored in MineProcess once the split system it's completed
     miners_processes = []
 
     file_encoded = base64.b64encode(file_bytes).decode("utf-8")

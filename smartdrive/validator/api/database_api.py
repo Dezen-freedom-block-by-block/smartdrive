@@ -24,22 +24,22 @@ from fastapi import HTTPException
 from substrateinterface import Keypair
 from starlette.responses import FileResponse
 
+from communex.compat.key import classic_load_key
 from communex.client import CommuneClient
 
+from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 
 
 class DatabaseAPI:
-    _config = None
+    _comx_client: CommuneClient = None
     _key: Keypair = None
     _database: Database = None
-    _comx_client: CommuneClient = None
 
-    def __init__(self, config, key, database, comx_client):
-        self._config = config
-        self._key = key
-        self._database = database
+    def __init__(self, comx_client):
         self._comx_client = comx_client
+        self._key = classic_load_key(config_manager.config.key)
+        self._database = Database()
 
     def database_block_endpoint(self):
         """

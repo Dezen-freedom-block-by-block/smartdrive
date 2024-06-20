@@ -22,14 +22,17 @@
 
 import asyncio
 import multiprocessing
+from typing import List
 
+from communex._common import get_node_url
 from communex.client import CommuneClient
-from substrateinterface import Keypair
+from communex.compat.key import classic_load_key
 
-from smartdrive.models.event import parse_event, UserEvent, MessageEvent, Action
+from smartdrive.models.event import parse_event, UserEvent, MessageEvent, Action, Event
 from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.api.utils import process_events
+from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.models.block import BlockEvent, block_event_to_block
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
@@ -40,16 +43,15 @@ from smartdrive.validator.network.node.util.message_code import MessageCode
 
 class Client(multiprocessing.Process):
 
-    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, mempool, keypair: Keypair, comx_client: CommuneClient, netuid: int, database: Database):
+    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, mempool):
         multiprocessing.Process.__init__(self)
         self.client_socket = client_socket
         self.identifier = identifier
         self.connection_pool = connection_pool
         self.mempool = mempool
-        self.keypair = keypair
-        self.comx_client = comx_client
-        self.netuid = netuid
-        self.database = database
+        self.keypair = classic_load_key(config_manager.config.key)
+        self.comx_client = CommuneClient(url=get_node_url(use_testnet=config_manager.config.testnet))
+        self.database = Database()
 
     def run(self):
         try:
@@ -75,12 +77,14 @@ class Client(multiprocessing.Process):
             raise ClientDisconnectedException(f"Lost {self.identifier}")
 
     def receive(self):
-        # Here the process is waiting till a new message is sended.
+        # Here the process is waiting till a new message is sent.
         msg = packing.receive_msg(self.client_socket)
-        process = multiprocessing.Process(target=self.process_message, args=(msg,))
+        # Although mempool is managed by multiprocessing.Manager(),
+        # we explicitly pass it as parameters to make it clear that it is dependency of the process_message process.
+        process = multiprocessing.Process(target=self.process_message, args=(msg, self.mempool,))
         process.start()
 
-    def process_message(self, msg):
+    def process_message(self, msg, mempool):
         body = msg["body"]
 
         try:
@@ -115,13 +119,13 @@ class Client(multiprocessing.Process):
 
                     block.events = processed_events
                     self.run_process_events(processed_events)
+                    self.remove_events(processed_events, mempool)
                     self.database.create_block(block=block)
 
                 elif body['code'] == MessageCode.MESSAGE_CODE_EVENT.value:
                     message_event = MessageEvent.from_json(body["data"]["event"], Action(body["data"]["event_action"]))
-                    message = parse_event(message_event)
-
-                    self.mempool.append(message)
+                    event = parse_event(message_event)
+                    mempool.append(event)
 
         except InvalidSignatureException as e:
             raise e
@@ -137,9 +141,16 @@ class Client(multiprocessing.Process):
                 is_proposer_validator=False,
                 keypair=self.keypair,
                 comx_client=self.comx_client,
-                netuid=self.netuid,
+                netuid=config_manager.config.netuid,
                 database=self.database
             )
 
         loop = asyncio.get_event_loop()
         loop.run_until_complete(_run_process_events())
+
+    def remove_events(self, events: List[Event], mempool):
+        uuids_to_remove = {event.uuid for event in events}
+        with multiprocessing.Lock():
+            updated_mempool = [event for event in mempool if event.uuid not in uuids_to_remove]
+            mempool[:] = updated_mempool
+

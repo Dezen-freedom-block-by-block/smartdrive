@@ -22,14 +22,15 @@
 
 import uvicorn
 import os
+
+from communex._common import get_node_url
 from fastapi import FastAPI
-from substrateinterface import Keypair
 
 from communex.client import CommuneClient
 
 import smartdrive
 from smartdrive.validator.api.middleware.subnet_middleware import SubnetMiddleware
-from smartdrive.validator.database.database import Database
+from smartdrive.validator.config import config_manager
 from smartdrive.validator.api.retrieve_api import RetrieveAPI
 from smartdrive.validator.api.remove_api import RemoveAPI
 from smartdrive.validator.api.store_api import StoreAPI
@@ -39,29 +40,23 @@ from smartdrive.validator.network.network import Network
 
 class API:
     app = FastAPI()
-    _config = None
-    _key: Keypair = None
-    _database: Database = None
-    _comx_client: CommuneClient = None
     _network: Network = None
+    _comx_client: CommuneClient = None
 
     store_api: StoreAPI = None
     retrieve_api: RetrieveAPI = None
     remove_api: RemoveAPI = None
 
-    def __init__(self, config, key: Keypair, database: Database, comx_client: CommuneClient, network: Network):
-        self._config = config
-        self._key = key
-        self._database = database
-        self._comx_client = comx_client
+    def __init__(self, network: Network):
         self._network = network
+        self._comx_client = CommuneClient(url=get_node_url(use_testnet=config_manager.config.testnet), num_connections=10)
 
-        self.database_api = DatabaseAPI(config, key, database, comx_client)
-        self.store_api = StoreAPI(config, key, database, comx_client, network)
-        self.retrieve_api = RetrieveAPI(config, key, database, comx_client, network)
-        self.remove_api = RemoveAPI(config, key, database, comx_client, network)
+        self.database_api = DatabaseAPI(comx_client=self._comx_client)
+        self.store_api = StoreAPI(comx_client=self._comx_client, network=network)
+        self.retrieve_api = RetrieveAPI(comx_client=self._comx_client, network=network)
+        self.remove_api = RemoveAPI(comx_client=self._comx_client, network=network)
 
-        self.app.add_middleware(SubnetMiddleware, key=key, comx_client=comx_client, netuid=self._config.netuid)
+        self.app.add_middleware(SubnetMiddleware, comx_client=self._comx_client)
 
         self.app.add_api_route("/method/ping", self.ping_endpoint, methods=["POST"])
         self.app.add_api_route("/database-block", self.database_api.database_block_endpoint, methods=["GET"])
@@ -79,7 +74,7 @@ class API:
         and on the port specified in the instance configuration.
         """
         dir = os.path.dirname(os.path.abspath(__file__))
-        config = uvicorn.Config(self.app, host="0.0.0.0", port=self._config.port, ssl_keyfile=f"{dir}/cert/key.pem", ssl_certfile=f"{dir}/cert/cert.pem", log_level="info")
+        config = uvicorn.Config(self.app, host="0.0.0.0", port=config_manager.config.port, ssl_keyfile=f"{dir}/cert/key.pem", ssl_certfile=f"{dir}/cert/cert.pem", log_level="info")
         server = uvicorn.Server(config)
         await server.serve()
 

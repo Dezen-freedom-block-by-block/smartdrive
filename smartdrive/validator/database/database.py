@@ -22,16 +22,15 @@
 
 import re
 import os
-import uuid
-import time
 import tempfile
 import sqlite3
 import zipfile
 from typing import List, Optional
 from datetime import datetime, timedelta
 
-from smartdrive.models.event import StoreParams, RemoveParams, MinerProcess, StoreEvent, Event
+from smartdrive.models.event import MinerProcess, StoreEvent, Event
 from smartdrive.models.block import Block
+from smartdrive.validator.config import config_manager
 from smartdrive.validator.models.models import MinerWithChunk, SubChunk, File, Chunk
 
 from communex.types import Ss58Address
@@ -41,7 +40,7 @@ class Database:
     _database_file_path = None
     _database_export_file_path = None
 
-    def __init__(self, database_file_path: str, database_export_file_path: str):
+    def __init__(self):
         """
         Initialize the DatabaseManager and create the database schema if it does not exist.
 
@@ -49,15 +48,11 @@ class Database:
         and creates the necessary tables in the database if they do not already exist. It also sets
         the SQLite auto vacuum mode to FULL.
 
-        Params:
-            database_file_path (str): The file path to the main database file.
-            database_export_file_path (str): The file path to the database export file.
-
         Raises:
             sqlite3.Error: If there is an error creating the database tables.
         """
-        self._database_file_path = database_file_path
-        self._database_export_file_path = database_export_file_path
+        self._database_file_path = config_manager.config.database_file
+        self._database_export_file_path = config_manager.config.database_export_file
 
         if not self._database_exists():
             connection = sqlite3.connect(self._database_file_path)

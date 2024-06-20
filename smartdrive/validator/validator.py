@@ -26,6 +26,8 @@ import argparse
 import time
 import asyncio
 import tempfile
+import concurrent.futures
+import multiprocessing
 import zipfile
 from substrateinterface import Keypair
 
@@ -36,23 +38,24 @@ from communex.compat.key import classic_load_key
 
 import smartdrive
 from smartdrive.commune.module._protocol import create_headers
+from smartdrive.validator.config import Config, config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.api.api import API
 from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.network.network import Network
 from smartdrive.validator.step import validate_step
-from smartdrive.validator.utils import extract_sql_file, fetch_with_retries
+from smartdrive.validator.utils import extract_sql_file, fetch_validator
 from smartdrive.validator.api.middleware.sign import sign_data
-from smartdrive.commune.request import (get_modules, ConnectionInfo, get_filtered_modules, get_truthful_validators)
+from smartdrive.commune.request import (get_modules, get_active_validators, ConnectionInfo, get_filtered_modules)
 
 
-def get_config():
+def get_config() -> Config:
     """
     Parse params and prepare config object.
 
     Returns:
-        dict: Nested config object created from parser arguments.
+        Config: Config object created from parser arguments.
     """
     path = os.path.abspath(__file__)
     db_path = os.path.join(os.path.dirname(path), "database")
@@ -65,43 +68,47 @@ def get_config():
     parser.add_argument("--port", type=int, default=8001, required=False, help="Default remote api port.")
     parser.add_argument("--testnet", action='store_true', help="Use testnet or not.")
 
-    config = parser.parse_args()
-    config.netuid = smartdrive.TESTNET_NETUID if config.testnet else smartdrive.NETUID
+    args = parser.parse_args()
+    args.netuid = smartdrive.TESTNET_NETUID if args.testnet else smartdrive.NETUID
 
-    if config.database_path:
-        os.makedirs(config.database_path, exist_ok=True)
+    if args.database_path:
+        os.makedirs(args.database_path, exist_ok=True)
 
-    config.database_path = os.path.expanduser(config.database_path)
-    config.database_file = os.path.join(config.database_path, "smartdrive.db")
-    config.database_export_file = os.path.join(config.database_path, "export.zip")
+    args.database_path = os.path.expanduser(args.database_path)
 
-    return config
+    _config = Config(
+        key=args.key,
+        name=args.name,
+        database_path=args.database_path,
+        port=args.port,
+        testnet=args.testnet,
+        netuid=args.netuid
+    )
+
+    return _config
 
 
 class Validator(Module):
     ITERATION_INTERVAL = 60
     MAX_EVENTS_PER_BLOCK = 25
     BLOCK_INTERVAL = 12
-
     MAX_RETRIES = 3
     RETRY_DELAY = 5
 
-    _config = None
     _key: Keypair = None
     _database: Database = None
     api: API = None
     _comx_client: CommuneClient = None
     _network: Network = None
 
-    def __init__(self, config):
+    def __init__(self):
         super().__init__()
 
-        self._config = config
         self._key = classic_load_key(config.key)
-        self._database = Database(config.database_file, config.database_export_file)
-        self._comx_client = CommuneClient(url=get_node_url(use_testnet=self._config.testnet), num_connections=5)
-        self._network = Network(keypair=self._key, ip=self._config.ip, netuid=self._config.netuid, comx_client=self._comx_client, database=self._database, testnet=self._config.testnet)
-        self.api = API(self._config, self._key, self._database, self._comx_client, self._network)
+        self._database = Database()
+        self._comx_client = CommuneClient(url=get_node_url(use_testnet=config_manager.config.testnet), num_connections=5)
+        self._network = Network()
+        self.api = API(self._network)
 
     async def validation_loop(self):
         """
@@ -121,7 +128,7 @@ class Validator(Module):
                 database=self._database,
                 key=self._key,
                 comx_client=self._comx_client,
-                netuid=self._config.netuid
+                netuid=config_manager.config.netuid
             )
 
             if result is not None:
@@ -130,7 +137,7 @@ class Validator(Module):
 
             # Set weights to miners
             score_dict = {}
-            for miner in get_filtered_modules(self._comx_client, self._config.netuid, ModuleType.MINER):
+            for miner in get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.MINER):
                 if miner.ss58_address == self._key.ss58_address:
                     continue
                 avg_miner_response_time = self._database.get_avg_miner_response_time(miner.ss58_address)
@@ -143,7 +150,7 @@ class Validator(Module):
                 print("Skipping set weights")
                 return
 
-            await set_weights(score_dict, self._config.netuid, self._comx_client, self._key, self._config.testnet)
+            await set_weights(score_dict, config_manager.config.netuid, self._comx_client, self._key, config_manager.config.testnet)
 
             elapsed = time.time() - start_time
 
@@ -152,7 +159,7 @@ class Validator(Module):
                 print(f"Sleeping for {sleep_time}")
                 await asyncio.sleep(sleep_time)
 
-    async def initial_sync(self):
+async def initial_sync(self):
         """
         Performs the initial synchronization by fetching database versions from truthful active validators,
         selecting the validator with the highest version, downloading the database, and importing it.
@@ -224,24 +231,28 @@ class Validator(Module):
 
 if __name__ == "__main__":
     config = get_config()
-    _comx_client = CommuneClient(get_node_url(use_testnet=config.testnet))
-    key = classic_load_key(config.key)
-    registered_modules = get_modules(_comx_client, config.netuid)
+    config_manager.initialize(config)
+
+    _comx_client = CommuneClient(get_node_url(use_testnet=config_manager.config.testnet))
+    key = classic_load_key(config_manager.config.key)
+    registered_modules = get_modules(_comx_client, config_manager.config.netuid)
 
     if key.ss58_address in [module.ss58_address for module in registered_modules]:
         nat_type, external_ip, external_port = stun.get_ip_info()
+
+        config_manager.config.ip = "127.0.0.1"
+
         _comx_client.update_module(
             key=key,
-            name=config.name,
-            address=f"127.0.0.1:{config.port}",
-            netuid=config.netuid
+            name=config_manager.config.name,
+            address=f"{config_manager.config.ip}:{config_manager.config.port}",
+            netuid=config_manager.config.netuid
         )
-        config.ip = "127.0.0.1"
     else:
         raise Exception(f"Your key: {key.ss58_address} is not registered.")
 
     # Using an underscore to prevent naming conflicts with other variables later used named 'validator'
-    _validator = Validator(config)
+    _validator = Validator()
 
     async def run_tasks():
         await _validator.initial_sync()
