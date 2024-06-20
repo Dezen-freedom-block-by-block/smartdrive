@@ -109,7 +109,9 @@ class Database:
 
                 create_block_table = '''
                     CREATE TABLE block (
-                        id BIGINT PRIMARY KEY
+                        id BIGINT PRIMARY KEY,
+                        proposer_ss58_address TEXT,
+                        proposer_signature TEXT
                     )
                 '''
 
@@ -591,7 +593,7 @@ class Database:
                 connection.execute('BEGIN TRANSACTION')
 
                 # Insert block
-                cursor.execute('INSERT INTO block (id) VALUES (?)', (block.block_number,))
+                cursor.execute('INSERT INTO block (id, proposer_ss58_address, proposer_signature) VALUES (?, ?, ?)', (block.block_number, block.proposer_ss58_address, block.proposer_signature))
 
                 # Insert events and associated miner processes
                 for event in block.events:
