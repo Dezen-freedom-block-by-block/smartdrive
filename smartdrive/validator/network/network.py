@@ -81,7 +81,7 @@ class Network:
 
                 # Create and process block
                 block_events = self._node.consume_pool_events(count=self.MAX_EVENTS_PER_BLOCK)
-                proposer_signature = sign_data({"block_number": block_number, "events": block_events}, self._keypair)
+                proposer_signature = sign_data({"block_number": block_number, "events": [event.dict() for event in block_events]}, self._keypair)
                 block = Block(
                     block_number=block_number,
                     events=block_events,
