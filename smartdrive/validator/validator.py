@@ -158,6 +158,7 @@ class Validator(Module):
         selecting the validator with the highest version, downloading the database, and importing it.
         """
         active_validators = await get_truthful_validators(self._key, self._comx_client, self._config.netuid)
+        block_number = self._database.get_database_block() or -1
 
         if not active_validators:
             # Retry once more if no active validators are found initially
@@ -191,6 +192,10 @@ class Validator(Module):
 
         while active_validators_database:
             validator = max(active_validators_database, key=lambda obj: obj["database_block"])
+
+            if block_number > validator["database_block"]:
+                print("Skipping database import... you have a larger version")
+                return
 
             connection = ConnectionInfo(validator["connection"]["ip"], validator["connection"]["port"])
             headers = create_headers(sign_data({}, self._key), self._key)
@@ -247,7 +252,7 @@ if __name__ == "__main__":
         await _validator.initial_sync()
         await asyncio.gather(
             _validator.api.run_server(),
-            # _validator.validation_loop(),
+            _validator.validation_loop(),
             _validator._network.create_blocks()
         )
 
