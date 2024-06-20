@@ -91,6 +91,8 @@ class Validator(Module):
     MAX_EVENTS_PER_BLOCK = 25
     BLOCK_INTERVAL = 12
 
+    DAYS_INTERVAL = 14
+
     MAX_RETRIES = 3
     RETRY_DELAY = 5
 
@@ -140,11 +142,15 @@ class Validator(Module):
             for miner in get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.MINER):
                 if miner.ss58_address == self._key.ss58_address:
                     continue
-                avg_miner_response_time = self._database.get_avg_miner_response_time(miner.ss58_address)
-                successful_store_responses, total_store_responses = self._database.get_successful_responses_and_total(miner.ss58_address, "store")
-                successful_responses, total_responses = self._database.get_successful_responses_and_total(miner.ss58_address)
-
-                score_dict[int(miner.uid)] = score_miner(successful_store_responses, total_store_responses, avg_miner_response_time, successful_responses, total_responses)
+                total_calls, failed_calls, avg_response_time = self._database.get_miner_processes(
+                    miner_ss58_address=miner.ss58_address,
+                    days_interval=self.DAYS_INTERVAL
+                )
+                score_dict[int(miner.uid)] = score_miner(
+                    total_calls=total_calls,
+                    failed_calls=failed_calls,
+                    avg_response_time=avg_response_time
+                )
 
             if not score_dict:
                 print("Skipping set weights")

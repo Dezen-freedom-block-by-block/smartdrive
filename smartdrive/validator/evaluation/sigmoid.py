@@ -26,6 +26,8 @@ def threshold_sigmoid_reward_distribution(score_dict: dict[int, float]) -> dict[
     """
     Adjusts the distribution of scores, such that the best miners are rewarded significantly more than the rest.
 
+    Miners without a score (score = 0) will receive an adjusted score of 0.
+
     Params:
         score_dict (dict[int, float]): A dictionary mapping miner UIDs to their scores.
 
@@ -47,10 +49,13 @@ def threshold_sigmoid_reward_distribution(score_dict: dict[int, float]) -> dict[
 
     # Calculate the adjusted scores using the sigmoid function
     adjusted_scores: dict[int, float] = {}
-    for model_id, score in score_dict.items():
-        normalized_score = (score - threshold) * steepness
-        reward_ratio = _sigmoid(normalized_score)
-        adjusted_score = low_reward + (high_reward - low_reward) * reward_ratio
-        adjusted_scores[model_id] = adjusted_score
+    for uuid, score in score_dict.items():
+        if score == 0:
+            adjusted_scores[uuid] = 0
+        else:
+            normalized_score = (score - threshold) * steepness
+            reward_ratio = _sigmoid(normalized_score)
+            adjusted_score = low_reward + (high_reward - low_reward) * reward_ratio
+            adjusted_scores[uuid] = adjusted_score
 
     return adjusted_scores

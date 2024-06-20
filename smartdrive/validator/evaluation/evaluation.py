@@ -32,44 +32,58 @@ from smartdrive.validator.evaluation.sigmoid import threshold_sigmoid_reward_dis
 
 # TODO: Set with the subnet production value
 MAX_ALLOWED_WEIGHTS = 420
+MIN_ALLOWED_WEIGHTS = 40
 MAX_ALLOWED_UIDS = 820
-MAX_RESPONSE_TIME = 8
 
 # Miner weights
-DISK_WEIGHT = 0.5
-SPEED_WEIGHT = 0.15
-SUCCESS_WEIGHT = 0.35
+RESPONSE_TIME_WEIGHT = 0.2
+FAILURE_WEIGHT = 0.8
+EXCESS_TIME_PENALTY_WEIGHT = 0.015
+MAX_RESPONSE_TIME = 8
 
 
-def score_miner(successful_store_responses: int, total_store_responses: int, avg_response_time: float, successful_responses: int, total_responses: int) -> float:
+def score_miner(total_calls: int, failed_calls: int, avg_response_time: float) -> float:
     """
-    Calculate the score for a miner based on successful store responses, average response time, and overall success rate.
+    Calculate the score for a miner based on the number of total calls, failed responses, and average response time.
 
     Params:
-        successful_store_responses (int): The number of successful 'store' responses with code 200.
-        total_store_responses (int): The total number of 'store' responses.
-        avg_response_time (float | None): The average response time of the miner (in seconds).
-        successful_responses (int): The number of successful responses with code 200.
-        total_responses (int): The total number of responses.
+        total_calls (int): The total number of calls made.
+        failed_responses (int): The number of failed responses.
+        avg_response_time (float): The average response time of the miner (in seconds).
 
     Returns:
         float: The calculated score for the miner.
     """
-    # Normalize success store responses
-    normalized_store_responses = 0 if total_store_responses == 0 else min(successful_store_responses / total_store_responses, 1)
+    # Ensure total_calls is not zero to avoid division by zero
+    if total_calls == 0:
+        return 0
 
-    # Normalize response time (inverted, since lower time is better)
-    normalized_response_time = 0 if avg_response_time is None else (1 - min(avg_response_time / MAX_RESPONSE_TIME, 1))
+    # Initialize score
+    score = 1
 
-    # Normalize success responses
-    normalized_success_responses = 0 if total_responses == 0 else min(successful_responses / total_responses, 1)
+    # Calculate failure ratio
+    failure_ratio = failed_calls / total_calls
 
-    # Calculate weighted score
-    score = (
-        (normalized_store_responses * DISK_WEIGHT) +
-        (normalized_response_time * SPEED_WEIGHT) +
-        (normalized_success_responses * SUCCESS_WEIGHT)
+    # If failure ratio is 1 or greater, score should be 0
+    if failure_ratio >= 1:
+        return 0
+
+    # Normalize average response time
+    normalized_avg_time = max(0, min(1, 1 - (avg_response_time / MAX_RESPONSE_TIME)))
+
+    # Calculate excess time penalty
+    excess_time_penalty = max(0, avg_response_time - MAX_RESPONSE_TIME)
+
+    # Combine failure ratio, normalized average response time, and excess time penalty into the final score
+    combined_penalty = (
+            (failure_ratio * FAILURE_WEIGHT) +
+            ((1 - normalized_avg_time) * RESPONSE_TIME_WEIGHT) +
+            (excess_time_penalty * EXCESS_TIME_PENALTY_WEIGHT)
     )
+    score -= combined_penalty
+
+    # Ensure the score is between 0 and 1
+    score = max(0, min(score, 1))
 
     return score
 
@@ -89,6 +103,7 @@ def score_miner(successful_store_responses: int, total_store_responses: int, avg
 # HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 
 async def set_weights(score_dict: dict[int, float], netuid: int, client: CommuneClient, key: Keypair, testnet: bool = False):
     """
@@ -111,12 +126,12 @@ async def set_weights(score_dict: dict[int, float], netuid: int, client: Commune
     scores = sum(adjusted_to_sigmoid.values())
 
     # Iterate over the items in the score_dict
-    for uid, score in adjusted_to_sigmoid.items():
-        # Calculate the normalized weight as an integer
-        weight = int(score * MAX_ALLOWED_WEIGHTS / scores)
-
-        # Add the weighted evaluation to the new dictionary
-        weighted_scores[uid] = weight
+    if scores == 0:
+        for uid, score in adjusted_to_sigmoid.items():
+            weighted_scores[uid] = int(MIN_ALLOWED_WEIGHTS / len(adjusted_to_sigmoid))
+    else:
+        for uid, score in adjusted_to_sigmoid.items():
+            weighted_scores[uid] = int(score * MAX_ALLOWED_WEIGHTS / scores)
 
     # filter out 0 weights
     weighted_scores = {k: v for k, v in weighted_scores.items() if v != 0}
@@ -133,7 +148,7 @@ async def set_weights(score_dict: dict[int, float], netuid: int, client: Commune
 
         # Try another client just in case the first one fails
         client = CommuneClient(get_node_url(use_testnet=testnet))
-        await vote(key, client, [1], [420], netuid)
+        await vote(key, client, uids, weights, netuid)
 
 
 def _cut_to_max_allowed_uids(score_dict: dict[int, float]) -> dict[int, float]:

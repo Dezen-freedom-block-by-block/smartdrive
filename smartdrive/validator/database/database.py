@@ -24,6 +24,7 @@ import re
 import os
 import tempfile
 import sqlite3
+import time
 import zipfile
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -31,6 +32,7 @@ from datetime import datetime, timedelta
 from smartdrive.models.event import MinerProcess, StoreEvent, Event
 from smartdrive.models.block import Block
 from smartdrive.validator.config import config_manager
+from smartdrive.validator.evaluation.evaluation import MAX_RESPONSE_TIME
 from smartdrive.validator.models.models import MinerWithChunk, SubChunk, File, Chunk
 
 from communex.types import Ss58Address
@@ -138,7 +140,8 @@ class Database:
                         succeed BOOLEAN,
                         processing_time REAL,
                         event_id INTEGER NOT NULL,
-                        FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (event_id) REFERENCES events(uuid) ON DELETE CASCADE
                     )
                 '''
 
@@ -525,78 +528,55 @@ class Database:
 
         return True
 
-    def get_successful_responses_and_total(self, miner_ss58_address: Ss58Address, action: str = None,
-                                           days_interval: int = 7) -> tuple:
+    def get_miner_processes(self, miner_ss58_address: str, days_interval=None) -> tuple:
         """
-        Get the number of successful 'store' responses and the total number of successful responses for a given miner.
+        Retrieve the total number of calls and the number of failed calls in a given time period of a miner.
 
         Params:
-            miner_ss58_address (int): The Ss58address of the miner.
-            action (str, optional): The action to filter responses ('store' or None). Defaults to None.
+            miner_ss58_address (str): Ss58address of the miner.
+            days_interval (int, optional): The number of days to look back from the current time.
+                                           If None, retrieves all records.
 
         Returns:
-            tuple: A tuple containing the number of successful 'store' responses and the total number of responses.
+            tuple: A tuple with failed calls, total calls and average time response.
         """
+        # Calculate the time range based on the days_interval
+        end_time = datetime.now()
+        start_time = None
+
+        if days_interval is not None:
+            start_time = end_time - timedelta(days=days_interval)
+
+        # Build the query
+        query = """
+        SELECT COUNT(*) as total_calls, 
+               SUM(CASE WHEN succeed = 0 THEN 1 ELSE 0 END) as failed_calls,
+               AVG(processing_time) as avg_response_time
+        FROM miner_processes
+        WHERE miner_ss58_address = ?
+        """
+        params = [miner_ss58_address]
+
+        if start_time is not None:
+            query += " AND timestamp BETWEEN ? AND ?"
+            params.extend([start_time, end_time])
+
         connection = None
         try:
             connection = sqlite3.connect(self._database_file_path)
             cursor = connection.cursor()
 
-            if action is None:
-                first_condition = "COUNT(CASE WHEN succeed = 1 THEN 1 END)"
-                second_condition = "COUNT(*)"
-                params = (miner_ss58_address,)
-            elif action == "store":
-                time_limit = datetime.now() - timedelta(days=days_interval)
-                first_condition = "COUNT(CASE WHEN action = 'store' AND succeed = 1 AND timestamp >= ? THEN 1 END)"
-                second_condition = "COUNT(CASE WHEN action = 'store' AND timestamp >= ? THEN 1 END)"
-                params = (time_limit, time_limit, miner_ss58_address,)
-            cursor.execute(f'''
-                SELECT 
-                    {first_condition} AS successful_store_responses,
-                    {second_condition} AS total_store_responses
-                FROM miner_response
-                WHERE miner_ss58_address = ?
-            ''', params)
-
-            successful_responses, total_responses = cursor.fetchone()
-
-            return successful_responses, total_responses
-
-        except sqlite3.Error as e:
-            print(f"Database error: {e}")
-            return 0, 0
-        finally:
-            if connection:
-                connection.close()
-
-    def get_avg_miner_response_time(self, miner_ss58_address: Ss58Address) -> float:
-        """
-        Get the average response time for a given miner.
-
-        Params:
-            miner_ss58_address (str): The Ss58address of the miner.
-
-        Returns:
-            float: The average response time for the miner, or 0 if there is an error or no data is available.
-        """
-        connection = None
-        try:
-            connection = sqlite3.connect(self._database_file_path)
-            cursor = connection.cursor()
-
-            cursor.execute('''
-                SELECT AVG(time)
-                FROM miner_response
-                WHERE miner_ss58_address = ?
-            ''', (miner_ss58_address,))
-
+            cursor.execute(query, params)
             result = cursor.fetchone()
-            return result[0] if result else None
 
+            total_calls = result[0] if result[0] is not None else 0
+            failed_calls = result[1] if result[1] is not None else 0
+            avg_response_time = result[2] if result[2] is not None else MAX_RESPONSE_TIME
+
+            return total_calls, failed_calls, avg_response_time
         except sqlite3.Error as e:
             print(f"Database error: {e}")
-            return 0
+            return 0, 0, MAX_RESPONSE_TIME
         finally:
             if connection:
                 connection.close()
