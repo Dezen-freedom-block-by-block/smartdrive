@@ -108,7 +108,7 @@ class Client(multiprocessing.Process):
                     block = block_event_to_block(block_event)
 
                     if not verify_data_signature(
-                            data={"block_number": block.block_number, "events": block.events},
+                            data={"block_number": block.block_number, "events": [event.dict() for event in block.events]},
                             signature_hex=block.proposer_signature,
                             ss58_address=block.proposer_ss58_address
                     ):
