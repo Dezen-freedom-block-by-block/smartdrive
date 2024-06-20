@@ -26,8 +26,6 @@ import argparse
 import time
 import asyncio
 import tempfile
-import concurrent.futures
-import multiprocessing
 import zipfile
 from substrateinterface import Keypair
 
@@ -45,10 +43,9 @@ from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.network.network import Network
 from smartdrive.validator.step import validate_step
-from smartdrive.validator.utils import extract_sql_file, fetch_validator, fetch_with_retries
+from smartdrive.validator.utils import extract_sql_file, fetch_with_retries
 from smartdrive.validator.api.middleware.sign import sign_data
-from smartdrive.commune.request import (get_modules, get_active_validators, ConnectionInfo, get_filtered_modules,
-                                        get_truthful_validators)
+from smartdrive.commune.request import (get_modules, ConnectionInfo, get_filtered_modules, get_truthful_validators)
 
 
 def get_config() -> Config:
@@ -93,9 +90,11 @@ class Validator(Module):
     ITERATION_INTERVAL = 60
     MAX_EVENTS_PER_BLOCK = 25
     BLOCK_INTERVAL = 12
+
     MAX_RETRIES = 3
     RETRY_DELAY = 5
 
+    _config = None
     _key: Keypair = None
     _database: Database = None
     api: API = None
@@ -166,6 +165,7 @@ class Validator(Module):
         selecting the validator with the highest version, downloading the database, and importing it.
         """
         active_validators = await get_truthful_validators(self._key, self._comx_client, config_manager.config.netuid)
+        block_number = self._database.get_database_block() or -1
 
         if not active_validators:
             # Retry once more if no active validators are found initially
@@ -199,6 +199,10 @@ class Validator(Module):
 
         while active_validators_database:
             validator = max(active_validators_database, key=lambda obj: obj["database_block"])
+
+            if block_number > validator["database_block"]:
+                print("Skipping database import... you have a larger version")
+                return
 
             connection = ConnectionInfo(validator["connection"]["ip"], validator["connection"]["port"])
             headers = create_headers(sign_data({}, self._key), self._key)
@@ -259,7 +263,7 @@ if __name__ == "__main__":
         await _validator.initial_sync()
         await asyncio.gather(
             _validator.api.run_server(),
-            # _validator.validation_loop(),
+            _validator.validation_loop(),
             _validator._network.create_blocks()
         )
 

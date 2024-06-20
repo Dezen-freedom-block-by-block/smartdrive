@@ -63,8 +63,7 @@ class Network:
         while True:
             start_time = time.time()
 
-            block_number = self._database.get_database_block()
-            block_number = -1 if block_number is None else block_number
+            block_number = self._database.get_database_block() or -1
 
 
             truthful_validators = await get_truthful_validators(self._keypair, self._comx_client, config_manager.config.netuid)
