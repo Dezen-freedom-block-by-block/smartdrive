@@ -21,7 +21,6 @@
 # SOFTWARE.
 
 import os
-import stun
 import argparse
 import time
 import asyncio
@@ -62,8 +61,9 @@ def get_config() -> Config:
     parser = argparse.ArgumentParser(description="Configure the validator.")
     parser.add_argument("--key", required=True, help="Name of key.")
     parser.add_argument("--name", required=True, help="Name of validator.")
+    parser.add_argument("--ip", type=str, required=True, help="Default public IP.")
     parser.add_argument("--database_path", default=db_path, required=False, help="Path to the database.")
-    parser.add_argument("--port", type=int, default=8001, required=False, help="Default remote api port.")
+    parser.add_argument("--port", type=int, default=8001, required=False, help="Default remote API port.")
     parser.add_argument("--testnet", action='store_true', help="Use testnet or not.")
 
     args = parser.parse_args()
@@ -78,6 +78,7 @@ def get_config() -> Config:
         key=args.key,
         name=args.name,
         database_path=args.database_path,
+        ip=args.ip,
         port=args.port,
         testnet=args.testnet,
         netuid=args.netuid
@@ -245,18 +246,7 @@ if __name__ == "__main__":
     key = classic_load_key(config_manager.config.key)
     registered_modules = get_modules(_comx_client, config_manager.config.netuid)
 
-    if key.ss58_address in [module.ss58_address for module in registered_modules]:
-        nat_type, external_ip, external_port = stun.get_ip_info()
-
-        config_manager.config.ip = external_ip
-
-        _comx_client.update_module(
-            key=key,
-            name=config_manager.config.name,
-            address=f"{config_manager.config.ip}:{config_manager.config.port}",
-            netuid=config_manager.config.netuid
-        )
-    else:
+    if key.ss58_address not in [module.ss58_address for module in registered_modules]:
         raise Exception(f"Your key: {key.ss58_address} is not registered.")
 
     # Using an underscore to prevent naming conflicts with other variables later used named 'validator'

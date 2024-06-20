@@ -22,7 +22,6 @@
 
 import time
 import uuid
-import stun
 import shutil
 
 import argparse
@@ -253,16 +252,7 @@ if __name__ == "__main__":
     key = classic_load_key(config.key)
     registered_modules = get_modules(comx_client, config.netuid)
 
-    if key.ss58_address in list(map(lambda module: module.ss58_address, registered_modules)):
-        nat_type, external_ip, external_port = stun.get_ip_info()
-        comx_client.update_module(
-            key=key,
-            name=config.name,
-            address=f"127.0.0.1:{config.port}",
-            netuid=config.netuid
-        )
-
-    else:
+    if key.ss58_address not in list(map(lambda module: module.ss58_address, registered_modules)):
         raise Exception(f"Your key: {key.ss58_address} is not registered.")
 
     dir = os.path.dirname(os.path.abspath(__file__))
