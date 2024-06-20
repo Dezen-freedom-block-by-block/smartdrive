@@ -88,7 +88,7 @@ class StoreAPI:
         )
 
         # Emit event
-        self._network.emit_event(store_event)
+        self._network.send_event_to_validators(store_event)
 
         # Return response
         succeeded_responses = list(filter(lambda miner_process: miner_process.succeed, store_event.event_params.miners_processes))

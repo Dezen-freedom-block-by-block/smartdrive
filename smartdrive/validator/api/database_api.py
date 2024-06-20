@@ -41,17 +41,6 @@ class DatabaseAPI:
         self._key = classic_load_key(config_manager.config.key)
         self._database = Database()
 
-    def database_block_endpoint(self):
-        """
-        Retrieves the current version of the database.
-
-        Returns:
-            dict: A dictionary containing the database version with the key 'version'.
-                  The value is the latest version number as an integer, or None if the version
-                  could not be retrieved.
-        """
-        return {"block": self._database.get_database_block()}
-
     def database_endpoint(self):
         """
            Retrieves the current version of the database as a ZIP file.
@@ -65,3 +54,37 @@ class DatabaseAPI:
             return FileResponse(database_zip_path, filename="export.zip")
         else:
             raise HTTPException(status_code=500, detail="Could not export the database.")
+
+    def database_block_number_endpoint(self):
+        """
+        Retrieves the current version of the database.
+
+        Returns:
+            dict: A dictionary containing the database version with the key 'version'.
+                  The value is the latest version number as an integer, or None if the version
+                  could not be retrieved.
+        """
+        return {"block": self._database.get_last_block()}
+
+    def database_blocks_endpoints(self, start, end):
+        """
+        Retrieves a range of blocks from start to end.
+
+        Parameters:
+            start (int): The starting block number.
+            end (int): The ending block number.
+
+        Returns:
+            dict: A dictionary containing the list of blocks.
+
+        Raises:
+            HTTPException: If blocks could not be retrieved from the database.
+        """
+        if start > end:
+            raise HTTPException(status_code=400, detail=f"Invalid range: start ({start}) must be less than end ({end}).")
+
+        blocks = self._database.get_blocks(start, end)
+        if blocks:
+            return {"blocks": blocks}
+        else:
+            raise HTTPException(status_code=409, detail=f"Could not export the specified range of blocks ({start},{end}).")

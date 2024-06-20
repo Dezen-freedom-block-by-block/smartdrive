@@ -93,9 +93,6 @@ class Validator(Module):
 
     DAYS_INTERVAL = 14
 
-    MAX_RETRIES = 3
-    RETRY_DELAY = 5
-
     _config = None
     _key: Keypair = None
     _database: Database = None
@@ -171,7 +168,7 @@ class Validator(Module):
         selecting the validator with the highest version, downloading the database, and importing it.
         """
         active_validators = await get_truthful_validators(self._key, self._comx_client, config_manager.config.netuid)
-        block_number = self._database.get_database_block() or -1
+        block_number = self._database.get_last_block() or 0
 
         if not active_validators:
             # Retry once more if no active validators are found initially
@@ -184,7 +181,7 @@ class Validator(Module):
         active_validators_database = []
 
         for validator in active_validators:
-            response = await fetch_with_retries("database-block", validator.connection, headers=headers, timeout=30, retries=self.MAX_RETRIES, delay=self.RETRY_DELAY)
+            response = await fetch_with_retries("block-number", validator.connection, params=None, headers=headers, timeout=30)
             if response and response.status_code == 200:
                 try:
                     active_validators_database.append({
@@ -212,7 +209,7 @@ class Validator(Module):
 
             connection = ConnectionInfo(validator["connection"]["ip"], validator["connection"]["port"])
             headers = create_headers(sign_data({}, self._key), self._key)
-            answer = await fetch_with_retries("database", connection, headers=headers, timeout=30, retries=self.MAX_RETRIES, delay=self.RETRY_DELAY)
+            answer = await fetch_with_retries("database", connection, headers=headers, params=None, timeout=30)
 
             if answer and answer.status_code == 200:
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_zip:

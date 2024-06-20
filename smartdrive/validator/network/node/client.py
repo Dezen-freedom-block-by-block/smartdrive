@@ -28,63 +28,76 @@ from communex._common import get_node_url
 from communex.client import CommuneClient
 from communex.compat.key import classic_load_key
 
-from smartdrive.models.event import parse_event, UserEvent, MessageEvent, Action, Event
-from smartdrive.validator.api.middleware.sign import verify_data_signature
+from smartdrive.commune.module._protocol import create_headers
+from smartdrive.commune.request import get_truthful_validators
+from smartdrive.models.event import parse_event, MessageEvent, Action, Event
+from smartdrive.validator.api.middleware.sign import verify_data_signature, sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.api.utils import process_events
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
-from smartdrive.models.block import BlockEvent, block_event_to_block
+from smartdrive.models.block import BlockEvent, block_event_to_block, Block
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.util import packing
+from smartdrive.validator.network.node.util.authority import are_all_block_events_valid, remove_invalid_block_events
 from smartdrive.validator.network.node.util.exceptions import MessageException, ClientDisconnectedException, MessageFormatException, InvalidSignatureException
 from smartdrive.validator.network.node.util.message_code import MessageCode
+from smartdrive.validator.utils import fetch_with_retries
 
 
 class Client(multiprocessing.Process):
+    _client_socket = None
+    _identifier: str = None
+    _connection_pool = None
+    _event_pool = None
+    _keypair = None
+    _comx_client = None
+    _database = None
 
-    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, mempool):
+    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, event_pool):
         multiprocessing.Process.__init__(self)
-        self.client_socket = client_socket
-        self.identifier = identifier
-        self.connection_pool = connection_pool
-        self.mempool = mempool
-        self.keypair = classic_load_key(config_manager.config.key)
-        self.comx_client = CommuneClient(url=get_node_url(use_testnet=config_manager.config.testnet))
-        self.database = Database()
+        self._client_socket = client_socket
+        self._identifier = identifier
+        self._connection_pool = connection_pool
+        self._event_pool = event_pool
+        self._keypair = classic_load_key(config_manager.config.key)
+        self._comx_client = CommuneClient(url=get_node_url(use_testnet=config_manager.config.testnet))
+        self._database = Database()
 
     def run(self):
         try:
-            self.handle_client()
+            self._handle_client()
         except ClientDisconnectedException:
-            print(f"Removing connection from connection pool: {self.identifier}")
-            removed_connection = self.connection_pool.remove_connection(self.identifier)
+            print(f"Removing connection from connection pool: {self._identifier}")
+            removed_connection = self._connection_pool.remove_connection(self._identifier)
             if removed_connection:
                 removed_connection.close()
 
-    def handle_client(self):
+    def _handle_client(self):
         try:
             while True:
-                self.receive()
+                self._receive()
         except InvalidSignatureException:
             print("Received invalid sign")
         except (MessageException, MessageFormatException):
-            print(f"Received undecodable or invalid message: {self.identifier}")
+            print(f"Received undecodable or invalid message: {self._identifier}")
         except (ConnectionResetError, ConnectionAbortedError, ClientDisconnectedException):
-            print(f"Client disconnected': {self.identifier}")
+            print(f"Client disconnected': {self._identifier}")
         finally:
-            self.client_socket.close()
-            raise ClientDisconnectedException(f"Lost {self.identifier}")
+            self._client_socket.close()
+            raise ClientDisconnectedException(f"Lost {self._identifier}")
 
-    def receive(self):
+    def _receive(self):
         # Here the process is waiting till a new message is sent.
-        msg = packing.receive_msg(self.client_socket)
+        msg = packing.receive_msg(self._client_socket)
         # Although mempool is managed by multiprocessing.Manager(),
         # we explicitly pass it as parameters to make it clear that it is dependency of the process_message process.
-        process = multiprocessing.Process(target=self.process_message, args=(msg, self.mempool,))
+        process = multiprocessing.Process(target=self._process_message, args=(msg, self._event_pool,))
         process.start()
+        process.join()
 
-    def process_message(self, msg, mempool):
+    def _process_message(self, msg, mempool):
+        print(f"PROCESSING INCOMING MESSAGE - {msg}")
         body = msg["body"]
 
         try:
@@ -115,21 +128,15 @@ class Client(multiprocessing.Process):
                         print("Block not verified")
                         return
 
-                    processed_events = []
-                    for event in block.events:
-                        input_params_verified = True
-                        if isinstance(event, UserEvent):
-                            input_params_verified = verify_data_signature(event.input_params.dict(), event.input_signed_params, event.user_ss58_address)
-
-                        event_params_verified = verify_data_signature(event.event_params.dict(), event.event_signed_params, event.validator_ss58_address)
-
-                        if input_params_verified and event_params_verified:
-                            processed_events.append(event)
-
-                    block.events = processed_events
-                    self.run_process_events(processed_events)
-                    self.remove_events(processed_events, mempool)
-                    self.database.create_block(block=block)
+                    remove_invalid_block_events(block)
+                    
+                    local_block_number = self._database.get_last_block() or 0
+                    if block.block_number - 1 != local_block_number:
+                        self._sync_blocks(local_block_number + 1, block.block_number, mempool)
+                    else:
+                        self._run_process_events(block.events)
+                        self._remove_events(block.events, mempool)
+                        self._database.create_block(block=block)
 
                 elif body['code'] == MessageCode.MESSAGE_CODE_EVENT.value:
                     message_event = MessageEvent.from_json(body["data"]["event"], Action(body["data"]["event_action"]))
@@ -143,21 +150,72 @@ class Client(multiprocessing.Process):
             print(e)
             raise MessageFormatException('%s' % e)
 
-    def run_process_events(self, processed_events):
-        async def _run_process_events():
+    def _run_process_events(self, processed_events):
+        async def run_process_events(processed_events):
             await process_events(
                 events=processed_events,
                 is_proposer_validator=False,
-                keypair=self.keypair,
-                comx_client=self.comx_client,
+                keypair=self._keypair,
+                comx_client=self._comx_client,
                 netuid=config_manager.config.netuid,
-                database=self.database
+                database=self._database
             )
 
         loop = asyncio.get_event_loop()
-        loop.run_until_complete(_run_process_events())
+        if not loop.is_running():
+            loop.run_until_complete(run_process_events(processed_events))
+        else:
+            asyncio.ensure_future(run_process_events(processed_events))
 
-    def remove_events(self, events: List[Event], mempool):
+    def _sync_blocks(self, start, end, mempool):
+        async def sync_blocks():
+            active_validators = await get_truthful_validators(self._keypair, self._comx_client, config_manager.config.netuid)
+
+            if not active_validators:
+                # Retry once more if no active validators are found initially
+                active_validators = await get_truthful_validators(self._keypair, self._comx_client, config_manager.config.netuid)
+
+            if not active_validators:
+                return
+
+            input = {"start": str(start), "end": str(end)}
+            headers = create_headers(sign_data(input, self._keypair), self._keypair)
+
+            blocks: List[Block] = []
+            for validator in active_validators:
+                response = await fetch_with_retries("block", validator.connection, params=input, headers=headers, timeout=30)
+                if response and response.status_code == 200:
+
+                    data = response.json()
+                    if "blocks" not in data:
+                        return
+
+                    fetched_block_numbers = list(map(lambda block: block["block_number"], data["blocks"]))
+                    fetched_min_block_number = min(fetched_block_numbers)
+                    fetched_max_block_number = max(fetched_block_numbers)
+
+                    if not range(start, end) == range(fetched_min_block_number, fetched_max_block_number):
+                        return
+
+                    blocks = list(map(lambda json_block: Block(**json_block), data["blocks"]))
+                    break
+
+            if not blocks:
+                return
+
+            for block in blocks:
+                if not are_all_block_events_valid(block):
+                    return
+
+            for block in blocks:
+                self._run_process_events(block.events)
+                self._remove_events(block.events, mempool)
+                self._database.create_block(block)
+
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(sync_blocks())
+
+    def _remove_events(self, events: List[Event], mempool):
         uuids_to_remove = {event.uuid for event in events}
         with multiprocessing.Lock():
             updated_mempool = [event for event in mempool if event.uuid not in uuids_to_remove]

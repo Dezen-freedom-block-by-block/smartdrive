@@ -29,7 +29,8 @@ import zipfile
 from typing import List, Optional
 from datetime import datetime, timedelta
 
-from smartdrive.models.event import MinerProcess, StoreEvent, Event
+from smartdrive.models.event import MinerProcess, StoreEvent, Event, Action, StoreParams, StoreInputParams, RemoveEvent, \
+    RemoveParams, RemoveInputParams, RetrieveEvent, EventParams, RetrieveInputParams, ValidateEvent
 from smartdrive.models.block import Block
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.evaluation.evaluation import MAX_RESPONSE_TIME
@@ -184,28 +185,6 @@ class Database:
         """
         if self._database_exists():
             os.remove(self._database_file_path)
-
-    def get_database_block(self) -> Optional[int]:
-        """
-        Retrieves the latest database block, if exists.
-
-        Returns:
-            Optional[int]: The latest database block as an integer if successful, or None if
-            an error occurs or if the 'block' table is empty.
-        """
-        connection = None
-        try:
-            connection = sqlite3.connect(self._database_file_path)
-            cursor = connection.cursor()
-            cursor.execute("SELECT id FROM block ORDER BY id DESC LIMIT 1")
-            result = cursor.fetchone()
-            return result[0] if result else None
-        except sqlite3.Error as e:
-            print(f"Database error: {e}")
-            return None
-        finally:
-            if connection:
-                connection.close()
 
     def export_database(self) -> Optional[str]:
         """
@@ -583,11 +562,43 @@ class Database:
             if connection:
                 connection.close()
 
-    def create_block(self, block: Block) -> bool:
-        print(f"Creating block database - {block.block_number}")
+    def get_last_block(self) -> Optional[int]:
+        """
+        Retrieves the latest database block, if exists.
+
+        Returns:
+            Optional[int]: The latest database block as an integer if successful, or None if
+            an error occurs or if the 'block' table is empty.
+        """
         connection = None
         try:
             connection = sqlite3.connect(self._database_file_path)
+            cursor = connection.cursor()
+            cursor.execute("SELECT id FROM block ORDER BY id DESC LIMIT 1")
+            result = cursor.fetchone()
+            return result[0] if result else None
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return None
+        finally:
+            if connection:
+                connection.close()
+
+    def create_block(self, block: Block) -> bool:
+        """
+        Creates a block in the database with its associated events and miner processes.
+
+        Parameters:
+            block (Block): The block to be created in the database.
+
+        Returns:
+            bool: True if the block and its events are successfully created, False otherwise.
+        """
+        print(f"CREATING BLOCK - {block.block_number}")
+        connection = None
+        try:
+            connection = sqlite3.connect(self._database_file_path)
+            connection.row_factory = sqlite3.Row
             with connection:
                 cursor = connection.cursor()
                 connection.execute('BEGIN TRANSACTION')
@@ -606,8 +617,19 @@ class Database:
                 connection.rollback()
             print(f"Database error: {e}")
             return False
+        finally:
+            if connection:
+                connection.close()
 
     def _insert_event(self, cursor, event: Event, block_id: int):
+        """
+        Inserts an event into the database with its associated miner processes.
+
+        Parameters:
+            cursor (sqlite3.Cursor): The database cursor.
+            event (Event): The event to be inserted.
+            block_id (int): The ID of the block to which the event belongs.
+        """
         event_type = event.get_event_action().value
         validator_ss58_address = event.validator_ss58_address
         event_signed_params = event.event_signed_params
@@ -631,7 +653,9 @@ class Database:
         cursor.execute('''
             INSERT INTO events (uuid, validator_ss58_address, event_type, file_uuid, sub_chunk_start, sub_chunk_end, sub_chunk_encoded, event_signed_params, user_ss58_address, file, input_signed_params, block_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (event.uuid, validator_ss58_address, event_type, file_uuid, sub_chunk_start, sub_chunk_end, sub_chunk_encoded, event_signed_params, user_ss58_address, file, input_signed_params, block_id))
+        ''', (
+        event.uuid, validator_ss58_address, event_type, file_uuid, sub_chunk_start, sub_chunk_end, sub_chunk_encoded,
+        event_signed_params, user_ss58_address, file, input_signed_params, block_id))
 
         event_id = cursor.lastrowid
 
@@ -640,6 +664,17 @@ class Database:
             self._insert_miner_process(cursor, miner_process, event_id)
 
     def _insert_miner_process(self, cursor, miner_process: MinerProcess, event_id: int) -> bool:
+        """
+        Inserts a miner process into the database.
+
+        Parameters:
+            cursor (sqlite3.Cursor): The database cursor.
+            miner_process (MinerProcess): The miner process to be inserted.
+            event_id (int): The ID of the event to which the miner process belongs.
+
+        Returns:
+            bool: True if the miner process is successfully inserted, False otherwise.
+        """
         try:
             cursor.execute('''
                 INSERT INTO miner_processes (chunk_uuid, miner_ss58_address, succeed, processing_time, event_id)
@@ -649,6 +684,117 @@ class Database:
         except sqlite3.Error as e:
             print(f"Database error: {e}")
             return False
+
+    def get_blocks(self, start: int, end: int) -> Optional[List[Block]]:
+        connection = None
+        try:
+            connection = sqlite3.connect(self._database_file_path)
+            connection.row_factory = sqlite3.Row
+            cursor = connection.cursor()
+
+            query = '''
+                SELECT 
+                    b.id AS block_id,
+                    e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.sub_chunk_start, e.sub_chunk_end, e.sub_chunk_encoded, e.event_signed_params, e.user_ss58_address, e.file, e.input_signed_params,
+                    m.chunk_uuid, m.miner_ss58_address, m.succeed, m.processing_time
+                FROM block b
+                LEFT JOIN events e ON b.id = e.block_id
+                LEFT JOIN miner_processes m ON e.uuid = m.event_id
+                WHERE b.id BETWEEN ? AND ?
+            '''
+
+            cursor.execute(query, (start, end))
+            rows = cursor.fetchall()
+
+            blocks = {}
+            events = {}
+            for row in rows:
+                block_id = row['block_id']
+                if block_id not in blocks:
+                    blocks[block_id] = Block(block_number=block_id, events=[], proposer_signature=Ss58Address("test"))
+
+                event_uuid = row['event_uuid']
+                if event_uuid:
+                    if event_uuid not in events:
+                        events[event_uuid] = self._build_event_from_row(row)
+                        blocks[block_id].events.append(events[event_uuid])
+
+                    miner_process = self._build_miner_process_from_row(row)
+                    if miner_process and miner_process not in events[event_uuid].event_params.miners_processes:
+                        events[event_uuid].event_params.miners_processes.append(miner_process)
+
+            return list(blocks.values())
+
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return None
+        finally:
+            if connection:
+                connection.close()
+
+    def _build_event_from_row(self, row) -> Event:
+        event_type = row['event_type']
+        event_params = {
+            "file_uuid": row['file_uuid'],
+            "miners_processes": []
+        }
+
+        if event_type == Action.STORE.value:
+            event_params.update({
+                "sub_chunk_start": row['sub_chunk_start'],
+                "sub_chunk_end": row['sub_chunk_end'],
+                "sub_chunk_encoded": row['sub_chunk_encoded']
+            })
+            event = StoreEvent(
+                uuid=row['event_uuid'],
+                validator_ss58_address=row['validator_ss58_address'],
+                event_params=StoreParams(**event_params),
+                event_signed_params=row['event_signed_params'],
+                user_ss58_address=row['user_ss58_address'],
+                input_params=StoreInputParams(file=row['file']),
+                input_signed_params=row['input_signed_params']
+            )
+        elif event_type == Action.REMOVE.value:
+            event = RemoveEvent(
+                uuid=row['event_uuid'],
+                validator_ss58_address=row['validator_ss58_address'],
+                event_params=RemoveParams(**event_params),
+                event_signed_params=row['event_signed_params'],
+                user_ss58_address=row['user_ss58_address'],
+                input_params=RemoveInputParams(file_uuid=row['file_uuid']),
+                input_signed_params=row['input_signed_params']
+            )
+        elif event_type == Action.RETRIEVE.value:
+            event = RetrieveEvent(
+                uuid=row['event_uuid'],
+                validator_ss58_address=row['validator_ss58_address'],
+                event_params=EventParams(**event_params),
+                event_signed_params=row['event_signed_params'],
+                user_ss58_address=row['user_ss58_address'],
+                input_params=RetrieveInputParams(file_uuid=row['file_uuid']),
+                input_signed_params=row['input_signed_params']
+            )
+        elif event_type == Action.VALIDATION.value:
+            event = ValidateEvent(
+                uuid=row['event_uuid'],
+                validator_ss58_address=row['validator_ss58_address'],
+                event_params=EventParams(**event_params),
+                event_signed_params=row['event_signed_params']
+            )
+        else:
+            raise ValueError(f"Unknown event type: {event_type}")
+
+        return event
+
+    def _build_miner_process_from_row(self, row) -> MinerProcess:
+        if row['chunk_uuid'] is None:
+            return None
+        return MinerProcess(
+            chunk_uuid=row['chunk_uuid'],
+            miner_ss58_address=row['miner_ss58_address'],
+            succeed=row['succeed'],
+            processing_time=row['processing_time']
+        )
 
 
 def _create_table_if_not_exists(cursor: sqlite3.Cursor, table_name: str, create_statement: str) -> None:
