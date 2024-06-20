@@ -63,7 +63,7 @@ class Network:
         while True:
             start_time = time.time()
 
-            block_number = self._database.get_database_block() or 0
+            block_number = self._database.get_last_block() or 0
 
             truthful_validators = await get_truthful_validators(self._keypair, self._comx_client, config_manager.config.netuid)
             all_validators = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
@@ -89,7 +89,6 @@ class Network:
                     proposer_ss58_address=Ss58Address(self._keypair.ss58_address)
                 )
 
-                print(f"Creating block - {block.block_number}")
                 await process_events(events=block_events, is_proposer_validator=True, keypair=self._keypair, comx_client=self._comx_client, netuid=config_manager.config.netuid, database=self._database)
                 self._database.create_block(block=block)
 
@@ -122,7 +121,7 @@ class Network:
             for c in connections:
                 send_json(c[ConnectionPool.CONNECTION], message)
 
-    def emit_event(self, event: Event):
+    def send_event_to_validators(self, event: Event):
         connections = self._node.get_connections()
 
         message_event = MessageEvent.from_json(event.dict(), event.get_event_action())
@@ -138,7 +137,7 @@ class Network:
             "public_key_hex": self._keypair.public_key.hex()
         }
 
-        self._node.insert_mempool_event(event)
+        self._node.insert_pool_event(event)
 
         for c in connections:
             try:

@@ -99,4 +99,4 @@ class RemoveAPI:
         )
 
         # Emit event
-        self._network.emit_event(event)
+        self._network.send_event_to_validators(event)

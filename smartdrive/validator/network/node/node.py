@@ -30,21 +30,21 @@ from smartdrive.validator.network.node.server import Server
 class Node:
 
     _server_process = None
-    _mempool = None
+    _event_pool = None
     _connection_pool = None
 
     def __init__(self):
-        self._mempool = multiprocessing.Manager().list()
+        self._event_pool = multiprocessing.Manager().list()
         self._connection_pool = ConnectionPool(cache_size=Server.MAX_N_CONNECTIONS)
 
         # Although these variables are managed by multiprocessing.Manager(),
         # we explicitly pass them as parameters to make it clear that they are dependencies of the server process.
-        self._server_process = multiprocessing.Process(target=self.run_server, args=(self._mempool, self._connection_pool,))
+        self._server_process = multiprocessing.Process(target=self.run_server, args=(self._event_pool, self._connection_pool,))
         self._server_process.start()
 
-    def run_server(self, mempool, connection_pool: ConnectionPool):
+    def run_server(self, event_pool, connection_pool: ConnectionPool):
         server = Server(
-            mempool=mempool,
+            event_pool=event_pool,
             connection_pool=connection_pool,
         )
         server.run()
@@ -52,15 +52,15 @@ class Node:
     def get_connections(self):
         return self._connection_pool.get_all_connections()
 
-    def get_mempool_events(self):
-        return list(self._mempool)
+    def get_pool_events(self):
+        return list(self._event_pool)
 
-    def consume_mempool_events(self, count: int):
+    def consume_pool_events(self, count: int):
         items = []
         with multiprocessing.Lock():
-            for _ in range(min(count, len(self._mempool))):
-                items.append(self._mempool.pop(0))
+            for _ in range(min(count, len(self._event_pool))):
+                items.append(self._event_pool.pop(0))
         return items
 
-    def insert_mempool_event(self, event: Event):
-        return self._mempool.append(event)
+    def insert_pool_event(self, event: Event):
+        return self._event_pool.append(event)

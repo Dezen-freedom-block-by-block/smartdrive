@@ -59,8 +59,9 @@ class API:
         self.app.add_middleware(SubnetMiddleware, comx_client=self._comx_client)
 
         self.app.add_api_route("/method/ping", self.ping_endpoint, methods=["POST"])
-        self.app.add_api_route("/database-block", self.database_api.database_block_endpoint, methods=["GET"])
         self.app.add_api_route("/database", self.database_api.database_endpoint, methods=["GET"])
+        self.app.add_api_route("/block-number", self.database_api.database_block_number_endpoint, methods=["GET"])
+        self.app.add_api_route("/block", self.database_api.database_blocks_endpoints, methods=["GET"])
         self.app.add_api_route("/store", self.store_api.store_endpoint, methods=["POST"])
         self.app.add_api_route("/retrieve", self.retrieve_api.retrieve_endpoint, methods=["GET"])
         self.app.add_api_route("/remove", self.remove_api.remove_endpoint, methods=["POST"])

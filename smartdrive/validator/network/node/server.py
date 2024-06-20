@@ -48,14 +48,14 @@ class Server(multiprocessing.Process):
     IDENTIFIER_TIMEOUT_SECONDS = 5
     TCP_PORT = 9001
 
-    _mempool = None
+    _event_pool = None
     _connection_pool = None
     _keypair = None
     _comx_client = None
 
-    def __init__(self, mempool, connection_pool: ConnectionPool):
+    def __init__(self, event_pool, connection_pool: ConnectionPool):
         multiprocessing.Process.__init__(self)
-        self._mempool = mempool
+        self._event_pool = event_pool
         self._connection_pool = connection_pool
         self._keypair = classic_load_key(config_manager.config.key)
         self._comx_client = CommuneClient(url=get_node_url(use_testnet=config_manager.config.testnet))
@@ -72,7 +72,7 @@ class Server(multiprocessing.Process):
 
             while True:
                 client_socket, address = server_socket.accept()
-                process = multiprocessing.Process(target=self._handle_connection, args=(self._connection_pool, self._mempool, client_socket, address))
+                process = multiprocessing.Process(target=self._handle_connection, args=(self._connection_pool, self._event_pool, client_socket, address))
                 process.start()
 
         except Exception as e:
@@ -84,7 +84,7 @@ class Server(multiprocessing.Process):
     def _start_check_connections_process(self):
         # Although these variables are managed by multiprocessing.Manager(),
         # we explicitly pass them as parameters to make it clear that they are dependencies of the server process.
-        process = multiprocessing.Process(target=self._check_connections_process, args=(self._connection_pool, self._mempool,))
+        process = multiprocessing.Process(target=self._check_connections_process, args=(self._connection_pool, self._event_pool,))
         process.start()
 
     def _check_connections_process(self, connection_pool: ConnectionPool, mempool):
@@ -138,8 +138,7 @@ class Server(multiprocessing.Process):
         except Exception as e:
             print(f"Error initializing validators: {e}")
 
-    def _handle_connection(self, connection_pool: ConnectionPool, mempool, client_socket, address):
-        print("HANDLE CONNECTION")
+    def _handle_connection(self, connection_pool: ConnectionPool, event_pool, client_socket, address):
         try:
             # Wait IDENTIFIER_TIMEOUT_SECONDS as maximum time to get the identifier message
             ready = select.select([client_socket], [], [], self.IDENTIFIER_TIMEOUT_SECONDS)
@@ -178,7 +177,7 @@ class Server(multiprocessing.Process):
                         if connection_pool.get_remaining_capacity() > 0:
                             connection_pool.add_connection(validator_connection.ss58_address, validator_connection, client_socket)
                             print(f"Connection added {validator_connection}")
-                            client_receiver = Client(client_socket, connection_identifier, connection_pool, mempool)
+                            client_receiver = Client(client_socket, connection_identifier, connection_pool, event_pool)
                             client_receiver.start()
                         else:
                             print(f"No space available in the connection pool for connection {connection_identifier}.")
