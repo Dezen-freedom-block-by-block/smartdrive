@@ -19,36 +19,36 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 import time
 import uuid
-
 from fastapi import HTTPException, Form, Request
 from substrateinterface import Keypair
 
+from communex.compat.key import classic_load_key
 from communex.client import CommuneClient
 from communex.types import Ss58Address
 
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
+from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.models.event import RemoveEvent, RemoveParams, RemoveInputParams
 from smartdrive.validator.network.network import Network
-from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo
+from smartdrive.commune.request import get_active_miners
 
 
 class RemoveAPI:
-    _config = None
-    _key: Keypair = None
-    _database: Database = None
     _comx_client: CommuneClient = None
     _network: Network = None
+    _key: Keypair = None
+    _database: Database = None
 
-    def __init__(self, config, key, database, comx_client, network: Network):
-        self._config = config
-        self._key = key
-        self._database = database
+    def __init__(self, comx_client, network: Network):
         self._comx_client = comx_client
         self._network = network
+        self._key = classic_load_key(config_manager.config.key)
+        self._database: Database = Database()
 
     async def remove_endpoint(self, request: Request, file_uuid: str = Form()):
         """
@@ -77,7 +77,7 @@ class RemoveAPI:
             raise HTTPException(status_code=404, detail="Currently there are no miners with this file name")
 
         # Get active miners
-        active_miners = await get_active_miners(self._key, self._comx_client, self._config._netuid)
+        active_miners = await get_active_miners(self._key, self._comx_client, config_manager.config.netuid)
         if not active_miners:
             raise HTTPException(status_code=404, detail="Currently there are no active miners")
 

@@ -21,17 +21,19 @@
 #  SOFTWARE.
 
 import asyncio
-import multiprocessing
 import time
-
-from communex.client import CommuneClient
-from communex.types import Ss58Address
 from substrateinterface import Keypair
+
+from communex._common import get_node_url
+from communex.client import CommuneClient
+from communex.compat.key import classic_load_key
+from communex.types import Ss58Address
 
 from smartdrive.commune.request import get_filtered_modules, ping_proposer_validator, get_truthful_validators
 from smartdrive.models.event import Event
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.utils import process_events
+from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.models.block import Block, block_to_block_event
 from smartdrive.validator.models.models import ModuleType
@@ -46,19 +48,16 @@ class Network:
     MAX_EVENTS_PER_BLOCK = 25
     BLOCK_INTERVAL = 12
 
-    _node: Node = None
     _keypair: Keypair = None
     _comx_client: CommuneClient = None
-    _netuid: int = None
     _database: Database = None
+    _node: Node = None
 
-    def __init__(self, keypair: Keypair, ip: str, netuid: int, comx_client: CommuneClient, database: Database, testnet: bool):
-        self._keypair = keypair
-        self._netuid = netuid
-        self._comx_client = comx_client
-        self._database = database
-        multiprocessing.set_start_method("fork")
-        self._node = Node(keypair=keypair, ip=ip, netuid=netuid, database=database, testnet=testnet)
+    def __init__(self):
+        self._keypair = classic_load_key(config_manager.config.key)
+        self._comx_client = CommuneClient(url=get_node_url(use_testnet=config_manager.config.testnet))
+        self._database = Database()
+        self._node = Node()
 
     async def create_blocks(self):
         block_number = self._database.get_database_block()
@@ -67,8 +66,8 @@ class Network:
         while True:
             start_time = time.time()
 
-            truthful_validators = await get_truthful_validators(self._keypair, self._comx_client, self._netuid)
-            all_validators = get_filtered_modules(self._comx_client, self._netuid, ModuleType.VALIDATOR)
+            truthful_validators = await get_truthful_validators(self._keypair, self._comx_client, config_manager.config.netuid)
+            all_validators = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
 
             proposer_active_validator = max(truthful_validators if truthful_validators else all_validators, key=lambda v: v.stake or 0)
             proposer_validator = max(all_validators, key=lambda v: v.stake or 0)
@@ -85,7 +84,7 @@ class Network:
                 block_events = self._node.consume_mempool_events(count=self.MAX_EVENTS_PER_BLOCK)
                 block = Block(block_number=block_number, events=block_events, proposer_signature=Ss58Address(self._keypair.ss58_address))
                 print(f"Creating block - {block.block_number}")
-                await process_events(events=block_events, is_proposer_validator=True, keypair=self._keypair, comx_client=self._comx_client, netuid=self._netuid, database=self._database)
+                await process_events(events=block_events, is_proposer_validator=True, keypair=self._keypair, comx_client=self._comx_client, netuid=config_manager.config.netuid, database=self._database)
                 self._database.create_block(block=block)
 
                 # Propagate block to other validators

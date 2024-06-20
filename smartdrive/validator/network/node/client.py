@@ -24,13 +24,15 @@ import asyncio
 import multiprocessing
 from typing import List
 
+from communex._common import get_node_url
 from communex.client import CommuneClient
-from substrateinterface import Keypair
+from communex.compat.key import classic_load_key
 
 from smartdrive.models.event import parse_event, UserEvent, MessageEvent, Action, Event
 from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.api.utils import process_events
+from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.models.block import BlockEvent, block_event_to_block
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
@@ -41,16 +43,15 @@ from smartdrive.validator.network.node.util.message_code import MessageCode
 
 class Client(multiprocessing.Process):
 
-    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, mempool, keypair: Keypair, comx_client: CommuneClient, netuid: int, database: Database):
+    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, mempool):
         multiprocessing.Process.__init__(self)
         self.client_socket = client_socket
         self.identifier = identifier
         self.connection_pool = connection_pool
         self.mempool = mempool
-        self.keypair = keypair
-        self.comx_client = comx_client
-        self.netuid = netuid
-        self.database = database
+        self.keypair = classic_load_key(config_manager.config.key)
+        self.comx_client = CommuneClient(url=get_node_url(use_testnet=config_manager.config.testnet))
+        self.database = Database()
 
     def run(self):
         try:
@@ -140,7 +141,7 @@ class Client(multiprocessing.Process):
                 is_proposer_validator=False,
                 keypair=self.keypair,
                 comx_client=self.comx_client,
-                netuid=self.netuid,
+                netuid=config_manager.config.netuid,
                 database=self.database
             )
 

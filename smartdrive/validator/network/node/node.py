@@ -22,34 +22,20 @@
 
 import multiprocessing
 
-from substrateinterface import Keypair
-
 from smartdrive.models.event import Event
-from smartdrive.validator.database.database import Database
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
 from smartdrive.validator.network.node.server import Server
 
 
 class Node:
 
-    _key: Keypair = None
-    _ip = None
-    _netuid = None
-
     _server_process = None
     _mempool = None
     _connection_pool = None
-    _testnet = False
 
-    def __init__(self, keypair: Keypair, ip: str, netuid: int, database: Database, testnet: bool):
-        self._keypair = keypair
-        self._ip = ip
-        self._netuid = netuid
-        self._database = database
-
+    def __init__(self):
         self._mempool = multiprocessing.Manager().list()
         self._connection_pool = ConnectionPool(cache_size=Server.MAX_N_CONNECTIONS)
-        self._testnet = testnet
 
         # Although these variables are managed by multiprocessing.Manager(),
         # we explicitly pass them as parameters to make it clear that they are dependencies of the server process.
@@ -60,11 +46,6 @@ class Node:
         server = Server(
             mempool=mempool,
             connection_pool=connection_pool,
-            bind_address=self._ip,
-            keypair=self._keypair,
-            netuid=self._netuid,
-            database=self._database,
-            testnet=self._testnet
         )
         server.run()
 

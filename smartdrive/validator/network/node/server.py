@@ -28,12 +28,12 @@ import traceback
 
 from communex._common import get_node_url
 from communex.client import CommuneClient
-from substrateinterface import Keypair
+from communex.compat.key import classic_load_key
 
 from smartdrive.commune.request import get_filtered_modules
 from smartdrive.validator.api.middleware.sign import verify_data_signature, sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
-from smartdrive.validator.database.database import Database
+from smartdrive.validator.config import config_manager
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.network.node.client import Client
 from smartdrive.validator.network.node.connection_pool import ConnectionPool
@@ -48,16 +48,17 @@ class Server(multiprocessing.Process):
     IDENTIFIER_TIMEOUT_SECONDS = 5
     TCP_PORT = 9001
 
-    def __init__(self, mempool, connection_pool: ConnectionPool, bind_address: str, keypair: Keypair, netuid: int, database: Database, testnet: bool):
+    _mempool = None
+    _connection_pool = None
+    _keypair = None
+    _comx_client = None
+
+    def __init__(self, mempool, connection_pool: ConnectionPool):
         multiprocessing.Process.__init__(self)
-        self._bind_address = bind_address
-        self._netuid = netuid
-        self._testnet = testnet
-        self._connection_pool = connection_pool
-        self._keypair = keypair
         self._mempool = mempool
-        self._database = database
-        self._comx_client = CommuneClient(url=get_node_url(use_testnet=self._testnet))
+        self._connection_pool = connection_pool
+        self._keypair = classic_load_key(config_manager.config.key)
+        self._comx_client = CommuneClient(url=get_node_url(use_testnet=config_manager.config.testnet))
 
     def run(self):
         server_socket = None
@@ -66,7 +67,7 @@ class Server(multiprocessing.Process):
             self._start_check_connections_process()
             server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            server_socket.bind((self._bind_address, self.TCP_PORT))
+            server_socket.bind((config_manager.config.ip, self.TCP_PORT))
             server_socket.listen(self.MAX_N_CONNECTIONS)
 
             while True:
@@ -88,7 +89,7 @@ class Server(multiprocessing.Process):
 
     def _check_connections_process(self, connection_pool: ConnectionPool, mempool):
         while True:
-            validators = get_filtered_modules(self._comx_client, self._netuid, ModuleType.VALIDATOR)
+            validators = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
             active_ss58_addresses = {validator.ss58_address for validator in validators}
             to_remove = [ss58_address for ss58_address in connection_pool.get_identifiers() if ss58_address not in active_ss58_addresses]
             for ss58_address in to_remove:
@@ -107,7 +108,7 @@ class Server(multiprocessing.Process):
         # TODO: Each connection try in for loop should be async and we should wait for all of them
         try:
             if validators is None:
-                validators = get_filtered_modules(self._comx_client, self._netuid, ModuleType.VALIDATOR)
+                validators = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
                 validators = [validator for validator in validators if validator.ss58_address != self._keypair.ss58_address]
 
             for validator in validators:
@@ -127,7 +128,7 @@ class Server(multiprocessing.Process):
                     }
                     send_json(validator_socket, message)
                     connection_pool.add_connection(validator.ss58_address, validator, validator_socket)
-                    client_receiver = Client(validator_socket, validator.ss58_address, connection_pool, mempool, self._keypair, self._comx_client, self._netuid, self._database)
+                    client_receiver = Client(validator_socket, validator.ss58_address, connection_pool, mempool)
                     client_receiver.start()
                     print(f"Validator {validator.ss58_address} connected and added to the pool.")
                 except Exception as e:
@@ -168,7 +169,7 @@ class Server(multiprocessing.Process):
                     client_socket.close()
                     return
 
-                validators = get_filtered_modules(self._comx_client, self._netuid, ModuleType.VALIDATOR)
+                validators = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
 
                 if validators:
                     validator_connection = next((validator for validator in validators if validator.ss58_address == connection_identifier), None)
@@ -177,7 +178,7 @@ class Server(multiprocessing.Process):
                         if connection_pool.get_remaining_capacity() > 0:
                             connection_pool.add_connection(validator_connection.ss58_address, validator_connection, client_socket)
                             print(f"Connection added {validator_connection}")
-                            client_receiver = Client(client_socket, connection_identifier, connection_pool, mempool, self._keypair, self._comx_client, self._netuid, self._database)
+                            client_receiver = Client(client_socket, connection_identifier, connection_pool, mempool)
                             client_receiver.start()
                         else:
                             print(f"No space available in the connection pool for connection {connection_identifier}.")
