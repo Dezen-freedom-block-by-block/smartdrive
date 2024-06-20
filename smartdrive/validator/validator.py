@@ -45,9 +45,10 @@ from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.network.network import Network
 from smartdrive.validator.step import validate_step
-from smartdrive.validator.utils import extract_sql_file, fetch_validator
+from smartdrive.validator.utils import extract_sql_file, fetch_validator, fetch_with_retries
 from smartdrive.validator.api.middleware.sign import sign_data
-from smartdrive.commune.request import (get_modules, get_active_validators, ConnectionInfo, get_filtered_modules)
+from smartdrive.commune.request import (get_modules, get_active_validators, ConnectionInfo, get_filtered_modules,
+                                        get_truthful_validators)
 
 
 def get_config() -> Config:
@@ -159,16 +160,16 @@ class Validator(Module):
                 print(f"Sleeping for {sleep_time}")
                 await asyncio.sleep(sleep_time)
 
-async def initial_sync(self):
+    async def initial_sync(self):
         """
         Performs the initial synchronization by fetching database versions from truthful active validators,
         selecting the validator with the highest version, downloading the database, and importing it.
         """
-        active_validators = await get_truthful_validators(self._key, self._comx_client, self._config.netuid)
+        active_validators = await get_truthful_validators(self._key, self._comx_client, config_manager.config.netuid)
 
         if not active_validators:
             # Retry once more if no active validators are found initially
-            active_validators = await get_truthful_validators(self._key, self._comx_client, self._config.netuid)
+            active_validators = await get_truthful_validators(self._key, self._comx_client, config_manager.config.netuid)
 
         if not active_validators:
             return
