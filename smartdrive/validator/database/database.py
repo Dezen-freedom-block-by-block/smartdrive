@@ -694,7 +694,7 @@ class Database:
 
             query = '''
                 SELECT 
-                    b.id AS block_id,
+                    b.id AS block_id, b.proposer_signature, b.proposer_ss58_address,
                     e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.sub_chunk_start, e.sub_chunk_end, e.sub_chunk_encoded, e.event_signed_params, e.user_ss58_address, e.file, e.input_signed_params,
                     m.chunk_uuid, m.miner_ss58_address, m.succeed, m.processing_time
                 FROM block b
@@ -711,7 +711,12 @@ class Database:
             for row in rows:
                 block_id = row['block_id']
                 if block_id not in blocks:
-                    blocks[block_id] = Block(block_number=block_id, events=[], proposer_signature=blocks[block_id].proposer_signature, proposer_ss58_address=Ss58Address(blocks[block_id].proposer_ss58_address))
+                    blocks[block_id] = Block(
+                        block_number=block_id,
+                        events=[],
+                        proposer_signature=row["proposer_signature"],
+                        proposer_ss58_address=Ss58Address(row["proposer_ss58_address"]),
+                    )
 
                 event_uuid = row['event_uuid']
                 if event_uuid:
