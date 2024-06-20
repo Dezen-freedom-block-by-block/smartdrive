@@ -248,7 +248,7 @@ if __name__ == "__main__":
     if key.ss58_address in [module.ss58_address for module in registered_modules]:
         nat_type, external_ip, external_port = stun.get_ip_info()
 
-        config_manager.config.ip = external_ip
+        config_manager.config.ip = "127.0.0.1"
 
         _comx_client.update_module(
             key=key,
