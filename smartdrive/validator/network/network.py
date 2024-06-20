@@ -86,7 +86,14 @@ class Network:
 
                 # Create and process block
                 block_events = self._node.consume_mempool_items(count=self.MAX_EVENTS_PER_BLOCK)
-                block = Block(block_number=block_number, events=block_events, proposer_signature=Ss58Address(self._keypair.ss58_address))
+                proposer_signature = sign_data({"block_number": block_number, "events": block_events}, self._keypair)
+                block = Block(
+                    block_number=block_number,
+                    events=block_events,
+                    proposer_signature=proposer_signature.hex(),
+                    proposer_ss58_address=Ss58Address(self._keypair.ss58_address)
+                )
+
                 print(f"Creating block - {block.block_number}")
                 await process_events(events=block_events, is_proposer_validator=True, keypair=self._keypair, comx_client=self._comx_client, netuid=self._netuid, database=self._database)
                 self._database.create_block(block=block)

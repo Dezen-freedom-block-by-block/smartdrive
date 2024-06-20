@@ -98,9 +98,18 @@ class Client(multiprocessing.Process):
                     block_event = BlockEvent(
                         block_number=body["data"]["block_number"],
                         events=list(map(lambda event: MessageEvent.from_json(event["event"], Action(event["event_action"])), body["data"]["events"])),
-                        proposer_signature=body["data"]["proposer_signature"]
+                        proposer_signature=body["data"]["proposer_signature"],
+                        proposer_ss58_address=body["data"]["proposer_ss58_address"]
                     )
                     block = block_event_to_block(block_event)
+
+                    if not verify_data_signature(
+                            data={"block_number": block.block_number, "events": block.events},
+                            signature_hex=block.proposer_signature,
+                            ss58_address=block.proposer_ss58_address
+                    ):
+                        print("Block not verified")
+                        return
 
                     processed_events = []
                     for event in block.events:

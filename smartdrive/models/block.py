@@ -29,7 +29,8 @@ from smartdrive.models.event import Event, MessageEvent, parse_event
 class Block(BaseModel):
     block_number: int
     events: list[Event]
-    proposer_signature: Ss58Address
+    proposer_signature: str
+    proposer_ss58_address: Ss58Address
 
 
 class BlockEvent(Block):
@@ -40,7 +41,8 @@ def block_to_block_event(block: Block) -> BlockEvent:
     return BlockEvent(
         block_number=block.block_number,
         events=list(map(lambda event: MessageEvent.from_json(event.dict(), event.get_event_action()), block.events)),
-        proposer_signature=block.proposer_signature
+        proposer_signature=block.proposer_signature,
+        proposer_ss58_address=block.proposer_ss58_address
     )
 
 
@@ -48,5 +50,6 @@ def block_event_to_block(block_event: BlockEvent) -> Block:
     return Block(
         block_number=block_event.block_number,
         events=list(map(lambda message_event: parse_event(message_event), block_event.events)),
-        proposer_signature=block_event.proposer_signature
+        proposer_signature=block_event.proposer_signature,
+        proposer_ss58_address=block_event.proposer_ss58_address
     )
