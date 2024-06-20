@@ -132,7 +132,7 @@ class RetrieveAPI:
         )
 
         # Emit event
-        self._network.emit_event(event)
+        self._network.send_event_to_validators(event)
 
         if miners_with_chunks[0]["chunk"]:
             return miners_with_chunks[0]["chunk"]
