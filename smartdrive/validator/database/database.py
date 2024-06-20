@@ -711,7 +711,7 @@ class Database:
             for row in rows:
                 block_id = row['block_id']
                 if block_id not in blocks:
-                    blocks[block_id] = Block(block_number=block_id, events=[], proposer_signature=Ss58Address("test"))
+                    blocks[block_id] = Block(block_number=block_id, events=[], proposer_signature=blocks[block_id].proposer_signature, proposer_ss58_address=Ss58Address(blocks[block_id].proposer_ss58_address))
 
                 event_uuid = row['event_uuid']
                 if event_uuid:

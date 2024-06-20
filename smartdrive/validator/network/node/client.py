@@ -90,13 +90,13 @@ class Client(multiprocessing.Process):
     def _receive(self):
         # Here the process is waiting till a new message is sent.
         msg = packing.receive_msg(self._client_socket)
-        # Although mempool is managed by multiprocessing.Manager(),
+        # Although _event_pool is managed by multiprocessing.Manager(),
         # we explicitly pass it as parameters to make it clear that it is dependency of the process_message process.
         process = multiprocessing.Process(target=self._process_message, args=(msg, self._event_pool,))
         process.start()
         process.join()
 
-    def _process_message(self, msg, mempool):
+    def _process_message(self, msg, event_pool):
         print(f"PROCESSING INCOMING MESSAGE - {msg}")
         body = msg["body"]
 
@@ -132,16 +132,16 @@ class Client(multiprocessing.Process):
                     
                     local_block_number = self._database.get_last_block() or 0
                     if block.block_number - 1 != local_block_number:
-                        self._sync_blocks(local_block_number + 1, block.block_number, mempool)
+                        self._sync_blocks(local_block_number + 1, block.block_number, event_pool)
                     else:
                         self._run_process_events(block.events)
-                        self._remove_events(block.events, mempool)
+                        self._remove_events(block.events, event_pool)
                         self._database.create_block(block=block)
 
                 elif body['code'] == MessageCode.MESSAGE_CODE_EVENT.value:
                     message_event = MessageEvent.from_json(body["data"]["event"], Action(body["data"]["event_action"]))
                     event = parse_event(message_event)
-                    mempool.append(event)
+                    event_pool.append(event)
 
         except InvalidSignatureException as e:
             raise e
@@ -167,7 +167,7 @@ class Client(multiprocessing.Process):
         else:
             asyncio.ensure_future(run_process_events(processed_events))
 
-    def _sync_blocks(self, start, end, mempool):
+    def _sync_blocks(self, start, end, event_pool):
         async def sync_blocks():
             active_validators = await get_truthful_validators(self._keypair, self._comx_client, config_manager.config.netuid)
 
@@ -209,15 +209,15 @@ class Client(multiprocessing.Process):
 
             for block in blocks:
                 self._run_process_events(block.events)
-                self._remove_events(block.events, mempool)
+                self._remove_events(block.events, event_pool)
                 self._database.create_block(block)
 
         loop = asyncio.get_event_loop()
         loop.run_until_complete(sync_blocks())
 
-    def _remove_events(self, events: List[Event], mempool):
+    def _remove_events(self, events: List[Event], event_pool):
         uuids_to_remove = {event.uuid for event in events}
         with multiprocessing.Lock():
-            updated_mempool = [event for event in mempool if event.uuid not in uuids_to_remove]
-            mempool[:] = updated_mempool
+            updated_event_pool = [event for event in event_pool if event.uuid not in uuids_to_remove]
+            event_pool[:] = updated_event_pool
 

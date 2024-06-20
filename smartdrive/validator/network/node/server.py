@@ -87,7 +87,7 @@ class Server(multiprocessing.Process):
         process = multiprocessing.Process(target=self._check_connections_process, args=(self._connection_pool, self._event_pool,))
         process.start()
 
-    def _check_connections_process(self, connection_pool: ConnectionPool, mempool):
+    def _check_connections_process(self, connection_pool: ConnectionPool, event_pool):
         while True:
             validators = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
             active_ss58_addresses = {validator.ss58_address for validator in validators}
@@ -100,11 +100,11 @@ class Server(multiprocessing.Process):
             identifiers = connection_pool.get_identifiers()
             new_validators = [validator for validator in validators if validator.ss58_address not in identifiers and validator.ss58_address != self._keypair.ss58_address]
 
-            self._initialize_validators(connection_pool, mempool, new_validators)
+            self._initialize_validators(connection_pool, event_pool, new_validators)
 
             time.sleep(10)
 
-    def _initialize_validators(self, connection_pool: ConnectionPool, mempool, validators):
+    def _initialize_validators(self, connection_pool: ConnectionPool, event_pool, validators):
         # TODO: Each connection try in for loop should be async and we should wait for all of them
         try:
             if validators is None:
@@ -128,7 +128,7 @@ class Server(multiprocessing.Process):
                     }
                     send_json(validator_socket, message)
                     connection_pool.add_connection(validator.ss58_address, validator, validator_socket)
-                    client_receiver = Client(validator_socket, validator.ss58_address, connection_pool, mempool)
+                    client_receiver = Client(validator_socket, validator.ss58_address, connection_pool, event_pool)
                     client_receiver.start()
                     print(f"Validator {validator.ss58_address} connected and added to the pool.")
                 except Exception as e:
