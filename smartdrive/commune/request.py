@@ -153,11 +153,34 @@ async def get_active_validators(key: Keypair, comx_client: CommuneClient, netuid
 
 
 async def get_truthful_validators(key: Keypair, comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
+    """
+    Retrieves a list of truthful validators based on a minimum stake requirement.
+
+    Params:
+        key (Keypair): The keypair used for signing requests.
+        comx_client (CommuneClient): The CommuneX client used for network interactions.
+        netuid (int): The network UID.
+
+    Returns:
+        List[ModuleInfo]: A list of ModuleInfo objects representing the truthful validators.
+    """
     active_validators = await get_active_validators(key, comx_client, netuid)
     return list(filter(lambda validator: validator.stake > TRUTHFUL_STAKE_AMOUNT, active_validators))
 
 
 async def ping_proposer_validator(key: Keypair, module: ModuleInfo, retries: int = 3, sleep_time: int = 5) -> bool:
+    """
+    Pings the proposer validator to check if it's available and active.
+
+    Params:
+        key (Keypair): The keypair used for signing the request.
+        module (ModuleInfo): The module information of the proposer validator.
+        retries (int): Number of retry attempts if the ping fails. Default is 3.
+        sleep_time (int): Time to wait between retries in seconds. Default is 5.
+
+    Returns:
+        bool: True if the proposer validator responds correctly, False otherwise.
+    """
     for _ in range(retries):
         if (response := await execute_miner_request(key, module.connection, module.ss58_address, "ping", timeout=PING_TIMEOUT)) and response["type"] == "validator":
             return True
@@ -180,22 +203,13 @@ def get_filtered_modules(comx_client: CommuneClient, netuid: int, type: ModuleTy
     Returns:
         List[ModuleInfo]: A list of `ModuleInfo` objects representing miners.
     """
+    modules = get_modules(comx_client, netuid)
     result = []
 
-    # TODO: Remove mocked module info
-    if type == ModuleType.VALIDATOR:
-        return [ModuleInfo(uid="2", ss58_address="5FHeUvUwYKZFFimywMpGtFs7WBErgs2oDdkjnspqSLE3Fjn7",
-                           connection=ConnectionInfo(ip="127.0.0.1", port=8001), incentives=0, dividends=0,
-                           stake=50666218),
-                ModuleInfo(uid="3", ss58_address="5HSzU1Mk69GNiri9V2uVuEETaKtoUTRHBAs6qf6EicwpbVrA",
-                           connection=ConnectionInfo(ip="127.0.0.1", port=8002), incentives=0, dividends=0,
-                           stake=50034755)]
-    else:
-        modules = get_modules(comx_client, netuid)
-        for module in modules:
-            condition = module.incentives > module.dividends if type == ModuleType.MINER else module.incentives < module.dividends
-            if (module.incentives == module.dividends == 0) or condition:
-                result.append(module)
+    for module in modules:
+        condition = module.incentives > module.dividends if type == ModuleType.MINER else module.incentives < module.dividends
+        if (module.incentives == module.dividends == 0) or condition:
+            result.append(module)
 
     return result
 

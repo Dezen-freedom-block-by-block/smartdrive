@@ -24,7 +24,6 @@ import re
 import os
 import tempfile
 import sqlite3
-import time
 import zipfile
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -33,7 +32,6 @@ from smartdrive.models.event import MinerProcess, StoreEvent, Event, Action, Sto
     RemoveParams, RemoveInputParams, RetrieveEvent, EventParams, RetrieveInputParams, ValidateEvent
 from smartdrive.models.block import Block
 from smartdrive.validator.config import config_manager
-from smartdrive.validator.evaluation.evaluation import MAX_RESPONSE_TIME
 from smartdrive.validator.models.models import MinerWithChunk, SubChunk, File, Chunk
 
 from communex.types import Ss58Address
@@ -522,24 +520,23 @@ class Database:
             tuple: A tuple with failed calls, total calls and average time response.
         """
         # Calculate the time range based on the days_interval
-        end_time = datetime.now()
+        end_time = datetime.now().date()
         start_time = None
 
         if days_interval is not None:
-            start_time = end_time - timedelta(days=days_interval)
+            start_time = (datetime.now() - timedelta(days=days_interval)).date()
 
         # Build the query
         query = """
         SELECT COUNT(*) as total_calls, 
-               SUM(CASE WHEN succeed = 0 THEN 1 ELSE 0 END) as failed_calls,
-               AVG(processing_time) as avg_response_time
+               SUM(CASE WHEN succeed = 0 THEN 1 ELSE 0 END) as failed_calls
         FROM miner_processes
         WHERE miner_ss58_address = ?
         """
         params = [miner_ss58_address]
 
         if start_time is not None:
-            query += " AND timestamp BETWEEN ? AND ?"
+            query += " AND DATE(timestamp) BETWEEN ? AND ?"
             params.extend([start_time, end_time])
 
         connection = None
@@ -552,12 +549,11 @@ class Database:
 
             total_calls = result[0] if result[0] is not None else 0
             failed_calls = result[1] if result[1] is not None else 0
-            avg_response_time = result[2] if result[2] is not None else MAX_RESPONSE_TIME
 
-            return total_calls, failed_calls, avg_response_time
+            return total_calls, failed_calls
         except sqlite3.Error as e:
             print(f"Database error: {e}")
-            return 0, 0, MAX_RESPONSE_TIME
+            return 0, 0
         finally:
             if connection:
                 connection.close()
@@ -686,6 +682,16 @@ class Database:
             return False
 
     def get_blocks(self, start: int, end: int) -> Optional[List[Block]]:
+        """
+        Retrieve blocks and their associated events and miner processes from the database.
+
+        Params:
+            start (int): The starting block ID.
+            end (int): The ending block ID.
+
+        Returns:
+            Optional[List[Block]]: A list of Block objects, or None if there is a database error.
+        """
         connection = None
         try:
             connection = sqlite3.connect(self._database_file_path)
@@ -738,6 +744,18 @@ class Database:
                 connection.close()
 
     def _build_event_from_row(self, row) -> Event:
+        """
+        Build an Event object from a database row.
+
+        Params:
+            row (dict): A dictionary containing the row data from the database.
+
+        Returns:
+            Event: An instance of an Event subclass (StoreEvent, RemoveEvent, RetrieveEvent, or ValidateEvent).
+
+        Raises:
+            ValueError: If the event type is unknown.
+        """
         event_type = row['event_type']
         event_params = {
             "file_uuid": row['file_uuid'],
@@ -792,6 +810,15 @@ class Database:
         return event
 
     def _build_miner_process_from_row(self, row) -> MinerProcess:
+        """
+        Build a MinerProcess object from a database row.
+
+        Params:
+            row (dict): A dictionary containing the row data from the database.
+
+        Returns:
+            MinerProcess: An instance of MinerProcess, or None if chunk_uuid is None.
+        """
         if row['chunk_uuid'] is None:
             return None
         return MinerProcess(

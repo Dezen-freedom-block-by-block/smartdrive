@@ -38,6 +38,15 @@ class BlockEvent(Block):
 
 
 def block_to_block_event(block: Block) -> BlockEvent:
+    """
+    Converts a Block object into a BlockEvent object.
+
+    Params:
+        block (Block): The Block object to be converted.
+
+    Returns:
+        BlockEvent: The converted BlockEvent object.
+    """
     return BlockEvent(
         block_number=block.block_number,
         events=list(map(lambda event: MessageEvent.from_json(event.dict(), event.get_event_action()), block.events)),
@@ -47,6 +56,15 @@ def block_to_block_event(block: Block) -> BlockEvent:
 
 
 def block_event_to_block(block_event: BlockEvent) -> Block:
+    """
+    Converts a BlockEvent object into a Block object.
+
+    Params:
+        block_event (BlockEvent): The BlockEvent object to be converted.
+
+    Returns:
+        Block: The converted Block object.
+    """
     return Block(
         block_number=block_event.block_number,
         events=list(map(lambda message_event: parse_event(message_event), block_event.events)),

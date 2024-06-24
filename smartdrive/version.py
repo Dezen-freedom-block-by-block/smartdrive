@@ -93,7 +93,7 @@ def check_version(extra_args: [str] = None):
 
 def get_latest_version() -> str:
     """
-    Retrieve latest version number from GitHub repository.
+    Retrieve the latest version number from GitHub repository.
 
     Returns:
         str: Version number as string (X.X.X).

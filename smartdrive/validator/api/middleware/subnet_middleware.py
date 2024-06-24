@@ -54,7 +54,26 @@ class SubnetMiddleware(BaseHTTPMiddleware):
         self._key = classic_load_key(config_manager.config.key)
 
     async def dispatch(self, request: Request, call_next: Callback) -> Response:
+        """
+        Middleware function to handle request authentication and authorization.
+
+        Params:
+            request (Request): The incoming request object.
+            call_next (Callback): The next request handler in the middleware chain.
+
+        Returns:
+            Response: The response object.
+        """
         def unauthorized_response(detail: str) -> JSONResponse:
+            """
+            Generate an unauthorized response.
+
+            Params:
+                detail (str): The detail message for the unauthorized response.
+
+            Returns:
+                JSONResponse: The unauthorized response object with status code 401.
+            """
             return JSONResponse(
                 status_code=401,
                 content={"detail": detail}
@@ -124,6 +143,15 @@ class SubnetMiddleware(BaseHTTPMiddleware):
 
 
 def get_ss58_address_from_public_key(public_key_hex) -> Optional[Ss58Address]:
+    """
+    Convert a public key in hexadecimal format to an Ss58Address if valid.
+
+    Params:
+        public_key_hex (str): The public key in hexadecimal format.
+
+    Returns:
+        Optional[Ss58Address]: The corresponding Ss58Address if valid, otherwise None.
+    """
     public_key_bytes = bytes.fromhex(public_key_hex)
     ss58_address = ss58_encode(public_key_bytes)
     return Ss58Address(ss58_address) if is_valid_ss58_address(ss58_address) else None

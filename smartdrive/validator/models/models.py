@@ -125,17 +125,44 @@ class File:
         return f"File(file_uuid={self.file_uuid}, user_owner_ss58address={self.user_owner_ss58address}, chunks={self.chunks}, created_at={self.created_at}, expiration_ms={self.expiration_ms})"
 
     def get_expiration(self) -> int:
+        """
+        Generate a random expiration time in milliseconds within a range.
+
+        Returns:
+            int: A random expiration time between 3 hours (min_ms) and 24 hours (max_ms) in milliseconds.
+        """
         min_ms = 3 * 60 * 60 * 1000  # 3 hours
         max_ms = 24 * 60 * 60 * 1000  # 24 hours
         return random.randint(min_ms, max_ms)
 
     def has_expiration(self) -> bool:
+        """
+        Check if the current instance has an expiration time set.
+
+        Returns:
+            bool: True if the instance has a positive expiration time, False otherwise.
+        """
         return self.expiration_ms > 0
 
-    def has_expired(self, current_timestamp):
+    def has_expired(self, current_timestamp) -> bool:
+        """
+        Check if the current instance has expired based on the current timestamp.
+
+        Params:
+            current_timestamp (int): The current timestamp in milliseconds.
+
+        Returns:
+            bool: True if the current instance has expired, False otherwise.
+        """
         return current_timestamp > (self.created_at + self.expiration_ms)
 
     def get_sub_chunks(self) -> List[SubChunk]:
+        """
+        Retrieve all sub-chunks associated with the chunks of the current instance.
+
+        Returns:
+            List[SubChunk]: A list of SubChunk objects.
+        """
         sub_chunks = []
         for chunk in self.chunks:
             sub_chunks.append(chunk.sub_chunk)

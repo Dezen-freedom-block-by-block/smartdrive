@@ -81,6 +81,15 @@ class Event(BaseModel):
     event_signed_params: str
 
     def get_event_action(self) -> Action:
+        """
+        Determine the type of event and return the corresponding Action enum value.
+
+        Returns:
+            Action: The corresponding Action enum value for the event.
+
+        Raises:
+            ValueError: If the event type is unknown.
+        """
         if isinstance(self, StoreEvent):
             return Action.STORE
         elif isinstance(self, RemoveEvent):
@@ -141,6 +150,18 @@ class MessageEvent(BaseModel):
 
 
 def parse_event(message_event: MessageEvent) -> Event:
+    """
+    Parses a MessageEvent object into a specific Event object based on the event action.
+
+    Params:
+        message_event (MessageEvent): The MessageEvent object to be parsed.
+
+    Returns:
+        Event: The specific Event object (StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent).
+
+    Raises:
+        ValueError: If the event action is unknown.
+    """
     uuid = message_event.event.uuid
     user_ss58_address = Ss58Address(message_event.event.user_ss58_address)
     validator_ss58_address = Ss58Address(message_event.event.validator_ss58_address)

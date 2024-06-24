@@ -103,6 +103,17 @@ async def remove_chunk_request(keypair: Keypair, user_ss58_address: Ss58Address,
 
 
 async def process_events(events: list[Event], is_proposer_validator: bool, keypair: Keypair, comx_client: CommuneClient, netuid: int, database: Database):
+    """
+    Process a list of events. Depending on the type of event, it either stores a file or removes it.
+
+    Params:
+        events (list[Event]): A list of events to process.
+        is_proposer_validator (bool): Flag indicating if the current node is the proposer validator.
+        keypair (Keypair): The keypair used for signing data.
+        comx_client (CommuneClient): The CommuneX client for network interactions.
+        netuid (int): The network UID.
+        database (Database): The database instance for storing or removing files.
+    """
     for event in events:
         if isinstance(event, StoreEvent):
             chunks = []

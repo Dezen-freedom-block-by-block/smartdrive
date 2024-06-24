@@ -36,13 +36,10 @@ MIN_ALLOWED_WEIGHTS = 40
 MAX_ALLOWED_UIDS = 820
 
 # Miner weights
-RESPONSE_TIME_WEIGHT = 0.2
-FAILURE_WEIGHT = 0.8
-EXCESS_TIME_PENALTY_WEIGHT = 0.015
-MAX_RESPONSE_TIME = 8
+FAILURE_WEIGHT = 1
 
 
-def score_miner(total_calls: int, failed_calls: int, avg_response_time: float) -> float:
+def score_miner(total_calls: int, failed_calls: int) -> float:
     """
     Calculate the score for a miner based on the number of total calls, failed responses, and average response time.
 
@@ -68,18 +65,8 @@ def score_miner(total_calls: int, failed_calls: int, avg_response_time: float) -
     if failure_ratio >= 1:
         return 0
 
-    # Normalize average response time
-    normalized_avg_time = max(0, min(1, 1 - (avg_response_time / MAX_RESPONSE_TIME)))
-
-    # Calculate excess time penalty
-    excess_time_penalty = max(0, avg_response_time - MAX_RESPONSE_TIME)
-
-    # Combine failure ratio, normalized average response time, and excess time penalty into the final score
-    combined_penalty = (
-            (failure_ratio * FAILURE_WEIGHT) +
-            ((1 - normalized_avg_time) * RESPONSE_TIME_WEIGHT) +
-            (excess_time_penalty * EXCESS_TIME_PENALTY_WEIGHT)
-    )
+    # Final score
+    combined_penalty = failure_ratio * FAILURE_WEIGHT
     score -= combined_penalty
 
     # Ensure the score is between 0 and 1

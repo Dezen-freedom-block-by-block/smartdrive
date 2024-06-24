@@ -140,15 +140,11 @@ class Validator(Module):
             for miner in get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.MINER):
                 if miner.ss58_address == self._key.ss58_address:
                     continue
-                total_calls, failed_calls, avg_response_time = self._database.get_miner_processes(
+                total_calls, failed_calls = self._database.get_miner_processes(
                     miner_ss58_address=miner.ss58_address,
                     days_interval=self.DAYS_INTERVAL
                 )
-                score_dict[int(miner.uid)] = score_miner(
-                    total_calls=total_calls,
-                    failed_calls=failed_calls,
-                    avg_response_time=avg_response_time
-                )
+                score_dict[int(miner.uid)] = score_miner(total_calls=total_calls, failed_calls=failed_calls)
 
             if not score_dict:
                 print("Skipping set weights")
@@ -160,7 +156,7 @@ class Validator(Module):
 
             if elapsed < self.ITERATION_INTERVAL:
                 sleep_time = self.ITERATION_INTERVAL - elapsed
-                print(f"Sleeping for {sleep_time}")
+                print(f"Sleeping for {sleep_time} before trying to vote")
                 await asyncio.sleep(sleep_time)
 
     async def initial_sync(self):
