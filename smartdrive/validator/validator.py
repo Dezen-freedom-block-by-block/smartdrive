@@ -60,7 +60,6 @@ def get_config() -> Config:
     # Create parser and add all params.
     parser = argparse.ArgumentParser(description="Configure the validator.")
     parser.add_argument("--key", required=True, help="Name of key.")
-    parser.add_argument("--name", required=True, help="Name of validator.")
     parser.add_argument("--ip", type=str, required=True, help="Default public IP.")
     parser.add_argument("--database_path", default=db_path, required=False, help="Path to the database.")
     parser.add_argument("--port", type=int, default=8001, required=False, help="Default remote API port.")
@@ -76,7 +75,6 @@ def get_config() -> Config:
 
     _config = Config(
         key=args.key,
-        name=args.name,
         database_path=args.database_path,
         ip=args.ip,
         port=args.port,
@@ -92,6 +90,7 @@ class Validator(Module):
     MAX_EVENTS_PER_BLOCK = 25
     BLOCK_INTERVAL = 12
 
+    # TODO: CHECK INTERVAL DAYS FOR SCORE MINER
     DAYS_INTERVAL = 14
 
     _config = None

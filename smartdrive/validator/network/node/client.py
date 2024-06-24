@@ -125,7 +125,7 @@ class Client(multiprocessing.Process):
                             signature_hex=block.proposer_signature,
                             ss58_address=block.proposer_ss58_address
                     ):
-                        print("Block not verified")
+                        print(f"Block {block.block_number} not verified")
                         return
 
                     remove_invalid_block_events(block)

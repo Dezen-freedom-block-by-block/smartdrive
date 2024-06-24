@@ -159,5 +159,6 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
                 # the validator's signature with that of the proposer.
                 event.event_params.miners_processes = miner_processes
                 event.event_signed_params = sign_data(event.event_params.dict(), keypair).hex()
+                event.validator_ss58_address = Ss58Address(keypair.ss58_address)
 
             database.remove_file(event.event_params.file_uuid)

@@ -81,6 +81,7 @@ class Network:
 
                 # Create and process block
                 block_events = self._node.consume_pool_events(count=self.MAX_EVENTS_PER_BLOCK)
+                await process_events(events=block_events, is_proposer_validator=True, keypair=self._keypair, comx_client=self._comx_client, netuid=config_manager.config.netuid, database=self._database)
                 proposer_signature = sign_data({"block_number": block_number, "events": [event.dict() for event in block_events]}, self._keypair)
                 block = Block(
                     block_number=block_number,
@@ -88,8 +89,6 @@ class Network:
                     proposer_signature=proposer_signature.hex(),
                     proposer_ss58_address=Ss58Address(self._keypair.ss58_address)
                 )
-
-                await process_events(events=block_events, is_proposer_validator=True, keypair=self._keypair, comx_client=self._comx_client, netuid=config_manager.config.netuid, database=self._database)
                 self._database.create_block(block=block)
 
                 # Propagate block to other validators
