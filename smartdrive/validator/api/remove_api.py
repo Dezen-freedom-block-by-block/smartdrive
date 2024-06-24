@@ -34,19 +34,19 @@ from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_addre
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.models.event import RemoveEvent, RemoveParams, RemoveInputParams
-from smartdrive.validator.network.network import Network
 from smartdrive.commune.request import get_active_miners
+from smartdrive.validator.node.node import Node
 
 
 class RemoveAPI:
     _comx_client: CommuneClient = None
-    _network: Network = None
+    _node: Node = None
     _key: Keypair = None
     _database: Database = None
 
-    def __init__(self, comx_client, network: Network):
+    def __init__(self, comx_client, node: Node):
         self._comx_client = comx_client
-        self._network = network
+        self._node = node
         self._key = classic_load_key(config_manager.config.key)
         self._database: Database = Database()
 
@@ -99,4 +99,4 @@ class RemoveAPI:
         )
 
         # Emit event
-        self._network.send_event_to_validators(event)
+        self._node.send_event_to_validators(event)

@@ -23,7 +23,7 @@
 import json
 import struct
 
-from smartdrive.validator.network.node.util.exceptions import MessageException, ClientDisconnectedException
+from smartdrive.validator.node.util.exceptions import MessageException, ClientDisconnectedException
 
 
 def recv_all(sock, length):

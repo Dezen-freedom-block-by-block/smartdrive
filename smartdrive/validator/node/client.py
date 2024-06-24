@@ -8,7 +8,7 @@
 # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
-# 
+#
 # The above copyright notice and this permission notice shall be included in all
 # copies or substantial portions of the Software.
 #
@@ -37,11 +37,11 @@ from smartdrive.validator.api.utils import process_events
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.models.block import BlockEvent, block_event_to_block, Block
-from smartdrive.validator.network.node.connection_pool import ConnectionPool
-from smartdrive.validator.network.node.util import packing
-from smartdrive.validator.network.node.util.authority import are_all_block_events_valid, remove_invalid_block_events
-from smartdrive.validator.network.node.util.exceptions import MessageException, ClientDisconnectedException, MessageFormatException, InvalidSignatureException
-from smartdrive.validator.network.node.util.message_code import MessageCode
+from smartdrive.validator.node.connection_pool import ConnectionPool
+from smartdrive.validator.node.util import packing
+from smartdrive.validator.node.util.authority import are_all_block_events_valid, remove_invalid_block_events
+from smartdrive.validator.node.util.exceptions import MessageException, ClientDisconnectedException, MessageFormatException, InvalidSignatureException
+from smartdrive.validator.node.util.message_code import MessageCode
 from smartdrive.validator.utils import fetch_with_retries
 
 
@@ -139,6 +139,7 @@ class Client(multiprocessing.Process):
                         self._database.create_block(block=block)
 
                 elif body['code'] == MessageCode.MESSAGE_CODE_EVENT.value:
+                    # TODO: Check if the event is validation and allow only as validator_ss58_address the validator with highest stake
                     message_event = MessageEvent.from_json(body["data"]["event"], Action(body["data"]["event_action"]))
                     event = parse_event(message_event)
                     event_pool.append(event)

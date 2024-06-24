@@ -41,7 +41,7 @@ from smartdrive.models.event import RemoveEvent, ValidateEvent, StoreEvent, Mine
 from smartdrive.validator.models.models import File, ModuleType, SubChunk
 
 
-async def validate_step(database: Database, key: Keypair, comx_client: CommuneClient, netuid: int) -> Optional[Tuple[List[RemoveEvent], List[ValidateEvent], StoreEvent]]:
+async def validate_step(database: Database, key: Keypair, comx_client: CommuneClient, netuid: int) -> Optional[Tuple[List[RemoveEvent], List[ValidateEvent], Optional[StoreEvent]]]:
     """
     Performs a validation step in the process.
 
@@ -72,7 +72,7 @@ async def validate_step(database: Database, key: Keypair, comx_client: CommuneCl
     for file in files:
         expired_files.append(file) if file.has_expired(current_timestamp) else non_expired_files.append(file)
 
-    remove_events, validate_events, store_event = [], [], []
+    remove_events, validate_events, store_event = [], [], None
 
     # Remove expired files
     if expired_files:
