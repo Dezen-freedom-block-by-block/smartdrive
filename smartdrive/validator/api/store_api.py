@@ -86,8 +86,12 @@ class StoreAPI:
             miners=active_miners,
             validator_keypair=self._key,
             user_ss58_address=user_ss58_address,
-            input_signed_params=input_signed_params
+            input_signed_params=input_signed_params,
+            save_in_one_miner=True
         )
+
+        if not store_event:
+            raise HTTPException(status_code=404, detail="No miner answered with a valid response")
 
         # Emit event
         self._node.send_event_to_validators(store_event)
@@ -105,8 +109,9 @@ async def store_new_file(
         miners: list[ModuleInfo],
         validator_keypair: Keypair,
         user_ss58_address: Ss58Address,
-        input_signed_params: str
-) -> StoreEvent:
+        input_signed_params: str,
+        save_in_one_miner: bool = False
+) -> StoreEvent | None:
     """
     Stores a new file across a list of miners.
 
@@ -121,7 +126,7 @@ async def store_new_file(
         user_ss58_address (Ss58Address): The SS58 address of the user storing the file.
 
     Returns:
-        StoreEvent: An StoreEvent representing the storage operation for the file.
+        StoreEvent | None: An StoreEvent representing the storage operation for the file or None.
     """
     # TODO: Split in chunks
     # TODO: Don't use base64, file need be transferred directly.
@@ -131,7 +136,7 @@ async def store_new_file(
 
     file_encoded = base64.b64encode(file_bytes).decode("utf-8")
 
-    async def handle_store_request(miner: ModuleInfo):
+    async def handle_store_request(miner: ModuleInfo) -> bool:
         start_time = time.time()
         miner_answer = await _store_request(
             keypair=validator_keypair,
@@ -141,45 +146,51 @@ async def store_new_file(
         )
         final_time = time.time() - start_time
 
-        miner_process = MinerProcess(
-            chunk_uuid=miner_answer.chunk_uuid,
-            miner_ss58_address=miner.ss58_address,
-            succeed=True,
-            processing_time=final_time
+        if miner_answer:
+            miners_processes.append(MinerProcess(
+                chunk_uuid=miner_answer.chunk_uuid,
+                miner_ss58_address=miner.ss58_address,
+                succeed=True,
+                processing_time=final_time
+            ))
+            return True
+        else:
+            return False
+
+    if save_in_one_miner:
+        random.shuffle(miners)
+        for miner in miners:
+            if await handle_store_request(miner):
+                break
+    else:
+        await asyncio.gather(*[handle_store_request(miner) for miner in miners])
+
+    if miners_processes:
+        sub_chunk_end = random.randint(51, len(file_encoded) - 1)
+        sub_chunk_start = sub_chunk_end - 50
+        sub_chunk_encoded = file_encoded[sub_chunk_start:sub_chunk_end]
+
+        event_params = StoreParams(
+            file_uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
+            miners_processes=miners_processes,
+            sub_chunk_start=sub_chunk_start,
+            sub_chunk_end=sub_chunk_end,
+            sub_chunk_encoded=sub_chunk_encoded
         )
-        miners_processes.append(miner_process)
 
-    futures = [
-        handle_store_request(miner)
-        for miner in miners
-    ]
-    await asyncio.gather(*futures)
+        signed_params = sign_data(event_params.dict(), validator_keypair)
 
-    sub_chunk_end = random.randint(51, len(file_encoded) - 1)
-    sub_chunk_start = sub_chunk_end - 50
-    sub_chunk_encoded = file_encoded[sub_chunk_start:sub_chunk_end]
+        return StoreEvent(
+            uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
+            validator_ss58_address=Ss58Address(validator_keypair.ss58_address),
+            event_params=event_params,
+            event_signed_params=signed_params.hex(),
+            user_ss58_address=user_ss58_address,
+            input_params=StoreInputParams(file=calculate_hash(file_bytes)),
+            input_signed_params=input_signed_params
+        )
 
-    event_params = StoreParams(
-        file_uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
-        miners_processes=miners_processes,
-        sub_chunk_start=sub_chunk_start,
-        sub_chunk_end=sub_chunk_end,
-        sub_chunk_encoded=sub_chunk_encoded
-    )
-
-    signed_params = sign_data(event_params.dict(), validator_keypair)
-
-    event = StoreEvent(
-        uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
-        validator_ss58_address=Ss58Address(validator_keypair.ss58_address),
-        event_params=event_params,
-        event_signed_params=signed_params.hex(),
-        user_ss58_address=user_ss58_address,
-        input_params=StoreInputParams(file=calculate_hash(file_bytes)),
-        input_signed_params=input_signed_params
-    )
-
-    return event
+    return None
 
 
 async def _store_request(keypair: Keypair, miner: ModuleInfo, user_ss58_address: Ss58Address, base64_bytes: str) -> Optional[MinerWithChunk]:
