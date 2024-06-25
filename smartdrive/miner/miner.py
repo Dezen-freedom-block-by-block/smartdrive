@@ -252,6 +252,8 @@ class Miner(Module):
 
 
 if __name__ == "__main__":
+    smartdrive.check_version()
+
     config = get_config()
     miner = Miner(config)
     comx_client = CommuneClient(get_node_url(use_testnet=config.testnet))

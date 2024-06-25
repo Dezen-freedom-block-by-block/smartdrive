@@ -29,7 +29,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 
 from smartdrive.models.event import MinerProcess, StoreEvent, Event, Action, StoreParams, StoreInputParams, RemoveEvent, \
-    RemoveParams, RemoveInputParams, RetrieveEvent, EventParams, RetrieveInputParams, ValidateEvent
+    RemoveParams, RemoveInputParams, RetrieveEvent, EventParams, RetrieveInputParams, ValidateEvent, UserEvent
 from smartdrive.models.block import Block
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.models.models import MinerWithChunk, SubChunk, File, Chunk
@@ -125,7 +125,7 @@ class Database:
                         sub_chunk_end INTEGER,
                         sub_chunk_encoded TEXT,
                         event_signed_params TEXT NOT NULL,
-                        user_ss58_address TEXT NOT NULL,
+                        user_ss58_address TEXT,
                         file TEXT,
                         input_signed_params TEXT,
                         block_id INTEGER NOT NULL,
@@ -635,9 +635,13 @@ class Database:
         sub_chunk_start = None
         sub_chunk_end = None
         sub_chunk_encoded = None
-        user_ss58_address = event.user_ss58_address
-        input_signed_params = event.input_signed_params
+        user_ss58_address = None
+        input_signed_params = None
         file = None
+
+        if isinstance(event, UserEvent):
+            user_ss58_address = event.user_ss58_address
+            input_signed_params = event.input_signed_params
 
         # Populate specific fields based on event type
         if isinstance(event, StoreEvent):

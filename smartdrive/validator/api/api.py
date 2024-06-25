@@ -35,26 +35,24 @@ from smartdrive.validator.api.retrieve_api import RetrieveAPI
 from smartdrive.validator.api.remove_api import RemoveAPI
 from smartdrive.validator.api.store_api import StoreAPI
 from smartdrive.validator.api.database_api import DatabaseAPI
-from smartdrive.validator.network.network import Network
+from smartdrive.validator.node.node import Node
 
 
 class API:
     app = FastAPI()
-    _network: Network = None
     _comx_client: CommuneClient = None
 
     store_api: StoreAPI = None
     retrieve_api: RetrieveAPI = None
     remove_api: RemoveAPI = None
 
-    def __init__(self, network: Network):
-        self._network = network
+    def __init__(self, node: Node):
         self._comx_client = CommuneClient(url=get_node_url(use_testnet=config_manager.config.testnet), num_connections=10)
 
         self.database_api = DatabaseAPI(comx_client=self._comx_client)
-        self.store_api = StoreAPI(comx_client=self._comx_client, network=network)
-        self.retrieve_api = RetrieveAPI(comx_client=self._comx_client, network=network)
-        self.remove_api = RemoveAPI(comx_client=self._comx_client, network=network)
+        self.store_api = StoreAPI(comx_client=self._comx_client, node=node)
+        self.retrieve_api = RetrieveAPI(comx_client=self._comx_client, node=node)
+        self.remove_api = RemoveAPI(comx_client=self._comx_client, node=node)
 
         self.app.add_middleware(SubnetMiddleware, comx_client=self._comx_client)
 

@@ -32,19 +32,23 @@ from communex._common import get_node_url
 from communex.client import CommuneClient
 from communex.module.module import Module
 from communex.compat.key import classic_load_key
+from communex.types import Ss58Address
 
 import smartdrive
 from smartdrive.commune.module._protocol import create_headers
+from smartdrive.models.block import Block
+from smartdrive.validator.api.utils import process_events
 from smartdrive.validator.config import Config, config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.api.api import API
 from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
 from smartdrive.validator.models.models import ModuleType
-from smartdrive.validator.network.network import Network
+from smartdrive.validator.node.node import Node
 from smartdrive.validator.step import validate_step
 from smartdrive.validator.utils import extract_sql_file, fetch_with_retries
 from smartdrive.validator.api.middleware.sign import sign_data
-from smartdrive.commune.request import (get_modules, ConnectionInfo, get_filtered_modules, get_truthful_validators)
+from smartdrive.commune.request import (get_modules, ConnectionInfo, get_filtered_modules, get_truthful_validators,
+                                        ping_proposer_validator)
 
 
 def get_config() -> Config:
@@ -86,10 +90,10 @@ def get_config() -> Config:
 
 
 class Validator(Module):
-    ITERATION_INTERVAL = 60
     MAX_EVENTS_PER_BLOCK = 25
     BLOCK_INTERVAL = 12
 
+    VALIDATION_INTERVAL = 60
     # TODO: CHECK INTERVAL DAYS FOR SCORE MINER
     DAYS_INTERVAL = 14
 
@@ -98,7 +102,7 @@ class Validator(Module):
     _database: Database = None
     api: API = None
     _comx_client: CommuneClient = None
-    _network: Network = None
+    _node: Node = None
 
     def __init__(self):
         super().__init__()
@@ -106,57 +110,8 @@ class Validator(Module):
         self._key = classic_load_key(config.key)
         self._database = Database()
         self._comx_client = CommuneClient(url=get_node_url(use_testnet=config_manager.config.testnet), num_connections=5)
-        self._network = Network()
-        self.api = API(self._network)
-
-    async def validation_loop(self):
-        """
-        Continuously runs the validation process in a loop.
-
-        This method enters an infinite loop where it continuously checks the software version,
-        performs a validation step, and ensures that each iteration runs at a consistent interval
-        defined by `self.ITERATION_INTERVAL`. If the validation step completes faster than the
-        interval, it sleeps for the remaining time.
-        """
-        while True:
-            smartdrive.check_version()
-
-            start_time = time.time()
-
-            result = await validate_step(
-                database=self._database,
-                key=self._key,
-                comx_client=self._comx_client,
-                netuid=config_manager.config.netuid
-            )
-
-            if result is not None:
-                remove_events, validate_events, store_event = result
-                # TODO: Sent to block creation
-
-            # Set weights to miners
-            score_dict = {}
-            for miner in get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.MINER):
-                if miner.ss58_address == self._key.ss58_address:
-                    continue
-                total_calls, failed_calls = self._database.get_miner_processes(
-                    miner_ss58_address=miner.ss58_address,
-                    days_interval=self.DAYS_INTERVAL
-                )
-                score_dict[int(miner.uid)] = score_miner(total_calls=total_calls, failed_calls=failed_calls)
-
-            if not score_dict:
-                print("Skipping set weights")
-                return
-
-            await set_weights(score_dict, config_manager.config.netuid, self._comx_client, self._key, config_manager.config.testnet)
-
-            elapsed = time.time() - start_time
-
-            if elapsed < self.ITERATION_INTERVAL:
-                sleep_time = self.ITERATION_INTERVAL - elapsed
-                print(f"Sleeping for {sleep_time} before trying to vote")
-                await asyncio.sleep(sleep_time)
+        self._node = Node()
+        self.api = API(self._node)
 
     async def initial_sync(self):
         """
@@ -232,8 +187,90 @@ class Validator(Module):
         print("No more validators available.")
         return
 
+    async def create_blocks(self):
+        last_validation_time = time.time()
+
+        while True:
+            start_time = time.time()
+            block_number = self._database.get_last_block() or 0
+
+            truthful_validators = await get_truthful_validators(self._key, self._comx_client, config_manager.config.netuid)
+            all_validators = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
+
+            proposer_active_validator = max(truthful_validators if truthful_validators else all_validators, key=lambda v: v.stake or 0)
+            proposer_validator = max(all_validators, key=lambda v: v.stake or 0)
+
+            if proposer_validator.ss58_address != proposer_active_validator.ss58_address:
+                ping_validator = await ping_proposer_validator(self._key, proposer_validator)
+                if not ping_validator:
+                    proposer_validator = proposer_active_validator
+
+            if proposer_validator.ss58_address == self._key.ss58_address:
+                block_number += 1
+
+                block_events = self._node.consume_pool_events(count=self.MAX_EVENTS_PER_BLOCK)
+                await process_events(events=block_events, is_proposer_validator=True, keypair=self._key,
+                                     comx_client=self._comx_client, netuid=config_manager.config.netuid,
+                                     database=self._database)
+                proposer_signature = sign_data({"block_number": block_number, "events": [event.dict() for event in block_events]}, self._key)
+                block = Block(
+                    block_number=block_number,
+                    events=block_events,
+                    proposer_signature=proposer_signature.hex(),
+                    proposer_ss58_address=Ss58Address(self._key.ss58_address)
+                )
+                self._database.create_block(block=block)
+
+                asyncio.create_task(self._node.send_block_to_validators(block=block))
+
+                if time.time() - last_validation_time >= self.VALIDATION_INTERVAL:
+                    print("Starting validation task")
+                    asyncio.create_task(self.validation_task())
+                    last_validation_time = time.time()
+
+            elapsed = time.time() - start_time
+            if elapsed < self.BLOCK_INTERVAL:
+                sleep_time = self.BLOCK_INTERVAL - elapsed
+                print(f"Sleeping for {sleep_time} seconds before trying to create the next block.")
+                await asyncio.sleep(sleep_time)
+
+    async def validation_task(self):
+        result = await validate_step(
+            database=self._database,
+            key=self._key,
+            comx_client=self._comx_client,
+            netuid=config_manager.config.netuid
+        )
+
+        if result is not None:
+            remove_events, validate_events, store_event = result
+
+            if remove_events:
+                self._node.insert_pool_events(remove_events)
+
+            if validate_events:
+                self._node.insert_pool_events(validate_events)
+
+            if store_event:
+                self._node.insert_pool_event(store_event)
+
+        score_dict = {}
+        for miner in get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.MINER):
+            if miner.ss58_address == self._key.ss58_address:
+                continue
+            total_calls, failed_calls = self._database.get_miner_processes(
+                miner_ss58_address=miner.ss58_address,
+                days_interval=self.DAYS_INTERVAL
+            )
+            score_dict[int(miner.uid)] = score_miner(total_calls=total_calls, failed_calls=failed_calls)
+
+        if score_dict:
+            await set_weights(score_dict, config_manager.config.netuid, self._comx_client, self._key, config_manager.config.testnet)
+
 
 if __name__ == "__main__":
+    smartdrive.check_version()
+
     config = get_config()
     config_manager.initialize(config)
 
@@ -251,8 +288,7 @@ if __name__ == "__main__":
         await _validator.initial_sync()
         await asyncio.gather(
             _validator.api.run_server(),
-            _validator.validation_loop(),
-            _validator._network.create_blocks()
+            _validator.create_blocks()
         )
 
     asyncio.run(run_tasks())

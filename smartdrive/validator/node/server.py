@@ -35,11 +35,11 @@ from smartdrive.validator.api.middleware.sign import verify_data_signature, sign
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.models.models import ModuleType
-from smartdrive.validator.network.node.client import Client
-from smartdrive.validator.network.node.connection_pool import ConnectionPool
-from smartdrive.validator.network.node.util import packing
-from smartdrive.validator.network.node.util.message_code import MessageCode
-from smartdrive.validator.network.utils import send_json
+from smartdrive.validator.node.client import Client
+from smartdrive.validator.node.connection_pool import ConnectionPool
+from smartdrive.validator.node.util import packing
+from smartdrive.validator.node.util.message_code import MessageCode
+from smartdrive.validator.node.util.utils import send_json
 
 
 class Server(multiprocessing.Process):

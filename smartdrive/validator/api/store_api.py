@@ -40,19 +40,19 @@ from smartdrive.validator.database.database import Database
 from smartdrive.models.event import MinerProcess, StoreEvent, StoreParams, StoreInputParams
 from smartdrive.validator.models.models import MinerWithChunk
 from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo
-from smartdrive.validator.network.network import Network
+from smartdrive.validator.node.node import Node
 from smartdrive.validator.utils import calculate_hash
 
 
 class StoreAPI:
     _comx_client: CommuneClient = None
-    _network: Network = None
+    _node: Node = None
     _key: Keypair = None
     _database: Database = None
 
-    def __init__(self, comx_client, network: Network):
+    def __init__(self, comx_client, node: Node):
         self._comx_client = comx_client
-        self._network = network
+        self._node = node
         self._key = classic_load_key(config_manager.config.key)
         self._database = Database()
 
@@ -90,7 +90,7 @@ class StoreAPI:
         )
 
         # Emit event
-        self._network.send_event_to_validators(store_event)
+        self._node.send_event_to_validators(store_event)
 
         # Return response
         succeeded_responses = list(filter(lambda miner_process: miner_process.succeed, store_event.event_params.miners_processes))
