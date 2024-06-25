@@ -79,6 +79,8 @@ class StoreAPI:
         if not active_miners:
             raise HTTPException(status_code=404, detail="Currently there are no active miners")
 
+        # TODO: right now, we just save the file in one miner, we have to change it in the future when they are split
+        #  into chunks
         store_event = await store_new_file(
             file_bytes=file_bytes,
             miners=active_miners,
