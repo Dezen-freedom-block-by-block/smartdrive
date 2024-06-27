@@ -21,9 +21,10 @@
 # SOFTWARE.
 
 import os
+import shutil
 
 
-def get_total_size(dir_path: str) -> int:
+def get_directory_size(dir_path: str) -> int:
     """
     Calculate the total size of all files in a directory.
 
@@ -58,7 +59,8 @@ def has_enough_space(file_size: int, max_size_gb: float, dir_path: str) -> bool:
     Check if there is enough space in the directory to store a new file.
 
     This function calculates the total size of all files currently in the specified directory
-    and checks if adding a new file of the given size would exceed the maximum allowed size.
+    and checks if adding a new file of the given size would exceed the maximum allowed size,
+    and whether there is enough free space in the filesystem.
 
     Params:
         file_size (int): The size of the file to be added, in bytes.
@@ -72,6 +74,19 @@ def has_enough_space(file_size: int, max_size_gb: float, dir_path: str) -> bool:
         OSError: If there is an error accessing the file system, such as a permission error or
                  if the directory does not exist.
     """
-    max_size_bytes = max_size_gb * 1024 * 1024 * 1024
-    current_size = get_total_size(dir_path)
-    return current_size + file_size <= max_size_bytes
+    try:
+        # Get the total, used, and free space in the filesystem containing dir_path
+        total, used, free = shutil.disk_usage(dir_path)
+
+        # Convert the maximum allowed size to bytes
+        max_size_bytes = max_size_gb * 1024 * 1024 * 1024
+
+        # Calculate the current directory size
+        current_size = get_directory_size(dir_path)
+
+        # Check if there is enough space to add the file
+        return (current_size + file_size <= max_size_bytes) and (file_size <= free)
+
+    except OSError as e:
+        print(f"An error occurred calculating total size: {e}")
+        return False

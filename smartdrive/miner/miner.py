@@ -40,7 +40,7 @@ from communex.module._rate_limiters.limiters import IpLimiterParams
 
 import smartdrive
 from smartdrive.commune.request import get_modules
-from smartdrive.miner.utils import has_enough_space
+from smartdrive.miner.utils import has_enough_space, get_directory_size
 
 
 def get_config() -> Namespace:
@@ -103,6 +103,13 @@ class Miner(Module):
 
         if free_gb < self.config.max_size:
             raise Exception(f"Not enough disk space. Free space: {free_gb:.2f} GB, required: {self.config.max_size} GB")
+
+        # Additional check to ensure the current used space does not exceed the max size
+        current_dir_size = get_directory_size(self.config.data_path)
+        max_size_bytes = self.config.max_size * 1024 * 1024 * 1024
+
+        if current_dir_size > max_size_bytes:
+            raise Exception(f"Current directory size exceeds the maximum allowed size. Current size: {current_dir_size / (2 ** 30):.2f} GB, allowed: {self.config.max_size} GB")
 
     @endpoint
     def ping(self) -> dict:
