@@ -61,8 +61,8 @@ def get_config() -> Namespace:
     """
     # Create parser and add all params.
     parser = argparse.ArgumentParser(description="Configure the miner.")
-    parser.add_argument("--data_path", default="~/smartdrive-data", required=False, help="Path to the data.")
     parser.add_argument("--key", required=True, help="Name of key.")
+    parser.add_argument("--data_path", default="~/smartdrive-data", required=False, help="Path to the data.")
     parser.add_argument("--max_size", type=float, default=100, required=False, help="Size (in GB) of path to fill.")
     parser.add_argument("--port", type=int, default=8000, required=False, help="Default api port.")
     parser.add_argument("--testnet", action='store_true', help="Use testnet or not.")
