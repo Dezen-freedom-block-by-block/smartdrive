@@ -46,7 +46,7 @@ class Server(multiprocessing.Process):
     # TODO: Replace with production validators number
     MAX_N_CONNECTIONS = 255
     IDENTIFIER_TIMEOUT_SECONDS = 5
-    TCP_PORT = 9001
+    TCP_PORT = 9002
 
     _event_pool = None
     _connection_pool = None

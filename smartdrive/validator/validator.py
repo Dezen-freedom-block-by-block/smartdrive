@@ -118,24 +118,24 @@ class Validator(Module):
         Performs the initial synchronization by fetching database versions from truthful active validators,
         selecting the validator with the highest version, downloading the database, and importing it.
         """
-        active_validators = await get_truthful_validators(self._key, self._comx_client, config_manager.config.netuid)
+        truthful_validators = await get_truthful_validators(self._key, self._comx_client, config_manager.config.netuid)
         block_number = self._database.get_last_block() or 0
 
-        if not active_validators:
+        if not truthful_validators:
             # Retry once more if no active validators are found initially
-            active_validators = await get_truthful_validators(self._key, self._comx_client, config_manager.config.netuid)
+            truthful_validators = await get_truthful_validators(self._key, self._comx_client, config_manager.config.netuid)
 
-        if not active_validators:
+        if not truthful_validators:
             return
 
         headers = create_headers(sign_data({}, self._key), self._key)
-        active_validators_database = []
+        truthful_database = []
 
-        for validator in active_validators:
+        for validator in truthful_validators:
             response = await fetch_with_retries("block-number", validator.connection, params=None, headers=headers, timeout=30)
             if response and response.status_code == 200:
                 try:
-                    active_validators_database.append({
+                    truthful_database.append({
                         "uid": validator.uid,
                         "ss58_address": validator.ss58_address,
                         "connection": {
@@ -148,15 +148,15 @@ class Validator(Module):
                     print(e)
                     continue
 
-        if not active_validators_database:
+        if not truthful_database:
             return
 
-        while active_validators_database:
-            validator = max(active_validators_database, key=lambda obj: obj["database_block"])
+        while truthful_database:
+            validator = max(truthful_database, key=lambda obj: obj["database_block"])
 
             if block_number > validator["database_block"]:
-                print("Skipping database import... you have a larger version")
-                return
+                # If local block is greater than truthful validator we just erase the database and fetch
+                self._database.clear_database()
 
             connection = ConnectionInfo(validator["connection"]["ip"], validator["connection"]["port"])
             headers = create_headers(sign_data({}, self._key), self._key)
@@ -182,7 +182,7 @@ class Validator(Module):
                     os.remove(temp_zip_path)
             else:
                 print("Failed to fetch the database, trying the next validator.")
-                active_validators_database.remove(validator)
+                truthful_database.remove(validator)
 
         print("No more validators available.")
         return

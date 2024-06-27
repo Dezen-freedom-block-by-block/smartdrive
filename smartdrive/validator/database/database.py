@@ -232,6 +232,32 @@ class Database:
             if connection:
                 connection.close()
 
+    def clear_database(self):
+        """
+        Clear all records from the database and reset autoincrement values.
+        """
+        connection = sqlite3.connect(self._database_file_path)
+        with connection:
+            cursor = connection.cursor()
+            try:
+                # Get the list of all table names
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+                tables = cursor.fetchall()
+
+                print("CLEAR DATABASE")
+                print(tables)
+
+                for table in tables:
+                    table_name = table[0]
+                    if table_name != "sqlite_sequence":
+                        cursor.execute(f"DELETE FROM {table_name};")
+                        cursor.execute(f"DELETE FROM sqlite_sequence WHERE name='{table_name}';")
+
+                connection.commit()
+            except sqlite3.Error as e:
+                print(f"Error clearing database: {e}")
+                raise
+
     def import_database(self, sql_file_path: str) -> None:
         """
         Imports the content of the specified SQL file into the SQLite database.
