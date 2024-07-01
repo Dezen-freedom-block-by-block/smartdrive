@@ -46,7 +46,7 @@ class Server(multiprocessing.Process):
     # TODO: Replace with production validators number
     MAX_N_CONNECTIONS = 255
     IDENTIFIER_TIMEOUT_SECONDS = 5
-    TCP_PORT = 9002
+    TCP_PORT = 9001
 
     _event_pool = None
     _connection_pool = None
@@ -67,7 +67,7 @@ class Server(multiprocessing.Process):
             self._start_check_connections_process()
             server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            server_socket.bind((config_manager.config.ip, self.TCP_PORT))
+            server_socket.bind(("127.0.0.1", self.TCP_PORT))
             server_socket.listen(self.MAX_N_CONNECTIONS)
 
             while True:

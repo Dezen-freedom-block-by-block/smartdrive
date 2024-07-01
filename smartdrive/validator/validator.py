@@ -64,7 +64,6 @@ def get_config() -> Config:
     # Create parser and add all params.
     parser = argparse.ArgumentParser(description="Configure the validator.")
     parser.add_argument("--key", required=True, help="Name of key.")
-    parser.add_argument("--ip", type=str, required=True, help="Default public IP.")
     parser.add_argument("--database_path", default=db_path, required=False, help="Path to the database.")
     parser.add_argument("--port", type=int, default=8001, required=False, help="Default remote API port.")
     parser.add_argument("--testnet", action='store_true', help="Use testnet or not.")
@@ -80,7 +79,6 @@ def get_config() -> Config:
     _config = Config(
         key=args.key,
         database_path=args.database_path,
-        ip=args.ip,
         port=args.port,
         testnet=args.testnet,
         netuid=args.netuid
