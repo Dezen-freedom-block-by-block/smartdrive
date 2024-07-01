@@ -100,7 +100,7 @@ class Validator(Module):
     _database: Database = None
     api: API = None
     _comx_client: CommuneClient = None
-    _node: Node = None
+    node: Node = None
 
     def __init__(self):
         super().__init__()
@@ -108,8 +108,6 @@ class Validator(Module):
         self._key = classic_load_key(config.key)
         self._database = Database()
         self._comx_client = CommuneClient(url=get_node_url(use_testnet=config_manager.config.testnet), num_connections=5)
-        self._node = Node()
-        self.api = API(self._node)
 
     async def initial_sync(self):
         """
@@ -206,7 +204,7 @@ class Validator(Module):
             if proposer_validator.ss58_address == self._key.ss58_address:
                 block_number += 1
 
-                block_events = self._node.consume_pool_events(count=self.MAX_EVENTS_PER_BLOCK)
+                block_events = self.node.consume_pool_events(count=self.MAX_EVENTS_PER_BLOCK)
                 await process_events(events=block_events, is_proposer_validator=True, keypair=self._key,
                                      comx_client=self._comx_client, netuid=config_manager.config.netuid,
                                      database=self._database)
@@ -219,7 +217,7 @@ class Validator(Module):
                 )
                 self._database.create_block(block=block)
 
-                asyncio.create_task(self._node.send_block_to_validators(block=block))
+                asyncio.create_task(self.node.send_block_to_validators(block=block))
 
                 if time.time() - last_validation_time >= self.VALIDATION_INTERVAL:
                     print("Starting validation task")
@@ -244,13 +242,13 @@ class Validator(Module):
             remove_events, validate_events, store_event = result
 
             if remove_events:
-                self._node.insert_pool_events(remove_events)
+                self.node.insert_pool_events(remove_events)
 
             if validate_events:
-                self._node.insert_pool_events(validate_events)
+                self.node.insert_pool_events(validate_events)
 
             if store_event:
-                self._node.insert_pool_event(store_event)
+                self.node.insert_pool_event(store_event)
 
         score_dict = {}
         for miner in get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.MINER):
@@ -284,6 +282,8 @@ if __name__ == "__main__":
 
     async def run_tasks():
         await _validator.initial_sync()
+        _validator.node = Node()
+        _validator.api = API(_validator.node)
         await asyncio.gather(
             _validator.api.run_server(),
             _validator.create_blocks()
