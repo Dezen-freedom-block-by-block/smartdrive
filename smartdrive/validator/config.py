@@ -27,10 +27,9 @@ import os
 multiprocessing.set_start_method("fork")
 
 class Config:
-    def __init__(self, key: str, database_path: str, ip: str, port: int, testnet: bool, netuid: int):
+    def __init__(self, key: str, database_path: str, port: int, testnet: bool, netuid: int):
         self.key: str = key
         self.database_path: str = database_path
-        self.ip: str = ip
         self.port: int = port
         self.testnet: bool = testnet
         self.netuid: int = netuid
@@ -46,7 +45,6 @@ class ConfigManager:
     def initialize(self, config: Config):
         self.config.key = config.key
         self.config.database_path = config.database_path
-        self.config.ip = config.ip
         self.config.port = config.port
         self.config.testnet = config.testnet
         self.config.netuid = config.netuid
