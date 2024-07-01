@@ -163,49 +163,39 @@ def parse_event(message_event: MessageEvent) -> Event:
         ValueError: If the event action is unknown.
     """
     uuid = message_event.event.uuid
-    user_ss58_address = Ss58Address(message_event.event.user_ss58_address)
     validator_ss58_address = Ss58Address(message_event.event.validator_ss58_address)
     event_params = message_event.event.event_params
     event_signed_params = message_event.event.event_signed_params
-    input_params = message_event.event.input_params
-    input_signed_params = message_event.event.input_signed_params
+
+    common_params = {
+        "uuid": uuid,
+        "validator_ss58_address": validator_ss58_address,
+        "event_params": event_params,
+        "event_signed_params": event_signed_params
+    }
 
     if message_event.event_action == Action.STORE.value:
         return StoreEvent(
-            uuid=uuid,
-            user_ss58_address=user_ss58_address,
-            input_params=input_params,
-            input_signed_params=input_signed_params,
-            validator_ss58_address=validator_ss58_address,
-            event_params=event_params,
-            event_signed_params=event_signed_params
+            **common_params,
+            user_ss58_address=Ss58Address(message_event.event.user_ss58_address),
+            input_params=StoreInputParams(file=message_event.event.input_params.file),
+            input_signed_params=message_event.event.input_signed_params
         )
     elif message_event.event_action == Action.REMOVE.value:
         return RemoveEvent(
-            uuid=uuid,
-            user_ss58_address=user_ss58_address,
-            input_params=input_params,
-            input_signed_params=input_signed_params,
-            validator_ss58_address=validator_ss58_address,
-            event_params=event_params,
-            event_signed_params=event_signed_params
+            **common_params,
+            user_ss58_address=Ss58Address(message_event.event.user_ss58_address),
+            input_params=RemoveInputParams(file_uuid=message_event.event.input_params.file_uuid),
+            input_signed_params=message_event.event.input_signed_params
         )
     elif message_event.event_action == Action.RETRIEVE.value:
         return RetrieveEvent(
-            uuid=uuid,
-            user_ss58_address=user_ss58_address,
-            input_params=input_params,
-            input_signed_params=input_signed_params,
-            validator_ss58_address=validator_ss58_address,
-            event_params=event_params,
-            event_signed_params=event_signed_params
+            **common_params,
+            user_ss58_address=Ss58Address(message_event.event.user_ss58_address),
+            input_params=RetrieveInputParams(file_uuid=message_event.event.input_params.file_uuid),
+            input_signed_params=message_event.event.input_signed_params
         )
     elif message_event.event_action == Action.VALIDATION.value:
-        return ValidateEvent(
-            uuid=uuid,
-            validator_ss58_address=validator_ss58_address,
-            event_params=event_params,
-            event_signed_params=event_signed_params
-        )
+        return ValidateEvent(**common_params)
     else:
         raise ValueError(f"Unknown action: {message_event.event_action}")
