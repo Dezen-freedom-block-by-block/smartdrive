@@ -49,8 +49,12 @@ comx module register <your_validator_name> <your_commune_key> --ip <your_ip_addr
 
 2. Launch the validator
 ````
-python3 -m smartdrive.validator.validator --key <your_commune_key> --ip <your_ip_address>
+python3 -m smartdrive.validator.validator --key <your_commune_key>
 ````
+
+3. Open TCP port
+   In order for the validators to connect to each other, it is necessary to open TCP port 9001
+
 Other useful parameters:
 - --database_path: Path to the database.
 - --port: Default remote api port (Defaults 8001).
