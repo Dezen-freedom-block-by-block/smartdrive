@@ -82,7 +82,7 @@ class Client(multiprocessing.Process):
         except (MessageException, MessageFormatException):
             print(f"Received undecodable or invalid message: {self._identifier}")
         except (ConnectionResetError, ConnectionAbortedError, ClientDisconnectedException):
-            print(f"Client disconnected': {self._identifier}")
+            print(f"Client disconnected: {self._identifier}")
         finally:
             self._client_socket.close()
             raise ClientDisconnectedException(f"Lost {self._identifier}")

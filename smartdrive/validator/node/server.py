@@ -67,7 +67,7 @@ class Server(multiprocessing.Process):
             self._start_check_connections_process()
             server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            server_socket.bind(("127.0.0.1", self.TCP_PORT))
+            server_socket.bind(("0.0.0.0", self.TCP_PORT))
             server_socket.listen(self.MAX_N_CONNECTIONS)
 
             while True:
@@ -114,8 +114,7 @@ class Server(multiprocessing.Process):
             for validator in validators:
                 validator_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 try:
-                    # TODO: Remove port configuration and set it fixed to self.TCP_PORT, this is only to not connect a validator node to itself
-                    validator_socket.connect((validator.connection.ip, validator.connection.port + 1000))
+                    validator_socket.connect((validator.connection.ip, self.TCP_PORT))
                     body = {
                         "code": MessageCode.MESSAGE_CODE_IDENTIFIER.value,
                         "data": {"ss58_address": self._keypair.ss58_address}

@@ -244,9 +244,6 @@ class Database:
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
                 tables = cursor.fetchall()
 
-                print("CLEAR DATABASE")
-                print(tables)
-
                 for table in tables:
                     table_name = table[0]
                     if table_name != "sqlite_sequence":
