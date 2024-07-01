@@ -187,48 +187,52 @@ class Validator(Module):
         last_validation_time = time.time()
 
         while True:
-            start_time = time.time()
-            block_number = self._database.get_last_block() or 0
+            try:
+                start_time = time.time()
+                block_number = self._database.get_last_block() or 0
 
-            truthful_validators = await get_truthful_validators(self._key, self._comx_client, config_manager.config.netuid)
-            all_validators = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
+                truthful_validators = await get_truthful_validators(self._key, self._comx_client, config_manager.config.netuid)
+                all_validators = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
 
-            proposer_active_validator = max(truthful_validators if truthful_validators else all_validators, key=lambda v: v.stake or 0)
-            proposer_validator = max(all_validators, key=lambda v: v.stake or 0)
+                proposer_active_validator = max(truthful_validators if truthful_validators else all_validators, key=lambda v: v.stake or 0)
+                proposer_validator = max(all_validators, key=lambda v: v.stake or 0)
 
-            if proposer_validator.ss58_address != proposer_active_validator.ss58_address:
-                ping_validator = await ping_proposer_validator(self._key, proposer_validator)
-                if not ping_validator:
-                    proposer_validator = proposer_active_validator
+                if proposer_validator.ss58_address != proposer_active_validator.ss58_address:
+                    ping_validator = await ping_proposer_validator(self._key, proposer_validator)
+                    if not ping_validator:
+                        proposer_validator = proposer_active_validator
 
-            if proposer_validator.ss58_address == self._key.ss58_address:
-                block_number += 1
+                if proposer_validator.ss58_address == self._key.ss58_address:
+                    block_number += 1
 
-                block_events = self.node.consume_pool_events(count=self.MAX_EVENTS_PER_BLOCK)
-                await process_events(events=block_events, is_proposer_validator=True, keypair=self._key,
-                                     comx_client=self._comx_client, netuid=config_manager.config.netuid,
-                                     database=self._database)
-                proposer_signature = sign_data({"block_number": block_number, "events": [event.dict() for event in block_events]}, self._key)
-                block = Block(
-                    block_number=block_number,
-                    events=block_events,
-                    proposer_signature=proposer_signature.hex(),
-                    proposer_ss58_address=Ss58Address(self._key.ss58_address)
-                )
-                self._database.create_block(block=block)
+                    block_events = self.node.consume_pool_events(count=self.MAX_EVENTS_PER_BLOCK)
+                    await process_events(events=block_events, is_proposer_validator=True, keypair=self._key,
+                                         comx_client=self._comx_client, netuid=config_manager.config.netuid,
+                                         database=self._database)
+                    proposer_signature = sign_data({"block_number": block_number, "events": [event.dict() for event in block_events]}, self._key)
+                    block = Block(
+                        block_number=block_number,
+                        events=block_events,
+                        proposer_signature=proposer_signature.hex(),
+                        proposer_ss58_address=Ss58Address(self._key.ss58_address)
+                    )
+                    self._database.create_block(block=block)
 
-                asyncio.create_task(self.node.send_block_to_validators(block=block))
+                    asyncio.create_task(self.node.send_block_to_validators(block=block))
 
-                if time.time() - last_validation_time >= self.VALIDATION_INTERVAL:
-                    print("Starting validation task")
-                    asyncio.create_task(self.validation_task())
-                    last_validation_time = time.time()
+                    if time.time() - last_validation_time >= self.VALIDATION_INTERVAL:
+                        print("Starting validation task")
+                        asyncio.create_task(self.validation_task())
+                        last_validation_time = time.time()
 
-            elapsed = time.time() - start_time
-            if elapsed < self.BLOCK_INTERVAL:
-                sleep_time = self.BLOCK_INTERVAL - elapsed
-                print(f"Sleeping for {sleep_time} seconds before trying to create the next block.")
-                await asyncio.sleep(sleep_time)
+                elapsed = time.time() - start_time
+                if elapsed < self.BLOCK_INTERVAL:
+                    sleep_time = self.BLOCK_INTERVAL - elapsed
+                    print(f"Sleeping for {sleep_time} seconds before trying to create the next block.")
+                    await asyncio.sleep(sleep_time)
+            except Exception as e:
+                print(f"Error create blocks - {e}")
+                await asyncio.sleep(self.BLOCK_INTERVAL)
 
     async def validation_task(self):
         result = await validate_step(

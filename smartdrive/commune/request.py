@@ -128,7 +128,7 @@ async def vote(key: Keypair, comx_client: CommuneClient, uids: list[int], weight
         print(e)
 
 
-async def get_active_validators(key: Keypair, comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
+async def get_active_validators(key: Keypair, comx_client: CommuneClient, netuid: int, modules: Optional[list[ModuleInfo]] = None) -> List[ModuleInfo]:
     """
     Retrieve a list of active validators.
 
@@ -140,15 +140,23 @@ async def get_active_validators(key: Keypair, comx_client: CommuneClient, netuid
         key (Keypair): Key used to authenticate the requests.
         comx_client (CommuneClient): Client to perform system queries.
         netuid (int): Network identifier used for the queries.
+        modules (Optional[list[ModuleInfo]]): Optional list of modules to check. If not provided, the function will query the network.
 
     Returns:
         List[ModuleInfo]: A list of `ModuleInfo` objects representing active validators.
     """
-    modules_uid_ss58_address_connection = get_modules(comx_client, netuid)
-    active_validators = [
-        module for module in modules_uid_ss58_address_connection
-        if (response := await execute_miner_request(key, module.connection, module.ss58_address, "ping", timeout=PING_TIMEOUT)) and response["type"] == "validator"
-    ]
+    if not modules:
+        modules = get_modules(comx_client, netuid)
+
+    async def _get_active_validators(module):
+        ping_response = await execute_miner_request(key, module.connection, module.ss58_address, "ping", timeout=PING_TIMEOUT)
+        if ping_response and ping_response["type"] == "validator":
+            return module
+        return None
+
+    futures = [_get_active_validators(module) for module in modules]
+    results = await asyncio.gather(*futures, return_exceptions=True)
+    active_validators = [result for result in results if isinstance(result, ModuleInfo)]
     return active_validators
 
 
@@ -214,7 +222,7 @@ def get_filtered_modules(comx_client: CommuneClient, netuid: int, type: ModuleTy
     return result
 
 
-async def get_active_miners(key: Keypair, comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
+async def get_active_miners(key: Keypair, comx_client: CommuneClient, netuid: int, modules: Optional[list[ModuleInfo]] = None) -> List[ModuleInfo]:
     """
    Retrieve a list of active miners.
 
@@ -226,16 +234,23 @@ async def get_active_miners(key: Keypair, comx_client: CommuneClient, netuid: in
        key (Keypair): Key used to authenticate the requests.
        comx_client (CommuneClient): Client to perform system queries.
        netuid (int): Network identifier used for the queries.
+       modules (Optional[list[ModuleInfo]]): Optional list of modules to check. If not provided, the function will query the network.
 
    Returns:
        List[ModuleInfo]: A list of `ModuleInfo` objects representing active miners.
    """
-    modules_uid_ss58_address_connection = get_modules(comx_client, netuid)
+    if not modules:
+        modules = get_modules(comx_client, netuid)
 
-    active_miners = [
-        module for module in modules_uid_ss58_address_connection
-        if (response := await execute_miner_request(key, module.connection, module.ss58_address, "ping", timeout=PING_TIMEOUT)) and response["type"] == "miner"
-    ]
+    async def _get_active_miners(module):
+        ping_response = await execute_miner_request(key, module.connection, module.ss58_address, "ping", timeout=PING_TIMEOUT)
+        if ping_response and ping_response["type"] == "miner":
+            return module
+        return None
+
+    futures = [_get_active_miners(module) for module in modules]
+    results = await asyncio.gather(*futures, return_exceptions=True)
+    active_miners = [result for result in results if isinstance(result, ModuleInfo)]
     return active_miners
 
 

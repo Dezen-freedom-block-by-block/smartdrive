@@ -19,7 +19,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
+import asyncio
 import multiprocessing
 import socket
 import select
@@ -30,7 +30,7 @@ from communex._common import get_node_url
 from communex.client import CommuneClient
 from communex.compat.key import classic_load_key
 
-from smartdrive.commune.request import get_filtered_modules
+from smartdrive.commune.request import get_filtered_modules, get_active_validators
 from smartdrive.validator.api.middleware.sign import verify_data_signature, sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.config import config_manager
@@ -89,29 +89,35 @@ class Server(multiprocessing.Process):
 
     def _check_connections_process(self, connection_pool: ConnectionPool, event_pool):
         while True:
-            validators = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
-            active_ss58_addresses = {validator.ss58_address for validator in validators}
-            to_remove = [ss58_address for ss58_address in connection_pool.get_identifiers() if ss58_address not in active_ss58_addresses]
-            for ss58_address in to_remove:
-                removed_connection = connection_pool.remove_connection(ss58_address)
-                if removed_connection:
-                    removed_connection.close()
+            try:
+                validators = get_filtered_modules(CommuneClient(url=get_node_url(use_testnet=config_manager.config.testnet)), config_manager.config.netuid, ModuleType.VALIDATOR)
+                active_ss58_addresses = {validator.ss58_address for validator in validators}
+                to_remove = [ss58_address for ss58_address in connection_pool.get_identifiers() if ss58_address not in active_ss58_addresses]
+                for ss58_address in to_remove:
+                    removed_connection = connection_pool.remove_connection(ss58_address)
+                    if removed_connection:
+                        removed_connection.close()
+                identifiers = connection_pool.get_identifiers()
+                new_validators = [validator for validator in validators if validator.ss58_address not in identifiers and validator.ss58_address != self._keypair.ss58_address]
+                self._initialize_validators(connection_pool, event_pool, new_validators)
 
-            identifiers = connection_pool.get_identifiers()
-            new_validators = [validator for validator in validators if validator.ss58_address not in identifiers and validator.ss58_address != self._keypair.ss58_address]
-
-            self._initialize_validators(connection_pool, event_pool, new_validators)
-
-            time.sleep(10)
+                time.sleep(10)
+            except Exception as e:
+                print(f"Error check connections process - {e}")
+                time.sleep(10)
 
     def _initialize_validators(self, connection_pool: ConnectionPool, event_pool, validators):
-        # TODO: Each connection try in for loop should be async and we should wait for all of them
+        # TODO: Each connection try in for loop should be async and we should wait for all of them.
+        # TODO: Actually multiple validators with same IP will not work since they will try to connect always the TCP port self.TCP_PORT.
         try:
             if validators is None:
                 validators = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
-                validators = [validator for validator in validators if validator.ss58_address != self._keypair.ss58_address]
 
-            for validator in validators:
+            validators = [validator for validator in validators if validator.ss58_address != self._keypair.ss58_address]
+
+            active_validators = asyncio.run(get_active_validators(self._keypair, self._comx_client, config_manager.config.netuid, validators))
+
+            for validator in active_validators:
                 validator_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 try:
                     validator_socket.connect((validator.connection.ip, self.TCP_PORT))
