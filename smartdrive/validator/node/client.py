@@ -162,11 +162,15 @@ class Client(multiprocessing.Process):
                 database=self._database
             )
 
-        loop = asyncio.get_event_loop()
-        if not loop.is_running():
-            loop.run_until_complete(run_process_events(processed_events))
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            asyncio.create_task(run_process_events(processed_events))
         else:
-            asyncio.ensure_future(run_process_events(processed_events))
+            asyncio.run(run_process_events(processed_events))
 
     def _sync_blocks(self, start, end, event_pool):
         async def sync_blocks():
