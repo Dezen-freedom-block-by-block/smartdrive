@@ -217,8 +217,15 @@ class Client(multiprocessing.Process):
                 self._remove_events(block.events, event_pool)
                 self._database.create_block(block)
 
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(sync_blocks())
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            asyncio.create_task(sync_blocks())
+        else:
+            asyncio.run(sync_blocks())
 
     def _remove_events(self, events: List[Event], event_pool):
         uuids_to_remove = {event.uuid for event in events}

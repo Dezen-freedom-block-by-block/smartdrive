@@ -39,6 +39,7 @@ from smartdrive.validator.evaluation.utils import generate_data
 from smartdrive.models.event import RemoveEvent, ValidateEvent, StoreEvent, MinerProcess, EventParams, RemoveParams, \
     RemoveInputParams
 from smartdrive.validator.models.models import File, ModuleType, SubChunk
+from smartdrive.validator.utils import calculate_hash
 
 
 async def validate_step(database: Database, key: Keypair, comx_client: CommuneClient, netuid: int) -> Optional[Tuple[List[RemoveEvent], List[ValidateEvent], Optional[StoreEvent]]]:
@@ -97,7 +98,7 @@ async def validate_step(database: Database, key: Keypair, comx_client: CommuneCl
     miners_to_store = _determine_miners_to_store(files, expired_files, active_miners)
     if miners_to_store:
         file_data = generate_data(5)
-        input_params = {"file": str(file_data)}
+        input_params = {"file": calculate_hash(file_data)}
         input_signed_params = sign_data(input_params, key)
 
         store_event = await store_new_file(
