@@ -49,7 +49,7 @@ comx module register <your_validator_name> <your_commune_key> --ip <your_ip_addr
 
 2. Launch the validator
 ````
-python3 -m smartdrive.validator.validator --key <your_commune_key> --ip <your_ip_address>
+python3 -m smartdrive.validator.validator --key <your_commune_key>
 ````
 
 3. Open TCP port
