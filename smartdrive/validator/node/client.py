@@ -129,7 +129,9 @@ class Client(multiprocessing.Process):
                         return
 
                     remove_invalid_block_events(block)
-                    
+
+                    # TODO: Check when a validator creates a block (it is not a proposer) and just enters to validate
+                    #  the proposer and creates another block, in this case, the blocks will be repeated
                     local_block_number = self._database.get_last_block() or 0
                     if block.block_number - 1 != local_block_number:
                         self._sync_blocks(local_block_number + 1, block.block_number, event_pool)
