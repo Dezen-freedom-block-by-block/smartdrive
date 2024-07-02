@@ -34,7 +34,6 @@ from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_addre
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.models.event import RemoveEvent, RemoveParams, RemoveInputParams
-from smartdrive.commune.request import get_active_miners
 from smartdrive.validator.node.node import Node
 
 
@@ -75,11 +74,6 @@ class RemoveAPI:
         miner_chunks = self._database.get_miner_chunks(file_uuid)
         if not miner_chunks:
             raise HTTPException(status_code=404, detail="Currently there are no miners with this file name")
-
-        # Get active miners
-        active_miners = await get_active_miners(self._key, self._comx_client, config_manager.config.netuid)
-        if not active_miners:
-            raise HTTPException(status_code=404, detail="Currently there are no active miners")
 
         # Create event
         event_params = RemoveParams(

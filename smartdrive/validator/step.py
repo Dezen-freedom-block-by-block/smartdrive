@@ -29,7 +29,7 @@ from substrateinterface import Keypair
 from communex.client import CommuneClient
 from communex.types import Ss58Address
 
-from smartdrive.commune.request import get_active_miners, ModuleInfo, get_filtered_modules
+from smartdrive.commune.request import ModuleInfo, get_filtered_modules
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.store_api import store_new_file
 from smartdrive.validator.api.utils import remove_chunk_request
@@ -58,9 +58,9 @@ async def validate_step(database: Database, key: Keypair, comx_client: CommuneCl
     Returns:
         Optional[Tuple[List[RemoveEvent], List[ValidateEvent], StoreEvent]]: An optional tuple containing a list of Event objects.
     """
-    active_miners = await get_active_miners(key, comx_client, netuid)
-    if not active_miners:
-        print("Skipping validation step, there is not any active miner.")
+    miners = get_filtered_modules(comx_client, netuid, ModuleType.VALIDATOR)
+    if not miners:
+        print("Skipping validation step, there is not any miner.")
         return
 
     # Get files with expiration
@@ -95,7 +95,7 @@ async def validate_step(database: Database, key: Keypair, comx_client: CommuneCl
 
     # TODO: Move store before validate to check the new files
     # Store new file
-    miners_to_store = _determine_miners_to_store(files, expired_files, active_miners)
+    miners_to_store = _determine_miners_to_store(files, expired_files, miners)
     if miners_to_store:
         file_data = generate_data(5)
         input_params = {"file": calculate_hash(file_data)}
@@ -180,9 +180,9 @@ async def _remove_files(files: List[File], keypair: Keypair, comx_client: Commun
 
 async def _validate_miners(files: list[File], keypair: Keypair, comx_client: CommuneClient, netuid: int) -> List[ValidateEvent]:
     """
-    Validates the stored sub-chunks across active miners.
+    Validates the stored sub-chunks across miners.
 
-    This method checks the integrity of sub-chunks stored across various active miners
+    This method checks the integrity of sub-chunks stored across various miners
     by comparing the stored data with the original data. It logs the response times and
     success status of each validation request.
 
@@ -190,15 +190,15 @@ async def _validate_miners(files: list[File], keypair: Keypair, comx_client: Com
         files (list[File]): A list of files containing chunks to be validated.
         keypair (Keypair): The validator key used to authorize the requests.
         comx_client (CommuneClient): The client used to interact with the commune network.
-        netuid (int): The network UID used to filter the active miners.
+        netuid (int): The network UID used to filter the miners.
 
     Returns:
         List[ValidateEvent]: A list of ValidateEvent objects, each representing the validation operation for a sub-chunk.
     """
     events: List[ValidateEvent] = []
 
-    active_miners = await get_active_miners(keypair, comx_client, netuid)
-    if not active_miners:
+    miners = get_filtered_modules(comx_client, netuid, ModuleType.VALIDATOR)
+    if not miners:
         return events
 
     sub_chunks = list(chunk.sub_chunk is not None for file in files for chunk in file.chunks)
@@ -241,7 +241,7 @@ async def _validate_miners(files: list[File], keypair: Keypair, comx_client: Com
     async def process_file(file: File):
         for chunk in file.chunks:
             if chunk.sub_chunk is not None:
-                chunk_miner_module_info = next((miner for miner in active_miners if miner.ss58_address == chunk.miner_owner_ss58address), None)
+                chunk_miner_module_info = next((miner for miner in miners if miner.ss58_address == chunk.miner_owner_ss58address), None)
                 if chunk_miner_module_info:
                     await handle_validation_request(chunk_miner_module_info, file.user_owner_ss58address, chunk.sub_chunk)
 

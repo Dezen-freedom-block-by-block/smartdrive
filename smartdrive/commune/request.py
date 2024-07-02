@@ -222,38 +222,6 @@ def get_filtered_modules(comx_client: CommuneClient, netuid: int, type: ModuleTy
     return result
 
 
-async def get_active_miners(key: Keypair, comx_client: CommuneClient, netuid: int, modules: Optional[list[ModuleInfo]] = None) -> List[ModuleInfo]:
-    """
-   Retrieve a list of active miners.
-
-   This function queries the network to retrieve module information and then pings each module to
-   determine if it is an active miner. Only modules that respond with a type of "miner" are
-   considered active miners.
-
-   Params:
-       key (Keypair): Key used to authenticate the requests.
-       comx_client (CommuneClient): Client to perform system queries.
-       netuid (int): Network identifier used for the queries.
-       modules (Optional[list[ModuleInfo]]): Optional list of modules to check. If not provided, the function will query the network.
-
-   Returns:
-       List[ModuleInfo]: A list of `ModuleInfo` objects representing active miners.
-   """
-    if not modules:
-        modules = get_modules(comx_client, netuid)
-
-    async def _get_active_miners(module):
-        ping_response = await execute_miner_request(key, module.connection, module.ss58_address, "ping", timeout=PING_TIMEOUT)
-        if ping_response and ping_response["type"] == "miner":
-            return module
-        return None
-
-    futures = [_get_active_miners(module) for module in modules if module.ss58_address != key.ss58_address]
-    results = await asyncio.gather(*futures, return_exceptions=True)
-    active_miners = [result for result in results if isinstance(result, ModuleInfo)]
-    return active_miners
-
-
 async def execute_miner_request(validator_key: Keypair, connection: ConnectionInfo, miner_key: Ss58Address, action: str, params: Dict[str, Any] = None, timeout: int = CALL_TIMEOUT):
     """
     Executes a request to a miner and returns the response.

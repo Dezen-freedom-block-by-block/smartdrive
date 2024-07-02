@@ -38,8 +38,8 @@ from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_addre
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.models.event import MinerProcess, StoreEvent, StoreParams, StoreInputParams
-from smartdrive.validator.models.models import MinerWithChunk
-from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo
+from smartdrive.validator.models.models import MinerWithChunk, ModuleType
+from smartdrive.commune.request import execute_miner_request, ModuleInfo, get_filtered_modules
 from smartdrive.validator.node.node import Node
 from smartdrive.validator.utils import calculate_hash
 
@@ -74,16 +74,16 @@ class StoreAPI:
         user_ss58_address = get_ss58_address_from_public_key(user_public_key)
         file_bytes = await file.read()
 
-        active_miners = await get_active_miners(self._key, self._comx_client, config_manager.config.netuid)
+        miners = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
 
-        if not active_miners:
-            raise HTTPException(status_code=404, detail="Currently there are no active miners")
+        if not miners:
+            raise HTTPException(status_code=404, detail="Currently there are no miners")
 
         # TODO: right now, we just save the file in one miner, we have to change it in the future when they are split
         #  into chunks
         store_event = await store_new_file(
             file_bytes=file_bytes,
-            miners=active_miners,
+            miners=miners,
             validator_keypair=self._key,
             user_ss58_address=user_ss58_address,
             input_signed_params=input_signed_params,

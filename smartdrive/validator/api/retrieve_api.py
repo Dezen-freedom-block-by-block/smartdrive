@@ -35,8 +35,9 @@ from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_addre
 from smartdrive.validator.api.utils import get_miner_info_with_chunk
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
-from smartdrive.commune.request import get_active_miners, execute_miner_request, ModuleInfo, ConnectionInfo
+from smartdrive.commune.request import execute_miner_request, ModuleInfo, ConnectionInfo, get_filtered_modules
 from smartdrive.models.event import RetrieveEvent, MinerProcess, EventParams, RetrieveInputParams
+from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.node.node import Node
 
 
@@ -84,12 +85,12 @@ class RetrieveAPI:
             print("Currently no miner has any chunk")
             raise HTTPException(status_code=404, detail="Currently no miner has any chunk")
 
-        active_miners = await get_active_miners(self._key, self._comx_client, config_manager.config.netuid)
-        if not active_miners:
-            print("Currently there are no active miners")
-            raise HTTPException(status_code=404, detail="Currently there are no active miners")
+        miners = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
+        if not miners:
+            print("Currently there are no miners")
+            raise HTTPException(status_code=404, detail="Currently there are no miners")
 
-        miners_with_chunks = get_miner_info_with_chunk(active_miners, miner_chunks)
+        miners_with_chunks = get_miner_info_with_chunk(miners, miner_chunks)
 
         # Create event
         miners_processes: List[MinerProcess] = []

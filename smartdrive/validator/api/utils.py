@@ -26,14 +26,14 @@ from communex.client import CommuneClient
 from communex.types import Ss58Address
 from substrateinterface import Keypair
 
-from smartdrive.commune.request import ModuleInfo, execute_miner_request, get_active_miners, ConnectionInfo
+from smartdrive.commune.request import ModuleInfo, execute_miner_request, ConnectionInfo, get_filtered_modules
 from smartdrive.models.event import StoreEvent, Event, RemoveEvent, MinerProcess
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.database.database import Database
-from smartdrive.validator.models.models import MinerWithChunk, MinerWithSubChunk, Chunk, SubChunk, File
+from smartdrive.validator.models.models import MinerWithChunk, MinerWithSubChunk, Chunk, SubChunk, File, ModuleType
 
 
-def get_miner_info_with_chunk(active_miners: list[ModuleInfo], miner_chunks: list[MinerWithChunk] | list[MinerWithSubChunk]) -> list:
+def get_miner_info_with_chunk(miners: list[ModuleInfo], miner_chunks: list[MinerWithChunk] | list[MinerWithSubChunk]) -> list:
     """
     Gather information about active miners and their associated chunks.
 
@@ -41,7 +41,7 @@ def get_miner_info_with_chunk(active_miners: list[ModuleInfo], miner_chunks: lis
     the relevant information into a list of dictionaries.
 
     Params:
-        active_miners (list[ModuleInfo]): A list of active miner objects.
+        miners (list[ModuleInfo]): A list of miner objects.
         miner_chunks (list[MinerWithChunk] | list [MinerWithSubChunk]): A list of miner chunk objects.
 
     Returns:
@@ -54,15 +54,15 @@ def get_miner_info_with_chunk(active_miners: list[ModuleInfo], miner_chunks: lis
     """
     miner_info_with_chunk = []
 
-    for active_miner in active_miners:
+    for miner in miners:
         for miner_chunk in miner_chunks:
-            if active_miner.ss58_address == miner_chunk.ss58_address:
+            if miner.ss58_address == miner_chunk.ss58_address:
                 data = {
-                    "uid": active_miner.uid,
-                    "ss58_address": active_miner.ss58_address,
+                    "uid": miner.uid,
+                    "ss58_address": miner.ss58_address,
                     "connection": {
-                        "ip": active_miner.connection.ip,
-                        "port": active_miner.connection.port
+                        "ip": miner.connection.ip,
+                        "port": miner.connection.port
                     },
                     "chunk_uuid": miner_chunk.chunk_uuid,
                 }
@@ -136,8 +136,8 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
         elif isinstance(event, RemoveEvent):
             if is_proposer_validator:
                 miner_chunks = database.get_miner_chunks(event.event_params.file_uuid)
-                active_miners = await get_active_miners(keypair, comx_client, netuid)
-                miner_with_chunks = get_miner_info_with_chunk(active_miners, miner_chunks)
+                miners = get_filtered_modules(comx_client, netuid, ModuleType.VALIDATOR)
+                miner_with_chunks = get_miner_info_with_chunk(miners, miner_chunks)
                 miner_processes = []
 
                 for miner in miner_with_chunks:

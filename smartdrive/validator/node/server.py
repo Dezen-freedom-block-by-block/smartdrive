@@ -19,7 +19,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-import asyncio
+
 import multiprocessing
 import socket
 import select
@@ -30,7 +30,7 @@ from communex._common import get_node_url
 from communex.client import CommuneClient
 from communex.compat.key import classic_load_key
 
-from smartdrive.commune.request import get_filtered_modules, get_active_validators
+from smartdrive.commune.request import get_filtered_modules
 from smartdrive.validator.api.middleware.sign import verify_data_signature, sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.config import config_manager
@@ -117,9 +117,7 @@ class Server(multiprocessing.Process):
 
             validators = [validator for validator in validators if validator.ss58_address != self._keypair.ss58_address]
 
-            active_validators = asyncio.run(get_active_validators(self._keypair, self._comx_client, config_manager.config.netuid, validators))
-
-            for validator in active_validators:
+            for validator in validators:
                 validator_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 try:
                     validator_socket.connect((validator.connection.ip, self.TCP_PORT))
