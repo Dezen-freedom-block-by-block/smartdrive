@@ -47,6 +47,7 @@ class Server(multiprocessing.Process):
     MAX_N_CONNECTIONS = 255
     IDENTIFIER_TIMEOUT_SECONDS = 5
     TCP_PORT = 9001
+    SOCKET_TIMEOUT_SECONDS = 60
 
     _event_pool = None
     _connection_pool = None
@@ -72,6 +73,7 @@ class Server(multiprocessing.Process):
 
             while True:
                 client_socket, address = server_socket.accept()
+                client_socket.settimeout(self.SOCKET_TIMEOUT_SECONDS)
                 process = multiprocessing.Process(target=self._handle_connection, args=(self._connection_pool, self._event_pool, client_socket, address))
                 process.start()
 
@@ -121,6 +123,7 @@ class Server(multiprocessing.Process):
                 validator_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 try:
                     validator_socket.connect((validator.connection.ip, self.TCP_PORT))
+                    validator_socket.settimeout(self.SOCKET_TIMEOUT_SECONDS)
                     body = {
                         "code": MessageCode.MESSAGE_CODE_IDENTIFIER.value,
                         "data": {"ss58_address": self._keypair.ss58_address}

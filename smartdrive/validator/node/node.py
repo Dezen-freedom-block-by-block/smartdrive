@@ -120,4 +120,7 @@ class Node:
             }
 
             for c in connections:
-                send_json(c[ConnectionPool.CONNECTION], message)
+                try:
+                    send_json(c[ConnectionPool.CONNECTION], message)
+                except Exception as e:
+                    print(e)
