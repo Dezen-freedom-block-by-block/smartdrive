@@ -145,7 +145,7 @@ async def get_active_validators(key: Keypair, comx_client: CommuneClient, netuid
     Returns:
         List[ModuleInfo]: A list of `ModuleInfo` objects representing active validators.
     """
-    if not modules:
+    if modules is None:
         modules = get_modules(comx_client, netuid)
 
     async def _get_active_validators(module):

@@ -13,7 +13,7 @@ smartdrive = "smartdrive.cli.__main__:app"
 
 [tool.poetry.dependencies]
 python = "^3.10"
-communex = "^0.1.27.3"
+communex = "^0.1.32"
 typer = "0.9.0"
 tomli = "2.0.1"
 py7zr = "0.21.0"
