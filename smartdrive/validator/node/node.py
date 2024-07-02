@@ -21,13 +21,13 @@
 # SOFTWARE.
 
 import multiprocessing
-from typing import List
+from typing import List, Union
 
 from communex.compat.key import classic_load_key
 from substrateinterface import Keypair
 
 from smartdrive.models.block import Block, block_to_block_event
-from smartdrive.models.event import Event, MessageEvent
+from smartdrive.models.event import Event, MessageEvent, StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.node.connection_pool import ConnectionPool
@@ -72,13 +72,13 @@ class Node:
                 items.append(self._event_pool.pop(0))
         return items
 
-    def insert_pool_event(self, event: Event):
+    def insert_pool_event(self, event: Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]):
         return self._event_pool.append(event)
 
-    def insert_pool_events(self, events: List[Event]):
+    def insert_pool_events(self, events: List[Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]]):
         return self._event_pool.extend(events)
 
-    def send_event_to_validators(self, event: Event):
+    def send_event_to_validators(self, event: Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]):
         connections = self.get_connections()
 
         message_event = MessageEvent.from_json(event.dict(), event.get_event_action())

@@ -31,7 +31,7 @@ def _verify_event_signatures(event: Union[StoreEvent, RemoveEvent, RetrieveEvent
     Verifies the signatures of an individual event.
 
     Parameters:
-        Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]: The specific Event object (StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent).
+        event Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]: The specific Event object (StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent).
 
     Returns:
         bool: True if both the input parameters and event parameters signatures are verified, False otherwise.

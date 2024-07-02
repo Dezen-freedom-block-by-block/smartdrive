@@ -643,13 +643,13 @@ class Database:
             if connection:
                 connection.close()
 
-    def _insert_event(self, cursor, event: Event, block_id: int):
+    def _insert_event(self, cursor, event: Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent], block_id: int):
         """
         Inserts an event into the database with its associated miner processes.
 
         Parameters:
             cursor (sqlite3.Cursor): The database cursor.
-            event (Event): The event to be inserted.
+            event Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]: The specific Event object (StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent).
             block_id (int): The ID of the block to which the event belongs.
         """
         event_type = event.get_event_action().value
