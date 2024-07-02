@@ -139,7 +139,10 @@ smartdrive remove <UUID> --key-name <your_commune_key>
 We launched the subnet in an initial phase to gauge the community's opinion and support. In this first phase, the foundation of our subnet will begin to take shape, showcasing its potential and possibilities to the entire community.
 
 ### First phase
-As part of the first phase, we will focus on optimizing the transmission of information and its duplication. This way, the way the subnet handles information will be much faster and more secure.
+In the first phase, we will focus on improving the security of information verification between validators and miners. To achieve this, we will implement Zero-Knowledge Proofs, which will ensure that a miner possesses a file without the validator needing to know anything about it.
+
+### Second phase
+As part of the second phase, we will focus on optimizing the transmission of information and its duplication. This way, the way the subnet handles information will be much faster and more secure.
 
 ### ✨ More incoming!
 Stay tuned!.
