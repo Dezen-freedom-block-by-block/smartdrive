@@ -136,7 +136,7 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
         elif isinstance(event, RemoveEvent):
             if is_proposer_validator:
                 miner_chunks = database.get_miner_chunks(event.event_params.file_uuid)
-                miners = get_filtered_modules(comx_client, netuid, ModuleType.VALIDATOR)
+                miners = get_filtered_modules(comx_client, netuid, ModuleType.MINER)
                 miner_with_chunks = get_miner_info_with_chunk(miners, miner_chunks)
                 miner_processes = []
 

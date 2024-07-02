@@ -85,7 +85,7 @@ class RetrieveAPI:
             print("Currently no miner has any chunk")
             raise HTTPException(status_code=404, detail="Currently no miner has any chunk")
 
-        miners = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
+        miners = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.MINER)
         if not miners:
             print("Currently there are no miners")
             raise HTTPException(status_code=404, detail="Currently there are no miners")

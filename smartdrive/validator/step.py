@@ -58,7 +58,7 @@ async def validate_step(database: Database, key: Keypair, comx_client: CommuneCl
     Returns:
         Optional[Tuple[List[RemoveEvent], List[ValidateEvent], StoreEvent]]: An optional tuple containing a list of Event objects.
     """
-    miners = get_filtered_modules(comx_client, netuid, ModuleType.VALIDATOR)
+    miners = get_filtered_modules(comx_client, netuid, ModuleType.MINER)
     if not miners:
         print("Skipping validation step, there is not any miner.")
         return
@@ -197,7 +197,7 @@ async def _validate_miners(files: list[File], keypair: Keypair, comx_client: Com
     """
     events: List[ValidateEvent] = []
 
-    miners = get_filtered_modules(comx_client, netuid, ModuleType.VALIDATOR)
+    miners = get_filtered_modules(comx_client, netuid, ModuleType.MINER)
     if not miners:
         return events
 

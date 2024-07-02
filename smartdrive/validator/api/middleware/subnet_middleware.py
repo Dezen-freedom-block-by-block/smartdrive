@@ -74,6 +74,11 @@ class SubnetMiddleware(BaseHTTPMiddleware):
             Returns:
                 JSONResponse: The unauthorized response object with status code 401.
             """
+            print("..........................")
+            print("..........................")
+            print("..........................")
+            print("..........................")
+            print(detail)
             return JSONResponse(
                 status_code=401,
                 content={"detail": detail}

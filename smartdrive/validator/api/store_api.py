@@ -74,7 +74,7 @@ class StoreAPI:
         user_ss58_address = get_ss58_address_from_public_key(user_public_key)
         file_bytes = await file.read()
 
-        miners = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
+        miners = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.MINER)
 
         if not miners:
             raise HTTPException(status_code=404, detail="Currently there are no miners")
