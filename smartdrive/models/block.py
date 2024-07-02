@@ -19,16 +19,17 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
+from typing import Union
 
 from communex.types import Ss58Address
 from pydantic import BaseModel
 
-from smartdrive.models.event import Event, MessageEvent, parse_event
+from smartdrive.models.event import MessageEvent, parse_event, StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent
 
 
 class Block(BaseModel):
     block_number: int
-    events: list[Event]
+    events: list[Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]]
     proposer_signature: str
     proposer_ss58_address: Ss58Address
 

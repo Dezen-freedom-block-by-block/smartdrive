@@ -25,12 +25,15 @@ import os
 import tempfile
 import sqlite3
 import zipfile
-from typing import List, Optional
+from typing import List, Optional, Union
 from datetime import datetime, timedelta
+
+from substrateinterface import Keypair
 
 from smartdrive.models.event import MinerProcess, StoreEvent, Event, Action, StoreParams, StoreInputParams, RemoveEvent, \
     RemoveParams, RemoveInputParams, RetrieveEvent, EventParams, RetrieveInputParams, ValidateEvent, UserEvent
 from smartdrive.models.block import Block
+from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.models.models import MinerWithChunk, SubChunk, File, Chunk
 
@@ -140,9 +143,9 @@ class Database:
                         miner_ss58_address TEXT NOT NULL,
                         succeed BOOLEAN,
                         processing_time REAL,
-                        event_id INTEGER NOT NULL,
+                        event_uuid TEXT NOT NULL,
                         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (event_id) REFERENCES events(uuid) ON DELETE CASCADE
+                        FOREIGN KEY (event_uuid) REFERENCES events(uuid) ON DELETE CASCADE
                     )
                 '''
 
@@ -680,29 +683,27 @@ class Database:
         event.uuid, validator_ss58_address, event_type, file_uuid, sub_chunk_start, sub_chunk_end, sub_chunk_encoded,
         event_signed_params, user_ss58_address, file, input_signed_params, block_id))
 
-        event_id = cursor.lastrowid
-
         # Insert miner processes if applicable
         for miner_process in event.event_params.miners_processes:
-            self._insert_miner_process(cursor, miner_process, event_id)
+            self._insert_miner_process(cursor, miner_process, event.uuid)
 
-    def _insert_miner_process(self, cursor, miner_process: MinerProcess, event_id: int) -> bool:
+    def _insert_miner_process(self, cursor, miner_process: MinerProcess, event_uuid: str) -> bool:
         """
         Inserts a miner process into the database.
 
         Parameters:
             cursor (sqlite3.Cursor): The database cursor.
             miner_process (MinerProcess): The miner process to be inserted.
-            event_id (int): The ID of the event to which the miner process belongs.
+            event_uuid (str): The UUID of the event to which the miner process belongs.
 
         Returns:
             bool: True if the miner process is successfully inserted, False otherwise.
         """
         try:
             cursor.execute('''
-                INSERT INTO miner_processes (chunk_uuid, miner_ss58_address, succeed, processing_time, event_id)
+                INSERT INTO miner_processes (chunk_uuid, miner_ss58_address, succeed, processing_time, event_uuid)
                 VALUES (?, ?, ?, ?, ?)
-            ''', (miner_process.chunk_uuid, miner_process.miner_ss58_address, miner_process.succeed, miner_process.processing_time, event_id))
+            ''', (miner_process.chunk_uuid, miner_process.miner_ss58_address, miner_process.succeed, miner_process.processing_time, event_uuid))
             return True
         except sqlite3.Error as e:
             print(f"Database error: {e}")
@@ -732,7 +733,7 @@ class Database:
                     m.chunk_uuid, m.miner_ss58_address, m.succeed, m.processing_time
                 FROM block b
                 LEFT JOIN events e ON b.id = e.block_id
-                LEFT JOIN miner_processes m ON e.uuid = m.event_id
+                LEFT JOIN miner_processes m ON e.uuid = m.event_uuid
                 WHERE b.id BETWEEN ? AND ?
             '''
 
@@ -770,7 +771,7 @@ class Database:
             if connection:
                 connection.close()
 
-    def _build_event_from_row(self, row) -> Event:
+    def _build_event_from_row(self, row) -> Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]:
         """
         Build an Event object from a database row.
 
@@ -778,7 +779,7 @@ class Database:
             row (dict): A dictionary containing the row data from the database.
 
         Returns:
-            Event: An instance of an Event subclass (StoreEvent, RemoveEvent, RetrieveEvent, or ValidateEvent).
+            Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]: An instance of an Event subclass (StoreEvent, RemoveEvent, RetrieveEvent, or ValidateEvent).
 
         Raises:
             ValueError: If the event type is unknown.
@@ -836,7 +837,7 @@ class Database:
 
         return event
 
-    def _build_miner_process_from_row(self, row) -> MinerProcess:
+    def _build_miner_process_from_row(self, row) -> Optional[MinerProcess]:
         """
         Build a MinerProcess object from a database row.
 
@@ -846,7 +847,7 @@ class Database:
         Returns:
             MinerProcess: An instance of MinerProcess, or None if chunk_uuid is None.
         """
-        if row['chunk_uuid'] is None:
+        if row['event_uuid'] is None:
             return None
         return MinerProcess(
             chunk_uuid=row['chunk_uuid'],

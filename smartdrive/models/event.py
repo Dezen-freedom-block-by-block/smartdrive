@@ -149,7 +149,7 @@ class MessageEvent(BaseModel):
         return cls(event_action=event_action, event=event)
 
 
-def parse_event(message_event: MessageEvent) -> Event:
+def parse_event(message_event: MessageEvent) -> Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]:
     """
     Parses a MessageEvent object into a specific Event object based on the event action.
 
@@ -157,7 +157,7 @@ def parse_event(message_event: MessageEvent) -> Event:
         message_event (MessageEvent): The MessageEvent object to be parsed.
 
     Returns:
-        Event: The specific Event object (StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent).
+        Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]: The specific Event object (StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent).
 
     Raises:
         ValueError: If the event action is unknown.

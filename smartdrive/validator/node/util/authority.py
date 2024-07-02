@@ -19,18 +19,19 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
+from typing import Union
 
 from smartdrive.models.block import Block
-from smartdrive.models.event import UserEvent, Event
+from smartdrive.models.event import UserEvent, Event, StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent
 from smartdrive.validator.api.middleware.sign import verify_data_signature
 
 
-def _verify_event_signatures(event: Event) -> bool:
+def _verify_event_signatures(event: Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]) -> bool:
     """
     Verifies the signatures of an individual event.
 
     Parameters:
-        event (Event): The event to be verified.
+        Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]: The specific Event object (StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent).
 
     Returns:
         bool: True if both the input parameters and event parameters signatures are verified, False otherwise.
