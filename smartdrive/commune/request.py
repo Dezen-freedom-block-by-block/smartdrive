@@ -128,7 +128,7 @@ async def vote(key: Keypair, comx_client: CommuneClient, uids: list[int], weight
         print(e)
 
 
-async def get_active_validators(key: Keypair, comx_client: CommuneClient, netuid: int, modules: Optional[list[ModuleInfo]] = None) -> List[ModuleInfo]:
+async def get_active_validators(key: Keypair, comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
     """
     Retrieve a list of active validators.
 
@@ -140,21 +140,19 @@ async def get_active_validators(key: Keypair, comx_client: CommuneClient, netuid
         key (Keypair): Key used to authenticate the requests.
         comx_client (CommuneClient): Client to perform system queries.
         netuid (int): Network identifier used for the queries.
-        modules (Optional[list[ModuleInfo]]): Optional list of modules to check. If not provided, the function will query the network.
 
     Returns:
         List[ModuleInfo]: A list of `ModuleInfo` objects representing active validators.
     """
-    if modules is None:
-        modules = get_modules(comx_client, netuid)
+    validators = get_filtered_modules(comx_client, netuid, ModuleType.VALIDATOR)
 
-    async def _get_active_validators(module):
-        ping_response = await execute_miner_request(key, module.connection, module.ss58_address, "ping", timeout=PING_TIMEOUT)
+    async def _get_active_validators(validator):
+        ping_response = await execute_miner_request(key, validator.connection, validator.ss58_address, "ping", timeout=PING_TIMEOUT)
         if ping_response and ping_response["type"] == "validator":
-            return module
+            return validator
         return None
 
-    futures = [_get_active_validators(module) for module in modules if module.ss58_address != key.ss58_address]
+    futures = [_get_active_validators(validator) for validator in validators if validator.ss58_address != key.ss58_address]
     results = await asyncio.gather(*futures, return_exceptions=True)
     active_validators = [result for result in results if isinstance(result, ModuleInfo)]
     return active_validators
