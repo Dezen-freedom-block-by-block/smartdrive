@@ -220,10 +220,13 @@ class Validator(Module):
 
                     asyncio.create_task(self.node.send_block_to_validators(block=block))
 
-                    if time.time() - last_validation_time >= self.VALIDATION_INTERVAL:
+                if time.time() - last_validation_time >= self.VALIDATION_INTERVAL:
+                    if proposer_validator.ss58_address == self._key.ss58_address:
                         print("Starting validation task")
                         asyncio.create_task(self.validation_task())
-                        last_validation_time = time.time()
+
+                    asyncio.create_task(self.vote_miners())
+                    last_validation_time = time.time()
 
                 elapsed = time.time() - start_time
                 if elapsed < self.BLOCK_INTERVAL:
@@ -254,6 +257,7 @@ class Validator(Module):
             if store_event:
                 self.node.insert_pool_event(store_event)
 
+    async def vote_miners(self):
         score_dict = {}
         for miner in get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.MINER):
             if miner.ss58_address == self._key.ss58_address:

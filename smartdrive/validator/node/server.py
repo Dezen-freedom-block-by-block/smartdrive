@@ -167,9 +167,12 @@ class Server(multiprocessing.Process):
                 connection_identifier = identification_message["body"]["data"]["ss58_address"]
                 print(f"Connection reached {connection_identifier}")
 
+                # Replacing the incoming connection because the one currently in place is outdated.
                 if connection_identifier in connection_pool.get_identifiers():
                     print(f"Connection {connection_identifier} is already in the connection pool.")
-                    return
+                    removed_connection = connection_pool.remove_connection(connection_identifier)
+                    if removed_connection:
+                        removed_connection.close()
 
                 if connection_pool.get_remaining_capacity() == 0:
                     print(f"Connection pool is full.")
