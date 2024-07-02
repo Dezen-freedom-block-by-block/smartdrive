@@ -154,7 +154,7 @@ async def get_active_validators(key: Keypair, comx_client: CommuneClient, netuid
             return module
         return None
 
-    futures = [_get_active_validators(module) for module in modules]
+    futures = [_get_active_validators(module) for module in modules if module.ss58_address != key.ss58_address]
     results = await asyncio.gather(*futures, return_exceptions=True)
     active_validators = [result for result in results if isinstance(result, ModuleInfo)]
     return active_validators
@@ -248,7 +248,7 @@ async def get_active_miners(key: Keypair, comx_client: CommuneClient, netuid: in
             return module
         return None
 
-    futures = [_get_active_miners(module) for module in modules]
+    futures = [_get_active_miners(module) for module in modules if module.ss58_address != key.ss58_address]
     results = await asyncio.gather(*futures, return_exceptions=True)
     active_miners = [result for result in results if isinstance(result, ModuleInfo)]
     return active_miners
