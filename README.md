@@ -3,6 +3,8 @@ Welcome to the SmartDrive subnet, a pioneering initiative designed to provide se
 
 The subnet operates similarly to a blockchain, with validators serving as the nodes responsible for writing information into blocks, maintaining data redundancy, and ensuring synchronization across the network. Additionally, validators are tasked with rating miners based on their performance. Miners are responsible for the actual storage of information and its final retrieval, ensuring data is available when needed.
 
+## ⚠️ Warning ⚠️
+SmartDrive is currently in an early stage where runtime errors may occur. However, the information is safe to store, as only the user who uploads it has the ability to access it. At the moment, data duplication is something our team is working on. Currently, a file is only distributed to a single miner, which means the probability of losing the information in this initial phase of the subnet is high.
 ## Installation
 ### Manually, on Ubuntu 22.04
 - Install Python 3
@@ -131,3 +133,13 @@ Usage:
 ```
 smartdrive remove <UUID> --key-name <your_commune_key>
 ```
+
+## Roadmap
+### 🚀 Initial launch
+We launched the subnet in an initial phase to gauge the community's opinion and support. In this first phase, the foundation of our subnet will begin to take shape, showcasing its potential and possibilities to the entire community.
+
+### First phase
+As part of the second phase, we will focus on optimizing the transmission of information and its duplication. This way, the way the subnet handles information will be much faster and more secure.
+
+### ✨ More incoming!
+Stay tuned!.
