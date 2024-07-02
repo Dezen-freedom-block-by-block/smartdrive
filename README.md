@@ -139,7 +139,7 @@ smartdrive remove <UUID> --key-name <your_commune_key>
 We launched the subnet in an initial phase to gauge the community's opinion and support. In this first phase, the foundation of our subnet will begin to take shape, showcasing its potential and possibilities to the entire community.
 
 ### First phase
-As part of the second phase, we will focus on optimizing the transmission of information and its duplication. This way, the way the subnet handles information will be much faster and more secure.
+As part of the first phase, we will focus on optimizing the transmission of information and its duplication. This way, the way the subnet handles information will be much faster and more secure.
 
 ### ✨ More incoming!
 Stay tuned!.
