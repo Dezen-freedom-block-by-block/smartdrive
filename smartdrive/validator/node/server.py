@@ -26,11 +26,11 @@ import select
 import time
 import traceback
 
-from communex._common import get_node_url
 from communex.client import CommuneClient
 from communex.compat.key import classic_load_key
 
 from smartdrive.commune.request import get_filtered_modules
+from smartdrive.commune.utils import get_comx_client
 from smartdrive.validator.api.middleware.sign import verify_data_signature, sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.config import config_manager
@@ -51,14 +51,12 @@ class Server(multiprocessing.Process):
     _event_pool = None
     _connection_pool = None
     _keypair = None
-    _comx_client = None
 
     def __init__(self, event_pool, connection_pool: ConnectionPool):
         multiprocessing.Process.__init__(self)
         self._event_pool = event_pool
         self._connection_pool = connection_pool
         self._keypair = classic_load_key(config_manager.config.key)
-        self._comx_client = CommuneClient(url=get_node_url(use_testnet=config_manager.config.testnet))
 
     def run(self):
         server_socket = None
@@ -92,7 +90,8 @@ class Server(multiprocessing.Process):
     def _check_connections_process(self, connection_pool: ConnectionPool, event_pool):
         while True:
             try:
-                validators = get_filtered_modules(CommuneClient(url=get_node_url(use_testnet=config_manager.config.testnet)), config_manager.config.netuid, ModuleType.VALIDATOR)
+                comx_client = get_comx_client(testnet=config_manager.config.testnet)
+                validators = get_filtered_modules(comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
                 active_ss58_addresses = {validator.ss58_address for validator in validators}
                 to_remove = [ss58_address for ss58_address in connection_pool.get_identifiers() if ss58_address not in active_ss58_addresses]
                 for ss58_address in to_remove:
@@ -101,19 +100,19 @@ class Server(multiprocessing.Process):
                         removed_connection.close()
                 identifiers = connection_pool.get_identifiers()
                 new_validators = [validator for validator in validators if validator.ss58_address not in identifiers and validator.ss58_address != self._keypair.ss58_address]
-                self._initialize_validators(connection_pool, event_pool, new_validators)
+                self._initialize_validators(connection_pool, event_pool, new_validators, comx_client)
 
                 time.sleep(10)
             except Exception as e:
                 print(f"Error check connections process - {e}")
                 time.sleep(10)
 
-    def _initialize_validators(self, connection_pool: ConnectionPool, event_pool, validators):
+    def _initialize_validators(self, connection_pool: ConnectionPool, event_pool, validators, comx_client: CommuneClient):
         # TODO: Each connection try in for loop should be async and we should wait for all of them.
         # TODO: Actually multiple validators with same IP will not work since they will try to connect always the TCP port self.TCP_PORT.
         try:
             if validators is None:
-                validators = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
+                validators = get_filtered_modules(comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
 
             validators = [validator for validator in validators if validator.ss58_address != self._keypair.ss58_address]
 
@@ -179,7 +178,7 @@ class Server(multiprocessing.Process):
                     client_socket.close()
                     return
 
-                validators = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
+                validators = get_filtered_modules(get_comx_client(testnet=config_manager.config.testnet), config_manager.config.netuid, ModuleType.VALIDATOR)
 
                 if validators:
                     validator_connection = next((validator for validator in validators if validator.ss58_address == connection_identifier), None)
@@ -211,12 +210,3 @@ class Server(multiprocessing.Process):
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 
         # The following options are Linux platform specific:
-
-        # Defines the inactivity time in seconds that must elapse before the operating system sends the first keep-alive message.
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 5)
-
-        # Defines the interval in seconds between subsequent keep-alive messages that are sent if no response is received to the previous keep-alive message.
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)
-
-        # Defines the number of failed keep-alive attempts before the operating system considers the connection to be down and closes the socket.
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)

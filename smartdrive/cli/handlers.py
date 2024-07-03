@@ -35,7 +35,6 @@ from substrateinterface import Keypair
 from nacl.exceptions import CryptoError
 
 from communex._common import get_node_url
-from communex.client import CommuneClient
 from communex.compat.key import is_encrypted, classic_load_key
 
 import smartdrive
@@ -43,6 +42,7 @@ from smartdrive.cli.errors import NoValidatorsAvailableException
 from smartdrive.cli.spinner import Spinner
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_active_validators
+from smartdrive.commune.utils import get_comx_client
 from smartdrive.models.event import StoreInputParams, RetrieveInputParams, RemoveInputParams
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.utils import decode_b64_to_bytes, calculate_hash
@@ -312,7 +312,7 @@ def _get_validator_url(key: Keypair, testnet: bool = False) -> str:
         url = _get_validator_url(key, testnet=True)
     """
     loop = asyncio.get_event_loop()
-    comx_client = CommuneClient(get_node_url(use_testnet=testnet))
+    comx_client = get_comx_client(testnet=testnet)
     netuid = smartdrive.TESTNET_NETUID if testnet else smartdrive.NETUID
     validators = loop.run_until_complete(get_active_validators(key, comx_client, netuid))
 

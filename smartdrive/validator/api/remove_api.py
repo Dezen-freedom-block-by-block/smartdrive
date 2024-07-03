@@ -26,7 +26,6 @@ from fastapi import HTTPException, Form, Request
 from substrateinterface import Keypair
 
 from communex.compat.key import classic_load_key
-from communex.client import CommuneClient
 from communex.types import Ss58Address
 
 from smartdrive.validator.api.middleware.sign import sign_data
@@ -38,13 +37,11 @@ from smartdrive.validator.node.node import Node
 
 
 class RemoveAPI:
-    _comx_client: CommuneClient = None
     _node: Node = None
     _key: Keypair = None
     _database: Database = None
 
-    def __init__(self, comx_client, node: Node):
-        self._comx_client = comx_client
+    def __init__(self, node: Node):
         self._node = node
         self._key = classic_load_key(config_manager.config.key)
         self._database: Database = Database()

@@ -23,12 +23,12 @@
 import uvicorn
 import os
 
-from communex._common import get_node_url
 from fastapi import FastAPI
 
 from communex.client import CommuneClient
 
 import smartdrive
+from smartdrive.commune.utils import get_comx_client
 from smartdrive.validator.api.middleware.subnet_middleware import SubnetMiddleware
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.api.retrieve_api import RetrieveAPI
@@ -47,12 +47,12 @@ class API:
     remove_api: RemoveAPI = None
 
     def __init__(self, node: Node):
-        self._comx_client = CommuneClient(url=get_node_url(use_testnet=config_manager.config.testnet), num_connections=10)
+        self._comx_client = get_comx_client(num_connections=10, testnet=config_manager.config.testnet)
 
-        self.database_api = DatabaseAPI(comx_client=self._comx_client)
+        self.database_api = DatabaseAPI()
         self.store_api = StoreAPI(comx_client=self._comx_client, node=node)
         self.retrieve_api = RetrieveAPI(comx_client=self._comx_client, node=node)
-        self.remove_api = RemoveAPI(comx_client=self._comx_client, node=node)
+        self.remove_api = RemoveAPI(node=node)
 
         self.app.add_middleware(SubnetMiddleware, comx_client=self._comx_client)
 

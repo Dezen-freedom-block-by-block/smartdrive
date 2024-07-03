@@ -24,10 +24,10 @@ import random
 from time import sleep
 
 from substrateinterface import Keypair
-from communex._common import get_node_url
 from communex.client import CommuneClient
 
 from smartdrive.commune.request import vote
+from smartdrive.commune.utils import get_comx_client
 from smartdrive.validator.evaluation.sigmoid import threshold_sigmoid_reward_distribution
 
 # TODO: Set with the subnet production value
@@ -134,7 +134,7 @@ async def set_weights(score_dict: dict[int, float], netuid: int, client: Commune
         sleep(sleep_time)
 
         # Try another client just in case the first one fails
-        client = CommuneClient(get_node_url(use_testnet=testnet))
+        client = get_comx_client(testnet=testnet)
         await vote(key, client, uids, weights, netuid)
 
 

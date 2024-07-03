@@ -31,8 +31,6 @@ import os
 import uvicorn
 from fastapi import HTTPException
 
-from communex.client import CommuneClient
-from communex._common import get_node_url
 from communex.module.server import ModuleServer
 from communex.compat.key import classic_load_key
 from communex.module.module import Module, endpoint
@@ -40,6 +38,7 @@ from communex.module._rate_limiters.limiters import IpLimiterParams
 
 import smartdrive
 from smartdrive.commune.request import get_modules
+from smartdrive.commune.utils import get_comx_client
 from smartdrive.miner.utils import has_enough_space, get_directory_size
 
 
@@ -256,7 +255,7 @@ if __name__ == "__main__":
 
     config = get_config()
     miner = Miner(config)
-    comx_client = CommuneClient(get_node_url(use_testnet=config.testnet))
+    comx_client = get_comx_client(testnet=config.testnet)
     key = classic_load_key(config.key)
     registered_modules = get_modules(comx_client, config.netuid)
 

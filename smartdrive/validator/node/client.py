@@ -24,12 +24,11 @@ import asyncio
 import multiprocessing
 from typing import List
 
-from communex._common import get_node_url
-from communex.client import CommuneClient
 from communex.compat.key import classic_load_key
 
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_truthful_validators
+from smartdrive.commune.utils import get_comx_client
 from smartdrive.models.event import parse_event, MessageEvent, Action, Event
 from smartdrive.validator.api.middleware.sign import verify_data_signature, sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
@@ -61,7 +60,7 @@ class Client(multiprocessing.Process):
         self._connection_pool = connection_pool
         self._event_pool = event_pool
         self._keypair = classic_load_key(config_manager.config.key)
-        self._comx_client = CommuneClient(url=get_node_url(use_testnet=config_manager.config.testnet))
+        self._comx_client = get_comx_client(testnet=config_manager.config.testnet)
         self._database = Database()
 
     def run(self):

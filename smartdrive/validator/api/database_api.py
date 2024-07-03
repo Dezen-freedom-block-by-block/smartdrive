@@ -25,19 +25,16 @@ from substrateinterface import Keypair
 from starlette.responses import FileResponse
 
 from communex.compat.key import classic_load_key
-from communex.client import CommuneClient
 
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 
 
 class DatabaseAPI:
-    _comx_client: CommuneClient = None
     _key: Keypair = None
     _database: Database = None
 
-    def __init__(self, comx_client):
-        self._comx_client = comx_client
+    def __init__(self):
         self._key = classic_load_key(config_manager.config.key)
         self._database = Database()
 

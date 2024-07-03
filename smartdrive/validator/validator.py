@@ -28,7 +28,6 @@ import tempfile
 import zipfile
 from substrateinterface import Keypair
 
-from communex._common import get_node_url
 from communex.client import CommuneClient
 from communex.module.module import Module
 from communex.compat.key import classic_load_key
@@ -36,6 +35,7 @@ from communex.types import Ss58Address
 
 import smartdrive
 from smartdrive.commune.module._protocol import create_headers
+from smartdrive.commune.utils import get_comx_client
 from smartdrive.models.block import Block
 from smartdrive.validator.api.utils import process_events
 from smartdrive.validator.config import Config, config_manager
@@ -113,7 +113,7 @@ class Validator(Module):
         selecting the validator with the highest version, downloading the database, and importing it.
         """
         try:
-            comx_client = CommuneClient(url=get_node_url(use_testnet=config_manager.config.testnet), num_connections=5)
+            comx_client = get_comx_client(num_connections=5, testnet=config_manager.config.testnet)
 
             truthful_validators = await get_truthful_validators(self._key, comx_client, config_manager.config.netuid)
             block_number = self._database.get_last_block() or 0
@@ -194,7 +194,7 @@ class Validator(Module):
             try:
                 start_time = time.time()
 
-                comx_client = CommuneClient(url=get_node_url(use_testnet=config_manager.config.testnet))
+                comx_client = get_comx_client(testnet=config_manager.config.testnet)
 
                 block_number = self._database.get_last_block() or 0
 
@@ -285,7 +285,7 @@ if __name__ == "__main__":
     config = get_config()
     config_manager.initialize(config)
 
-    _comx_client = CommuneClient(get_node_url(use_testnet=config_manager.config.testnet))
+    _comx_client = get_comx_client(testnet=config_manager.config.testnet)
     key = classic_load_key(config_manager.config.key)
     registered_modules = get_modules(_comx_client, config_manager.config.netuid)
 
