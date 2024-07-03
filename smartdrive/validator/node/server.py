@@ -47,7 +47,6 @@ class Server(multiprocessing.Process):
     MAX_N_CONNECTIONS = 255
     IDENTIFIER_TIMEOUT_SECONDS = 5
     TCP_PORT = 9001
-    SOCKET_TIMEOUT_SECONDS = 60
 
     _event_pool = None
     _connection_pool = None
@@ -70,12 +69,13 @@ class Server(multiprocessing.Process):
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_socket.bind(("0.0.0.0", self.TCP_PORT))
             server_socket.listen(self.MAX_N_CONNECTIONS)
+            self._set_keepalive_options(server_socket)
 
             while True:
                 client_socket, address = server_socket.accept()
-                client_socket.settimeout(self.SOCKET_TIMEOUT_SECONDS)
                 process = multiprocessing.Process(target=self._handle_connection, args=(self._connection_pool, self._event_pool, client_socket, address))
                 process.start()
+                client_socket.close()  # Close the socket in the parent process
 
         except Exception as e:
             print(f"Server stopped unexpectedly - PID: {self.pid} - {e} - {traceback.print_exc()}")
@@ -121,7 +121,7 @@ class Server(multiprocessing.Process):
                 validator_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 try:
                     validator_socket.connect((validator.connection.ip, self.TCP_PORT))
-                    validator_socket.settimeout(self.SOCKET_TIMEOUT_SECONDS)
+                    self._set_keepalive_options(validator_socket)
                     body = {
                         "code": MessageCode.MESSAGE_CODE_IDENTIFIER.value,
                         "data": {"ss58_address": self._keypair.ss58_address}
@@ -146,6 +146,8 @@ class Server(multiprocessing.Process):
 
     def _handle_connection(self, connection_pool: ConnectionPool, event_pool, client_socket, address):
         try:
+            self._set_keepalive_options(client_socket)
+
             # Wait IDENTIFIER_TIMEOUT_SECONDS as maximum time to get the identifier message
             ready = select.select([client_socket], [], [], self.IDENTIFIER_TIMEOUT_SECONDS)
             if ready[0]:
@@ -204,3 +206,17 @@ class Server(multiprocessing.Process):
         except Exception as e:
             print(f"Error handling connection: {e}")
             client_socket.close()
+
+    def _set_keepalive_options(self, sock):
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
+        # The following options are Linux platform specific:
+
+        # Defines the inactivity time in seconds that must elapse before the operating system sends the first keep-alive message.
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 5)
+
+        # Defines the interval in seconds between subsequent keep-alive messages that are sent if no response is received to the previous keep-alive message.
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)
+
+        # Defines the number of failed keep-alive attempts before the operating system considers the connection to be down and closes the socket.
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
