@@ -32,7 +32,6 @@ from smartdrive.commune.request import get_truthful_validators
 from smartdrive.models.event import parse_event, MessageEvent, Action, Event
 from smartdrive.validator.api.middleware.sign import verify_data_signature, sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
-from smartdrive.validator.api.utils import process_events
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.models.block import BlockEvent, block_event_to_block, Block
@@ -41,7 +40,7 @@ from smartdrive.validator.node.util import packing
 from smartdrive.validator.node.util.authority import are_all_block_events_valid, remove_invalid_block_events
 from smartdrive.validator.node.util.exceptions import MessageException, ClientDisconnectedException, MessageFormatException, InvalidSignatureException
 from smartdrive.validator.node.util.message_code import MessageCode
-from smartdrive.validator.utils import fetch_with_retries
+from smartdrive.validator.utils import fetch_with_retries, process_events
 
 
 class Client(multiprocessing.Process):

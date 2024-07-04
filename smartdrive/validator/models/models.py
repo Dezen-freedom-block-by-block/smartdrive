@@ -119,21 +119,10 @@ class File:
         self.file_uuid = file_uuid
         self.chunks = chunks
         self.created_at = created_at or int(time.time() * 1000)
-        self.expiration_ms = expiration_ms or self.get_expiration()
+        self.expiration_ms = expiration_ms
 
     def __repr__(self):
         return f"File(file_uuid={self.file_uuid}, user_owner_ss58address={self.user_owner_ss58address}, chunks={self.chunks}, created_at={self.created_at}, expiration_ms={self.expiration_ms})"
-
-    def get_expiration(self) -> int:
-        """
-        Generate a random expiration time in milliseconds within a range.
-
-        Returns:
-            int: A random expiration time between 3 hours (min_ms) and 24 hours (max_ms) in milliseconds.
-        """
-        min_ms = 3 * 60 * 60 * 1000  # 3 hours
-        max_ms = 24 * 60 * 60 * 1000  # 24 hours
-        return random.randint(min_ms, max_ms)
 
     def has_expiration(self) -> bool:
         """

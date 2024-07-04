@@ -75,7 +75,7 @@ class Database:
                     CREATE TABLE file_expiration (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         file_uuid TEXT,
-                        expiration_ms INTEGER,
+                        expiration_ms INTEGER NOT NULL,
                         created_at INTEGER,
                         FOREIGN KEY (file_uuid) REFERENCES file(uuid) ON DELETE CASCADE
                     )
@@ -409,16 +409,12 @@ class Database:
 
         return result
 
-    def get_files_with_expiration(self, user_ss58_address: Ss58Address) -> List[File]:
+    def get_files_with_expiration(self) -> List[File]:
         """
-        Retrieve a list of files with expiration information for a specific user.
+        Retrieve a list of files with expiration information.
 
-        This function queries the database to find files associated with a given user's SS58 address
-        that have expiration information. It constructs a list of `File` objects, each containing
-        associated chunks and sub-chunks.
-
-        Params:
-            user_ss58_address (Ss58Address): The SS58 address of the user whose files are to be retrieved.
+        This function queries the database to find files that have expiration information. It constructs a list of `File`
+         objects, each containing associated chunks and sub-chunks.
 
         Returns:
             List[File]: A list of `File` objects containing expiration information, chunks, and sub-chunks.
@@ -442,11 +438,9 @@ class Database:
                     file f
                 JOIN 
                     file_expiration fe ON f.uuid = fe.file_uuid
-                WHERE 
-                    f.user_ss58_address = ?
             '''
 
-            cursor.execute(query, (user_ss58_address,))
+            cursor.execute(query)
             rows = cursor.fetchall()
 
             for row in rows:

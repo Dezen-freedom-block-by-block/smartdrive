@@ -35,7 +35,6 @@ from communex.types import Ss58Address
 import smartdrive
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.models.block import Block
-from smartdrive.validator.api.utils import process_events
 from smartdrive.validator.config import Config, config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.api.api import API
@@ -43,7 +42,7 @@ from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.node.node import Node
 from smartdrive.validator.step import validate_step
-from smartdrive.validator.utils import extract_sql_file, fetch_with_retries
+from smartdrive.validator.utils import extract_sql_file, fetch_with_retries, process_events
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.commune.request import get_filtered_modules, get_truthful_validators, ping_proposer_validator, get_modules
 from smartdrive.commune.models import ConnectionInfo
@@ -89,7 +88,7 @@ class Validator(Module):
     MAX_EVENTS_PER_BLOCK = 25
     BLOCK_INTERVAL = 12
 
-    VALIDATION_INTERVAL = 60
+    VALIDATION_INTERVAL = 10
     # TODO: CHECK INTERVAL DAYS FOR SCORE MINER
     DAYS_INTERVAL = 14
 

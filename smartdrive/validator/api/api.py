@@ -66,7 +66,7 @@ class API:
         and on the port specified in the instance configuration.
         """
         dir = os.path.dirname(os.path.abspath(__file__))
-        config = uvicorn.Config(self.app, host="0.0.0.0", port=config_manager.config.port, ssl_keyfile=f"{dir}/cert/key.pem", ssl_certfile=f"{dir}/cert/cert.pem", log_level="info")
+        config = uvicorn.Config(self.app, workers=8, host="0.0.0.0", port=config_manager.config.port, ssl_keyfile=f"{dir}/cert/key.pem", ssl_certfile=f"{dir}/cert/cert.pem", log_level="info")
         server = uvicorn.Server(config)
         await server.serve()
 

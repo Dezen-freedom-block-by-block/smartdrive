@@ -68,7 +68,7 @@ async def validate_step(database: Database, key: Keypair, netuid: int) -> Option
         print("Skipping validation step, there is not any miner.")
         return
 
-    files = database.get_files_with_expiration(Ss58Address(key.ss58_address))
+    files = database.get_files_with_expiration()
 
     # Split them in expired or not
     expired_files = []
@@ -81,11 +81,9 @@ async def validate_step(database: Database, key: Keypair, netuid: int) -> Option
 
     # Remove expired files
     if expired_files:
-        # _remove_files could raise CommuneNetworkUnreachable
         remove_events = await _remove_files(
             files=expired_files,
-            keypair=key,
-            netuid=netuid
+            keypair=key
         )
 
     # Validate non expired files
@@ -117,51 +115,26 @@ async def validate_step(database: Database, key: Keypair, netuid: int) -> Option
     return remove_events, validate_events, store_event
 
 
-async def _remove_files(files: List[File], keypair: Keypair, netuid: int) -> List[RemoveEvent]:
+async def _remove_files(files: List[File], keypair: Keypair) -> List[RemoveEvent]:
     """
     Removes files from the SmartDrive network and generates removal events.
 
-    This function processes a list of files to be removed by sending removal requests to the respective miners
-    and generates `RemoveEvent` objects that contain details of the removal process.
+    This function generates `RemoveEvent` objects that contain details of the removal process. The remove process will
+    be processed when the new block will be generated.
 
     Params:
         files (List[File]): A list of `File` objects representing the files to be removed.
         keypair (Keypair): The keypair used to authorize and sign the removal requests.
-        netuid (int): The network UID used to filter the miners.
 
     Returns:
         List[RemoveEvent]: A list of `RemoveEvent` objects, each representing the removal operation for a file.
-        
-    Raises:
-        CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
-    # get_filtered_modules could raise CommuneNetworkUnreachable
-    miners = get_filtered_modules(netuid, ModuleType.MINER)
     events: List[RemoveEvent] = []
 
-    async def handle_remove_request(miner_info: ModuleInfo, chunk_uuid: str):
-        start_time = time.time()
-        remove_request_succeed = await remove_chunk_request(keypair, Ss58Address(keypair.ss58_address), miner_info, chunk_uuid)
-        final_time = time.time() - start_time
-
-        return MinerProcess(
-            chunk_uuid=chunk_uuid,
-            miner_ss58_address=miner_info.ss58_address,
-            succeed=remove_request_succeed,
-            processing_time=final_time
-        )
-
     async def process_file(file: File):
-        miner_processes = []
-        for chunk in file.chunks:
-            for miner in miners:
-                if miner.ss58_address == chunk.miner_owner_ss58address:
-                    miner_process = await handle_remove_request(miner, chunk.chunk_uuid)
-                    miner_processes.append(miner_process)
-
         event_params = RemoveParams(
             file_uuid=file.file_uuid,
-            miners_processes=miner_processes,
+            miners_processes=[],
         )
 
         signed_params = sign_data(event_params.dict(), keypair)
