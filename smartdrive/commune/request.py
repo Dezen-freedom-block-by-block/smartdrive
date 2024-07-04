@@ -64,7 +64,7 @@ def _run_with_timeout(target, args=(), timeout=15):
     return thread._return
 
 
-def get_modules(netuid: int, testnet=False) -> List[ModuleInfo]:
+def get_modules(netuid: int, testnet=None) -> List[ModuleInfo]:
     """
         Retrieves module information from a network specified by its unique network identifier (netuid).
 
@@ -74,6 +74,9 @@ def get_modules(netuid: int, testnet=False) -> List[ModuleInfo]:
         Raises:
             CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
+    if testnet is None:
+        testnet = config_manager.config.testnet
+    
     for _ in range(5):
         comx_client = get_comx_client(testnet)
 
@@ -113,7 +116,7 @@ def get_modules(netuid: int, testnet=False) -> List[ModuleInfo]:
     raise CommuneNetworkUnreachable()
 
 
-def get_filtered_modules(netuid: int, type: ModuleType = ModuleType.MINER) -> List[ModuleInfo]:
+def get_filtered_modules(netuid: int, type: ModuleType = ModuleType.MINER, testnet=None) -> List[ModuleInfo]:
     """
     Retrieve a list of miners or validators.
 
@@ -131,7 +134,7 @@ def get_filtered_modules(netuid: int, type: ModuleType = ModuleType.MINER) -> Li
         CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
     # get_modules could raise CommuneNetworkUnreachable
-    modules = get_modules(netuid)
+    modules = get_modules(netuid, testnet)
     result = []
 
     for module in modules:
@@ -142,7 +145,7 @@ def get_filtered_modules(netuid: int, type: ModuleType = ModuleType.MINER) -> Li
     return result
 
 
-async def get_active_validators(key: Keypair, netuid: int) -> List[ModuleInfo]:
+async def get_active_validators(key: Keypair, netuid: int, testnet=None) -> List[ModuleInfo]:
     """
     Retrieve a list of active validators.
 
@@ -161,7 +164,7 @@ async def get_active_validators(key: Keypair, netuid: int) -> List[ModuleInfo]:
         CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
     # get_filtered_modules could raise CommuneNetworkUnreachable
-    validators = get_filtered_modules(netuid, ModuleType.VALIDATOR)
+    validators = get_filtered_modules(netuid, ModuleType.VALIDATOR, testnet)
 
     async def _get_active_validators(validator):
         ping_response = await execute_miner_request(key, validator.connection, validator.ss58_address, "ping", timeout=PING_TIMEOUT)

@@ -305,17 +305,19 @@ def _get_validator_url(key: Keypair, testnet: bool = False) -> str:
         testnet (bool, optional): Flag to indicate if the testnet should be used.
 
     Returns:
-        - str: The URL of an active validator.
+        str: The URL of an active validator.
     """
     loop = asyncio.get_event_loop()
     netuid = smartdrive.TESTNET_NETUID if testnet else smartdrive.NETUID
 
     try:
-        validators = loop.run_until_complete(get_active_validators(key, netuid))
+        validators = loop.run_until_complete(get_active_validators(key, netuid, testnet))
     except CommuneNetworkUnreachable:
+        print("CommuneNetworkUnreachable")
         raise NoValidatorsAvailableException
 
     if not validators:
+        print(validators)
         raise NoValidatorsAvailableException
 
     validator = random.choice(validators)
