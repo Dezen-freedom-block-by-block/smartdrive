@@ -36,9 +36,6 @@ def store(file_path: str, key_name: str = None, testnet: bool = False):
         file_path (str): The path to the file to be stored.
         key_name (str, optional): An optional key for encryption. If not provided, it will be requested.
         testnet (bool, optional): Flag to indicate if the testnet should be used.
-
-    Example:
-        store("path/to/file.txt", key="my-secret-key", testnet=True)
     """
     store_handler(file_path, key_name, testnet)
 
@@ -53,9 +50,6 @@ def retrieve(file_uuid: str, file_path: str, key_name: str = None, testnet: bool
         file_path (str): The path where the retrieved file will be saved.
         key_name (str, optional): An optional key for decryption. If not provided, it will be requested.
         testnet (bool, optional): Flag to indicate if the testnet should be used.
-
-    Example:
-        retrieve("file-id-123", "path/to/save/file.txt", key="my-secret-key", testnet=True)
     """
     retrieve_handler(file_uuid, file_path, key_name, testnet)
 
@@ -69,9 +63,6 @@ def remove(file_uuid: str, key_name: str = None, testnet: bool = False):
         file_uuid (str): The ID of the file to be removed.
         key_name (str, optional): An optional key for decryption. If not provided, it will be requested.
         testnet (bool, optional): Flag to indicate if the testnet should be used.
-
-    Example:
-        remove("file-id-123", key="my-secret-key", testnet=True)
     """
     remove_handler(file_uuid, key_name, testnet)
 

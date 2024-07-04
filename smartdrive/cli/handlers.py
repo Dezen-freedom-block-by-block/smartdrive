@@ -306,9 +306,6 @@ def _get_validator_url(key: Keypair, testnet: bool = False) -> str:
 
     Returns:
         - str: The URL of an active validator.
-
-    Example:
-        url = _get_validator_url(key, testnet=True)
     """
     loop = asyncio.get_event_loop()
     netuid = smartdrive.TESTNET_NETUID if testnet else smartdrive.NETUID
