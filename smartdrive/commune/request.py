@@ -37,6 +37,7 @@ from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 from smartdrive.validator.models.models import ModuleType
 
 PING_TIMEOUT = 5
+EXTENDED_PING_TIMEOUT = 15
 CALL_TIMEOUT = 60
 
 
@@ -145,7 +146,7 @@ def get_filtered_modules(netuid: int, type: ModuleType = ModuleType.MINER, testn
     return result
 
 
-async def get_active_validators(key: Keypair, netuid: int, testnet=None) -> List[ModuleInfo]:
+async def get_active_validators(key: Keypair, netuid: int, testnet=None, timeout=PING_TIMEOUT) -> List[ModuleInfo]:
     """
     Retrieve a list of active validators.
 
@@ -167,7 +168,7 @@ async def get_active_validators(key: Keypair, netuid: int, testnet=None) -> List
     validators = get_filtered_modules(netuid, ModuleType.VALIDATOR, testnet)
 
     async def _get_active_validators(validator):
-        ping_response = await execute_miner_request(key, validator.connection, validator.ss58_address, "ping", timeout=PING_TIMEOUT)
+        ping_response = await execute_miner_request(key, validator.connection, validator.ss58_address, "ping", timeout=timeout)
         if ping_response and ping_response["type"] == "validator":
             return validator
         return None
