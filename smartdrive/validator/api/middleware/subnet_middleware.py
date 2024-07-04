@@ -19,10 +19,9 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 import json
 from urllib.parse import parse_qs
-
-from communex.compat.key import classic_load_key
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
@@ -32,9 +31,11 @@ from scalecodec.utils.ss58 import is_valid_ss58_address
 
 from substrateinterface import Keypair
 from substrateinterface.utils.ss58 import ss58_encode
-from communex.client import CommuneClient
 from communex.types import Ss58Address
+from communex.compat.key import classic_load_key
 
+from smartdrive.commune.errors import CommuneNetworkUnreachable
+from smartdrive.commune.request import get_staketo
 from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.utils import calculate_hash
@@ -45,12 +46,10 @@ exclude_paths = ["/method/ping"]
 
 class SubnetMiddleware(BaseHTTPMiddleware):
 
-    _comx_client: CommuneClient = None
     _key: Keypair = None
 
-    def __init__(self, app: ASGIApp, comx_client: CommuneClient):
+    def __init__(self, app: ASGIApp):
         super().__init__(app)
-        self._comx_client = comx_client
         self._key = classic_load_key(config_manager.config.key)
 
     async def dispatch(self, request: Request, call_next: Callback) -> Response:
@@ -64,7 +63,7 @@ class SubnetMiddleware(BaseHTTPMiddleware):
         Returns:
             Response: The response object.
         """
-        def unauthorized_response(detail: str) -> JSONResponse:
+        def _error_response(code: int, detail: str) -> JSONResponse:
             """
             Generate an unauthorized response.
 
@@ -74,13 +73,8 @@ class SubnetMiddleware(BaseHTTPMiddleware):
             Returns:
                 JSONResponse: The unauthorized response object with status code 401.
             """
-            print("..........................")
-            print("..........................")
-            print("..........................")
-            print("..........................")
-            print(detail)
             return JSONResponse(
-                status_code=401,
+                status_code=code,
                 content={"detail": detail}
             )
 
@@ -88,19 +82,23 @@ class SubnetMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         if request.client is None:
-            return unauthorized_response("Address should be present in request")
+            return _error_response(401, "Address should be present in request")
 
         key = request.headers.get('X-Key')
         if not key:
-            return unauthorized_response("Valid X-Key not provided on headers")
+            return _error_response(401, "Valid X-Key not provided on headers")
 
         ss58_address = get_ss58_address_from_public_key(key)
         if not ss58_address:
-            return unauthorized_response("Not a valid public key provided")
+            return _error_response(401, "Not a valid public key provided")
 
-        staketo_modules = self._comx_client.get_staketo(ss58_address, config_manager.config.netuid)
+        try:
+            staketo_modules = get_staketo(ss58_address, config_manager.config.netuid)
+        except CommuneNetworkUnreachable:
+            return _error_response(404, "Currently the Commune network is unreachable")
+
         if not staketo_modules.keys():
-            return unauthorized_response("You must stake to at least one active validator in the subnet")
+            return _error_response(401, "You must stake to at least one active validator in the subnet")
 
         signature = request.headers.get('X-Signature')
 
@@ -123,7 +121,7 @@ class SubnetMiddleware(BaseHTTPMiddleware):
                     try:
                         body = await request.json()
                     except json.JSONDecodeError:
-                        return unauthorized_response("Invalid JSON")
+                        return _error_response(401, "Invalid JSON")
                 else:
                     body = {}
             else:
@@ -141,7 +139,7 @@ class SubnetMiddleware(BaseHTTPMiddleware):
             is_verified_signature = verify_data_signature(body, signature, ss58_address)
 
         if not is_verified_signature:
-            return unauthorized_response("Valid X-Signature not provided on headers")
+            return _error_response(401, "Valid X-Signature not provided on headers")
 
         response = await call_next(request)
         return response

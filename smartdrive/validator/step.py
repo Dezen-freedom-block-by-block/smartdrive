@@ -24,12 +24,13 @@ import asyncio
 import time
 import uuid
 from typing import List, Optional, Tuple
-from substrateinterface import Keypair
 
-from communex.client import CommuneClient
+from substrateinterface import Keypair
 from communex.types import Ss58Address
 
-from smartdrive.commune.request import ModuleInfo, get_filtered_modules
+from smartdrive.commune.errors import CommuneNetworkUnreachable
+from smartdrive.commune.request import get_filtered_modules
+from smartdrive.commune.models import ModuleInfo
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.store_api import store_new_file
 from smartdrive.validator.api.utils import remove_chunk_request
@@ -42,7 +43,7 @@ from smartdrive.validator.models.models import File, ModuleType, SubChunk
 from smartdrive.validator.utils import calculate_hash
 
 
-async def validate_step(database: Database, key: Keypair, comx_client: CommuneClient, netuid: int) -> Optional[Tuple[List[RemoveEvent], List[ValidateEvent], Optional[StoreEvent]]]:
+async def validate_step(database: Database, key: Keypair, netuid: int) -> Optional[Tuple[List[RemoveEvent], List[ValidateEvent], Optional[StoreEvent]]]:
     """
     Performs a validation step in the process.
 
@@ -52,18 +53,21 @@ async def validate_step(database: Database, key: Keypair, comx_client: CommuneCl
     Params:
         database (Database): The database instance to operate on.
         key (Keypair): The keypair used for signing requests.
-        comx_client (CommuneClient): The client used to interact with the commune network.
         netuid (int): The network UID used to filter the active miners.
 
     Returns:
         Optional[Tuple[List[RemoveEvent], List[ValidateEvent], StoreEvent]]: An optional tuple containing a list of Event objects.
+
+    Raises:
+        CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
-    miners = get_filtered_modules(comx_client, netuid, ModuleType.MINER)
+    # get_filtered_modules could raise CommuneNetworkUnreachable
+    miners = get_filtered_modules(netuid, ModuleType.MINER)
+
     if not miners:
         print("Skipping validation step, there is not any miner.")
         return
 
-    # Get files with expiration
     files = database.get_files_with_expiration(Ss58Address(key.ss58_address))
 
     # Split them in expired or not
@@ -77,19 +81,19 @@ async def validate_step(database: Database, key: Keypair, comx_client: CommuneCl
 
     # Remove expired files
     if expired_files:
+        # _remove_files could raise CommuneNetworkUnreachable
         remove_events = await _remove_files(
             files=expired_files,
             keypair=key,
-            comx_client=comx_client,
             netuid=netuid
         )
 
     # Validate non expired files
     if non_expired_files:
+        # _validate_miners could raise CommuneNetworkUnreachable
         validate_events = await _validate_miners(
             files=non_expired_files,
             keypair=key,
-            comx_client=comx_client,
             netuid=netuid
         )
 
@@ -101,6 +105,7 @@ async def validate_step(database: Database, key: Keypair, comx_client: CommuneCl
         input_params = {"file": calculate_hash(file_data)}
         input_signed_params = sign_data(input_params, key)
 
+        # store_new_file could raise CommuneNetworkUnreachable
         store_event = await store_new_file(
             file_bytes=file_data,
             miners=miners_to_store,
@@ -112,7 +117,7 @@ async def validate_step(database: Database, key: Keypair, comx_client: CommuneCl
     return remove_events, validate_events, store_event
 
 
-async def _remove_files(files: List[File], keypair: Keypair, comx_client: CommuneClient, netuid: int) -> List[RemoveEvent]:
+async def _remove_files(files: List[File], keypair: Keypair, netuid: int) -> List[RemoveEvent]:
     """
     Removes files from the SmartDrive network and generates removal events.
 
@@ -122,13 +127,16 @@ async def _remove_files(files: List[File], keypair: Keypair, comx_client: Commun
     Params:
         files (List[File]): A list of `File` objects representing the files to be removed.
         keypair (Keypair): The keypair used to authorize and sign the removal requests.
-        comx_client (CommuneClient): The client used to interact with the commune network.
         netuid (int): The network UID used to filter the miners.
 
     Returns:
         List[RemoveEvent]: A list of `RemoveEvent` objects, each representing the removal operation for a file.
+        
+    Raises:
+        CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
-    miners = get_filtered_modules(comx_client, netuid, ModuleType.MINER)
+    # get_filtered_modules could raise CommuneNetworkUnreachable
+    miners = get_filtered_modules(netuid, ModuleType.MINER)
     events: List[RemoveEvent] = []
 
     async def handle_remove_request(miner_info: ModuleInfo, chunk_uuid: str):
@@ -178,7 +186,7 @@ async def _remove_files(files: List[File], keypair: Keypair, comx_client: Commun
     return events
 
 
-async def _validate_miners(files: list[File], keypair: Keypair, comx_client: CommuneClient, netuid: int) -> List[ValidateEvent]:
+async def _validate_miners(files: list[File], keypair: Keypair, netuid: int) -> List[ValidateEvent]:
     """
     Validates the stored sub-chunks across miners.
 
@@ -189,15 +197,18 @@ async def _validate_miners(files: list[File], keypair: Keypair, comx_client: Com
     Params:
         files (list[File]): A list of files containing chunks to be validated.
         keypair (Keypair): The validator key used to authorize the requests.
-        comx_client (CommuneClient): The client used to interact with the commune network.
         netuid (int): The network UID used to filter the miners.
 
     Returns:
         List[ValidateEvent]: A list of ValidateEvent objects, each representing the validation operation for a sub-chunk.
+
+    Raises:
+        CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
     events: List[ValidateEvent] = []
 
-    miners = get_filtered_modules(comx_client, netuid, ModuleType.MINER)
+    # get_filtered_modules could raise CommuneNetworkUnreachable
+    miners = get_filtered_modules(netuid, ModuleType.MINER)
     if not miners:
         return events
 

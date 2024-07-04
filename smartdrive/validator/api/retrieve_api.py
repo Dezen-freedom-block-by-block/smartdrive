@@ -27,28 +27,27 @@ from fastapi import HTTPException, Request
 
 from communex.compat.key import classic_load_key
 from substrateinterface import Keypair
-from communex.client import CommuneClient
 from communex.types import Ss58Address
 
+from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.api.utils import get_miner_info_with_chunk
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
-from smartdrive.commune.request import execute_miner_request, ModuleInfo, ConnectionInfo, get_filtered_modules
+from smartdrive.commune.request import execute_miner_request, get_filtered_modules
+from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.models.event import RetrieveEvent, MinerProcess, EventParams, RetrieveInputParams
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.node.node import Node
 
 
 class RetrieveAPI:
-    _comx_client: CommuneClient = None
     _node: Node = None
     _key: Keypair = None
     _database: Database = None
 
-    def __init__(self, comx_client, node: Node):
-        self._comx_client = comx_client
+    def __init__(self, node: Node):
         self._node = node
         self._key = classic_load_key(config_manager.config.key)
         self._database = Database()
@@ -85,7 +84,11 @@ class RetrieveAPI:
             print("Currently no miner has any chunk")
             raise HTTPException(status_code=404, detail="Currently no miner has any chunk")
 
-        miners = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.MINER)
+        try:
+            miners = get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
+        except CommuneNetworkUnreachable:
+            raise HTTPException(status_code=404, detail="Commune network is unreachable")
+
         if not miners:
             print("Currently there are no miners")
             raise HTTPException(status_code=404, detail="Currently there are no miners")

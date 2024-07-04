@@ -22,13 +22,9 @@
 
 import uvicorn
 import os
-
 from fastapi import FastAPI
 
-from communex.client import CommuneClient
-
 import smartdrive
-from smartdrive.commune.utils import get_comx_client
 from smartdrive.validator.api.middleware.subnet_middleware import SubnetMiddleware
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.api.retrieve_api import RetrieveAPI
@@ -40,21 +36,18 @@ from smartdrive.validator.node.node import Node
 
 class API:
     app = FastAPI()
-    _comx_client: CommuneClient = None
 
     store_api: StoreAPI = None
     retrieve_api: RetrieveAPI = None
     remove_api: RemoveAPI = None
 
     def __init__(self, node: Node):
-        self._comx_client = get_comx_client(num_connections=10, testnet=config_manager.config.testnet)
-
         self.database_api = DatabaseAPI()
-        self.store_api = StoreAPI(comx_client=self._comx_client, node=node)
-        self.retrieve_api = RetrieveAPI(comx_client=self._comx_client, node=node)
-        self.remove_api = RemoveAPI(node=node)
+        self.store_api = StoreAPI(node)
+        self.retrieve_api = RetrieveAPI(node)
+        self.remove_api = RemoveAPI(node)
 
-        self.app.add_middleware(SubnetMiddleware, comx_client=self._comx_client)
+        self.app.add_middleware(SubnetMiddleware)
 
         self.app.add_api_route("/method/ping", self.ping_endpoint, methods=["POST"])
         self.app.add_api_route("/database", self.database_api.database_endpoint, methods=["GET"])
@@ -68,7 +61,7 @@ class API:
         """
         Starts and runs an asynchronous web server using Uvicorn.
 
-        This method configures and starts a Uvicorn server for an ASGI application
+        This method configures and starts an Uvicorn server for an ASGI application
         with SSL/TLS support. The server listens on all network interfaces (0.0.0.0)
         and on the port specified in the instance configuration.
         """

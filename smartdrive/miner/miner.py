@@ -38,7 +38,6 @@ from communex.module._rate_limiters.limiters import IpLimiterParams
 
 import smartdrive
 from smartdrive.commune.request import get_modules
-from smartdrive.commune.utils import get_comx_client
 from smartdrive.miner.utils import has_enough_space, get_directory_size
 
 
@@ -255,9 +254,8 @@ if __name__ == "__main__":
 
     config = get_config()
     miner = Miner(config)
-    comx_client = get_comx_client(testnet=config.testnet)
     key = classic_load_key(config.key)
-    registered_modules = get_modules(comx_client, config.netuid)
+    registered_modules = get_modules(config.netuid)
 
     if key.ss58_address not in list(map(lambda module: module.ss58_address, registered_modules)):
         raise Exception(f"Your key: {key.ss58_address} is not registered.")

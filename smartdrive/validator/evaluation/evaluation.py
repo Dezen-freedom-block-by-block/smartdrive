@@ -24,10 +24,8 @@ import random
 from time import sleep
 
 from substrateinterface import Keypair
-from communex.client import CommuneClient
 
 from smartdrive.commune.request import vote
-from smartdrive.commune.utils import get_comx_client
 from smartdrive.validator.evaluation.sigmoid import threshold_sigmoid_reward_distribution
 
 # TODO: Set with the subnet production value
@@ -92,14 +90,13 @@ def score_miner(total_calls: int, failed_calls: int) -> float:
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
-async def set_weights(score_dict: dict[int, float], netuid: int, client: CommuneClient, key: Keypair, testnet: bool = False):
+async def set_weights(score_dict: dict[int, float], netuid: int, key: Keypair):
     """
     Set weights for miners based on their scores.
 
     Params:
         score_dict (dict[int, float]): A dictionary mapping miner UIDs to their scores.
         netuid (int): The network UID.
-        client (CommuneClient): The CommuneX client.
         key (Keypair): The keypair for signing transactions.
     """
 
@@ -126,16 +123,7 @@ async def set_weights(score_dict: dict[int, float], netuid: int, client: Commune
     uids = list(weighted_scores.keys())
     weights = list(weighted_scores.values())
 
-    try:
-        await vote(key, client, uids, weights, netuid)
-    except Exception as e:
-        print(f"Failed to set weights with exception: {e}. Will retry.")
-        sleep_time = random.uniform(1, 2)
-        sleep(sleep_time)
-
-        # Try another client just in case the first one fails
-        client = get_comx_client(testnet=testnet)
-        await vote(key, client, uids, weights, netuid)
+    vote(key, uids, weights, netuid)
 
 
 def _cut_to_max_allowed_uids(score_dict: dict[int, float]) -> dict[int, float]:

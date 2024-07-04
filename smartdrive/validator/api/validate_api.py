@@ -23,7 +23,8 @@
 from communex.types import Ss58Address
 from substrateinterface import Keypair
 
-from smartdrive.commune.request import execute_miner_request, ModuleInfo
+from smartdrive.commune.request import execute_miner_request
+from smartdrive.commune.models import ModuleInfo
 from smartdrive.validator.models.models import SubChunk
 
 

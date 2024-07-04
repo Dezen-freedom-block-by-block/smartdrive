@@ -26,9 +26,9 @@ from typing import List
 
 from communex.compat.key import classic_load_key
 
+from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_truthful_validators
-from smartdrive.commune.utils import get_comx_client
 from smartdrive.models.event import parse_event, MessageEvent, Action, Event
 from smartdrive.validator.api.middleware.sign import verify_data_signature, sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
@@ -50,7 +50,6 @@ class Client(multiprocessing.Process):
     _connection_pool = None
     _event_pool = None
     _keypair = None
-    _comx_client = None
     _database = None
 
     def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, event_pool):
@@ -60,7 +59,6 @@ class Client(multiprocessing.Process):
         self._connection_pool = connection_pool
         self._event_pool = event_pool
         self._keypair = classic_load_key(config_manager.config.key)
-        self._comx_client = get_comx_client(testnet=config_manager.config.testnet)
         self._database = Database()
 
     def run(self):
@@ -96,7 +94,6 @@ class Client(multiprocessing.Process):
         process.join()
 
     def _process_message(self, msg, event_pool):
-        print(f"PROCESSING INCOMING MESSAGE - {msg}")
         body = msg["body"]
 
         try:
@@ -158,7 +155,6 @@ class Client(multiprocessing.Process):
                 events=processed_events,
                 is_proposer_validator=False,
                 keypair=self._keypair,
-                comx_client=self._comx_client,
                 netuid=config_manager.config.netuid,
                 database=self._database
             )
@@ -175,11 +171,10 @@ class Client(multiprocessing.Process):
 
     def _sync_blocks(self, start, end, event_pool):
         async def sync_blocks():
-            active_validators = await get_truthful_validators(self._keypair, self._comx_client, config_manager.config.netuid)
-
-            if not active_validators:
-                # Retry once more if no active validators are found initially
-                active_validators = await get_truthful_validators(self._keypair, self._comx_client, config_manager.config.netuid)
+            try:
+                active_validators = await get_truthful_validators(self._keypair, config_manager.config.netuid)
+            except CommuneNetworkUnreachable:
+                return
 
             if not active_validators:
                 return

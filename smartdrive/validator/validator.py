@@ -28,14 +28,12 @@ import tempfile
 import zipfile
 from substrateinterface import Keypair
 
-from communex.client import CommuneClient
 from communex.module.module import Module
 from communex.compat.key import classic_load_key
 from communex.types import Ss58Address
 
 import smartdrive
 from smartdrive.commune.module._protocol import create_headers
-from smartdrive.commune.utils import get_comx_client
 from smartdrive.models.block import Block
 from smartdrive.validator.api.utils import process_events
 from smartdrive.validator.config import Config, config_manager
@@ -47,8 +45,8 @@ from smartdrive.validator.node.node import Node
 from smartdrive.validator.step import validate_step
 from smartdrive.validator.utils import extract_sql_file, fetch_with_retries
 from smartdrive.validator.api.middleware.sign import sign_data
-from smartdrive.commune.request import (get_modules, ConnectionInfo, get_filtered_modules, get_truthful_validators,
-                                        ping_proposer_validator)
+from smartdrive.commune.request import get_filtered_modules, get_truthful_validators, ping_proposer_validator, get_modules
+from smartdrive.commune.models import ConnectionInfo
 
 
 def get_config() -> Config:
@@ -104,7 +102,7 @@ class Validator(Module):
     def __init__(self):
         super().__init__()
 
-        self._key = classic_load_key(config.key)
+        self._key = classic_load_key(config_manager.config.key)
         self._database = Database()
 
     async def initial_sync(self):
@@ -113,14 +111,8 @@ class Validator(Module):
         selecting the validator with the highest version, downloading the database, and importing it.
         """
         try:
-            comx_client = get_comx_client(num_connections=5, testnet=config_manager.config.testnet)
-
-            truthful_validators = await get_truthful_validators(self._key, comx_client, config_manager.config.netuid)
-            block_number = self._database.get_last_block() or 0
-
-            if not truthful_validators:
-                # Retry once more if no active validators are found initially
-                truthful_validators = await get_truthful_validators(self._key, comx_client, config_manager.config.netuid)
+            # get_truthful_validators could raise CommuneNetworkUnreachable
+            truthful_validators = await get_truthful_validators(self._key, config_manager.config.netuid)
 
             if not truthful_validators:
                 return
@@ -129,8 +121,7 @@ class Validator(Module):
             truthful_database = []
 
             for validator in truthful_validators:
-                response = await fetch_with_retries("block-number", validator.connection, params=None, headers=headers,
-                                                    timeout=30)
+                response = await fetch_with_retries("block-number", validator.connection, params=None, headers=headers, timeout=30)
                 if response and response.status_code == 200:
                     try:
                         truthful_database.append({
@@ -148,6 +139,8 @@ class Validator(Module):
 
             if not truthful_database:
                 return
+
+            block_number = self._database.get_last_block() or 0
 
             while truthful_database:
                 validator = max(truthful_database, key=lambda obj: obj["database_block"])
@@ -194,12 +187,11 @@ class Validator(Module):
             try:
                 start_time = time.time()
 
-                comx_client = get_comx_client(testnet=config_manager.config.testnet)
-
                 block_number = self._database.get_last_block() or 0
 
-                truthful_validators = await get_truthful_validators(self._key, comx_client, config_manager.config.netuid)
-                all_validators = get_filtered_modules(comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
+                # get_truthful_validators or get_filtered_modules could raise CommuneNetworkUnreachable
+                truthful_validators = await get_truthful_validators(self._key, config_manager.config.netuid)
+                all_validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
 
                 proposer_active_validator = max(truthful_validators if truthful_validators else all_validators, key=lambda v: v.stake or 0)
                 proposer_validator = max(all_validators, key=lambda v: v.stake or 0)
@@ -213,9 +205,7 @@ class Validator(Module):
                     block_number += 1
 
                     block_events = self.node.consume_pool_events(count=self.MAX_EVENTS_PER_BLOCK)
-                    await process_events(events=block_events, is_proposer_validator=True, keypair=self._key,
-                                         comx_client=comx_client, netuid=config_manager.config.netuid,
-                                         database=self._database)
+                    await process_events(events=block_events, is_proposer_validator=True, keypair=self._key, netuid=config_manager.config.netuid, database=self._database)
                     proposer_signature = sign_data({"block_number": block_number, "events": [event.dict() for event in block_events]}, self._key)
                     block = Block(
                         block_number=block_number,
@@ -230,9 +220,9 @@ class Validator(Module):
                 if time.time() - last_validation_time >= self.VALIDATION_INTERVAL:
                     if proposer_validator.ss58_address == self._key.ss58_address:
                         print("Starting validation task")
-                        asyncio.create_task(self.validation_task(comx_client))
+                        asyncio.create_task(self.validation_task())
 
-                    asyncio.create_task(self.vote_miners(comx_client))
+                    asyncio.create_task(self.vote_miners())
                     last_validation_time = time.time()
 
                 elapsed = time.time() - start_time
@@ -240,15 +230,15 @@ class Validator(Module):
                     sleep_time = self.BLOCK_INTERVAL - elapsed
                     print(f"Sleeping for {sleep_time} seconds before trying to create the next block.")
                     await asyncio.sleep(sleep_time)
+
             except Exception as e:
                 print(f"Error create blocks - {e}")
                 await asyncio.sleep(self.BLOCK_INTERVAL)
 
-    async def validation_task(self, comx_client: CommuneClient):
+    async def validation_task(self):
         result = await validate_step(
             database=self._database,
             key=self._key,
-            comx_client=comx_client,
             netuid=config_manager.config.netuid
         )
 
@@ -264,9 +254,19 @@ class Validator(Module):
             if store_event:
                 self.node.insert_pool_event(store_event)
 
-    async def vote_miners(self, comx_client: CommuneClient):
+    async def vote_miners(self):
+        """
+        Calculates the weights of the miners and sets them in the network.
+
+        Collects performance data of miners, calculates a score based on their successful and failed calls,
+        and then sets these weights in the network.
+
+        Raises:
+            CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
+        """
         score_dict = {}
-        for miner in get_filtered_modules(comx_client, config_manager.config.netuid, ModuleType.MINER):
+        # get_filtered_modules could raise CommuneNetworkUnreachable
+        for miner in get_filtered_modules(config_manager.config.netuid, ModuleType.MINER):
             if miner.ss58_address == self._key.ss58_address:
                 continue
             total_calls, failed_calls = self._database.get_miner_processes(
@@ -276,7 +276,7 @@ class Validator(Module):
             score_dict[int(miner.uid)] = score_miner(total_calls=total_calls, failed_calls=failed_calls)
 
         if score_dict:
-            await set_weights(score_dict, config_manager.config.netuid, comx_client, self._key, config_manager.config.testnet)
+            await set_weights(score_dict, config_manager.config.netuid, self._key)
 
 
 if __name__ == "__main__":
@@ -285,9 +285,8 @@ if __name__ == "__main__":
     config = get_config()
     config_manager.initialize(config)
 
-    _comx_client = get_comx_client(testnet=config_manager.config.testnet)
     key = classic_load_key(config_manager.config.key)
-    registered_modules = get_modules(_comx_client, config_manager.config.netuid)
+    registered_modules = get_modules(config_manager.config.netuid)
 
     if key.ss58_address not in [module.ss58_address for module in registered_modules]:
         raise Exception(f"Your key: {key.ss58_address} is not registered.")

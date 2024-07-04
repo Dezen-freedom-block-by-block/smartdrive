@@ -30,28 +30,27 @@ from substrateinterface import Keypair
 from fastapi import Form, UploadFile, HTTPException, Request
 
 from communex.compat.key import classic_load_key
-from communex.client import CommuneClient
 from communex.types import Ss58Address
 
+from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.models.event import MinerProcess, StoreEvent, StoreParams, StoreInputParams
 from smartdrive.validator.models.models import MinerWithChunk, ModuleType
-from smartdrive.commune.request import execute_miner_request, ModuleInfo, get_filtered_modules
+from smartdrive.commune.request import execute_miner_request, get_filtered_modules
+from smartdrive.commune.models import ModuleInfo
 from smartdrive.validator.node.node import Node
 from smartdrive.validator.utils import calculate_hash
 
 
 class StoreAPI:
-    _comx_client: CommuneClient = None
     _node: Node = None
     _key: Keypair = None
     _database: Database = None
 
-    def __init__(self, comx_client, node: Node):
-        self._comx_client = comx_client
+    def __init__(self, node: Node):
         self._node = node
         self._key = classic_load_key(config_manager.config.key)
         self._database = Database()
@@ -74,7 +73,10 @@ class StoreAPI:
         user_ss58_address = get_ss58_address_from_public_key(user_public_key)
         file_bytes = await file.read()
 
-        miners = get_filtered_modules(self._comx_client, config_manager.config.netuid, ModuleType.MINER)
+        try:
+            miners = get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
+        except CommuneNetworkUnreachable:
+            raise HTTPException(status_code=404, detail="Commune network is unreachable")
 
         if not miners:
             raise HTTPException(status_code=404, detail="Currently there are no miners")

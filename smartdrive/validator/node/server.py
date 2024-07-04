@@ -30,7 +30,6 @@ from communex.client import CommuneClient
 from communex.compat.key import classic_load_key
 
 from smartdrive.commune.request import get_filtered_modules
-from smartdrive.commune.utils import get_comx_client
 from smartdrive.validator.api.middleware.sign import verify_data_signature, sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.config import config_manager
@@ -46,6 +45,7 @@ class Server(multiprocessing.Process):
     # TODO: Replace with production validators number
     MAX_N_CONNECTIONS = 255
     IDENTIFIER_TIMEOUT_SECONDS = 5
+    CONNECTION_PROCESS_TIMEOUT_SECONDS = 10
     TCP_PORT = 9001
 
     _event_pool = None
@@ -90,8 +90,9 @@ class Server(multiprocessing.Process):
     def _check_connections_process(self, connection_pool: ConnectionPool, event_pool):
         while True:
             try:
-                comx_client = get_comx_client(testnet=config_manager.config.testnet)
-                validators = get_filtered_modules(comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
+                # get_filtered_modules could raise CommuneNetworkUnreachable
+                validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
+
                 active_ss58_addresses = {validator.ss58_address for validator in validators}
                 to_remove = [ss58_address for ss58_address in connection_pool.get_identifiers() if ss58_address not in active_ss58_addresses]
                 for ss58_address in to_remove:
@@ -100,24 +101,27 @@ class Server(multiprocessing.Process):
                         removed_connection.close()
                 identifiers = connection_pool.get_identifiers()
                 new_validators = [validator for validator in validators if validator.ss58_address not in identifiers and validator.ss58_address != self._keypair.ss58_address]
-                self._initialize_validators(connection_pool, event_pool, new_validators, comx_client)
+                self._initialize_validators(connection_pool, event_pool, new_validators)
 
-                time.sleep(10)
             except Exception as e:
                 print(f"Error check connections process - {e}")
-                time.sleep(10)
 
-    def _initialize_validators(self, connection_pool: ConnectionPool, event_pool, validators, comx_client: CommuneClient):
+            finally:
+                time.sleep(self.CONNECTION_PROCESS_TIMEOUT_SECONDS)
+
+    def _initialize_validators(self, connection_pool: ConnectionPool, event_pool, validators):
         # TODO: Each connection try in for loop should be async and we should wait for all of them.
         # TODO: Actually multiple validators with same IP will not work since they will try to connect always the TCP port self.TCP_PORT.
         try:
             if validators is None:
-                validators = get_filtered_modules(comx_client, config_manager.config.netuid, ModuleType.VALIDATOR)
+                # get_filtered_modules could raise CommuneNetworkUnreachable
+                validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
 
             validators = [validator for validator in validators if validator.ss58_address != self._keypair.ss58_address]
 
             for validator in validators:
                 validator_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
                 try:
                     validator_socket.connect((validator.connection.ip, self.TCP_PORT))
                     self._set_keepalive_options(validator_socket)
@@ -136,10 +140,12 @@ class Server(multiprocessing.Process):
                     client_receiver = Client(validator_socket, validator.ss58_address, connection_pool, event_pool)
                     client_receiver.start()
                     print(f"Validator {validator.ss58_address} connected and added to the pool.")
+
                 except Exception as e:
                     connection_pool.remove_connection(validator.ss58_address)
                     validator_socket.close()
                     print(f"Error connecting to validator {validator.ss58_address}: {e}")
+
         except Exception as e:
             print(f"Error initializing validators: {e}")
 
@@ -147,7 +153,7 @@ class Server(multiprocessing.Process):
         try:
             self._set_keepalive_options(client_socket)
 
-            # Wait IDENTIFIER_TIMEOUT_SECONDS as maximum time to get the identifier message
+            # Wait self.IDENTIFIER_TIMEOUT_SECONDS as maximum time to get the identifier message
             ready = select.select([client_socket], [], [], self.IDENTIFIER_TIMEOUT_SECONDS)
             if ready[0]:
                 identification_message = packing.receive_msg(client_socket)
@@ -178,7 +184,8 @@ class Server(multiprocessing.Process):
                     client_socket.close()
                     return
 
-                validators = get_filtered_modules(get_comx_client(testnet=config_manager.config.testnet), config_manager.config.netuid, ModuleType.VALIDATOR)
+                # get_filtered_modules could raise CommuneNetworkUnreachable
+                validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
 
                 if validators:
                     validator_connection = next((validator for validator in validators if validator.ss58_address == connection_identifier), None)

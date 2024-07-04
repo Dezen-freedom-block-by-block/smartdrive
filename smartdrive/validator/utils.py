@@ -30,7 +30,7 @@ import hashlib
 
 from starlette.datastructures import Headers
 
-from smartdrive.commune.request import ConnectionInfo
+from smartdrive.commune.models import ConnectionInfo
 
 MAX_RETRIES = 3
 RETRY_DELAY = 5

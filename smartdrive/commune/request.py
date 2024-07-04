@@ -22,13 +22,17 @@
 
 import re
 import asyncio
+import threading
 from typing import Dict, Any, Optional, List
 from substrateinterface import Keypair
 
 from communex.types import Ss58Address
-from communex.client import CommuneClient
 
+from smartdrive.commune.errors import CommuneNetworkUnreachable
+from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.commune.module.client import ModuleClient
+from smartdrive.commune.utils import get_comx_client
+from smartdrive.validator.config import config_manager
 from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 from smartdrive.validator.models.models import ModuleType
 
@@ -36,99 +40,109 @@ PING_TIMEOUT = 5
 CALL_TIMEOUT = 60
 
 
-class ConnectionInfo:
-    def __init__(self, ip: str, port: int):
-        self.ip = ip
-        self.port = port
+class ThreadWithReturnValue(threading.Thread):
+    def __init__(self, target, args=()):
+        super().__init__()
+        self.target = target
+        self.args = args
+        self._return = None
 
-    def __repr__(self):
-        return f"ConnectionInfo(ip={self.ip}, port={self.port})"
+    def run(self):
+        self._return = self.target(*self.args)
 
-
-class ModuleInfo:
-    def __init__(self, uid: str, ss58_address: Ss58Address, connection: ConnectionInfo, incentives: Optional[int] = None, dividends: Optional[int] = None, stake: Optional[int] = None):
-        self.uid = uid
-        self.ss58_address = ss58_address
-        self.connection = connection
-        self.incentives = incentives
-        self.dividends = dividends
-        self.stake = stake
-
-    def __repr__(self):
-        return f"ModuleInfo(uid={self.uid}, ss58_address={self.ss58_address}, connection={self.connection}, incentives={self.incentives}, dividends={self.dividends}, stake={self.stake})"
+    def join(self, timeout=None):
+        super().join(timeout)
+        return self._return
 
 
-def get_modules(comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
+def _run_with_timeout(target, args=(), timeout=15):
+    thread = ThreadWithReturnValue(target=target, args=args)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        return None
+    return thread._return
+
+
+def get_modules(netuid: int) -> List[ModuleInfo]:
     """
-    Retrieves a list of modules with their respective SS58 addresses and connections.
+        Retrieves module information from a network specified by its unique network identifier (netuid).
 
-    This function performs system queries to retrieve module information, including SS58 addresses,
-    connection details, incentives, and dividends. The information is compiled into a list of
-    `ModuleInfo` objects.
+        Params:
+            netuid (int): The unique identifier of the network from which to obtain modules.
+
+        Raises:
+            CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
+    """
+    for _ in range(5):
+        comx_client = get_comx_client(testnet=config_manager.config.testnet)
+
+        queries = {
+            "SubspaceModule": [
+                ("Keys", [netuid]),
+                ("Address", [netuid]),
+                ("Incentive", []),
+                ("Dividends", []),
+                ("StakeFrom", [netuid])
+            ]
+        }
+
+        result = _run_with_timeout(comx_client.query_batch_map, (queries,), timeout=15)
+
+        if result is not None:
+            keys_map = result["Keys"]
+            address_map = result["Address"]
+
+            modules_info = []
+
+            for uid, ss58_address in keys_map.items():
+                address = address_map.get(uid)
+                total_stake = 0
+                stake = result["StakeFrom"].get(ss58_address, [])
+                for _, stake in stake:
+                    total_stake += stake
+
+                if address:
+                    connection = _get_ip_port(address)
+                    if connection:
+                        modules_info.append(
+                            ModuleInfo(uid, ss58_address, connection, result["Incentive"][netuid][uid], result["Dividends"][netuid][uid], total_stake)
+                        )
+            return modules_info
+
+    raise CommuneNetworkUnreachable()
+
+
+def get_filtered_modules(netuid: int, type: ModuleType = ModuleType.MINER) -> List[ModuleInfo]:
+    """
+    Retrieve a list of miners or validators.
+
+    This function queries the network to retrieve module information and filters the modules to
+    identify miner or validator. A module is considered a miner or validator if its incentive is equal to its dividends
+    and both are zero, or if its incentive is greater than its dividends.
 
     Params:
-        comx_client (CommuneClient): Client to perform system queries.
         netuid (int): Network identifier used for the queries.
 
     Returns:
-        List[ModuleInfo]: A list of `ModuleInfo` objects containing module details such as UID,
-                          SS58 address, connection info, incentives, and dividends.
+        List[ModuleInfo]: A list of `ModuleInfo` objects representing miners.
+
+    Raises:
+        CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
-    queries = {
-        "SubspaceModule": [
-            ("Keys", [netuid]),
-            ("Address", [netuid]),
-            ("Incentive", []),
-            ("Dividends", []),
-            ("StakeFrom", [netuid])
-        ]
-    }
+    # get_modules could raise CommuneNetworkUnreachable
+    modules = get_modules(netuid)
+    result = []
 
-    result = comx_client.query_batch_map(queries)
-    keys_map = result["Keys"]
-    address_map = result["Address"]
+    for module in modules:
+        condition = module.incentives > module.dividends if type == ModuleType.MINER else module.incentives < module.dividends
+        if (module.incentives == module.dividends == 0) or condition:
+            result.append(module)
 
-    modules_info = []
-
-    for uid, ss58_address in keys_map.items():
-        address = address_map.get(uid)
-        total_stake = 0
-        stake = result["StakeFrom"].get(ss58_address, [])
-        for _, stake in stake:
-            total_stake += stake
-
-        if address:
-            connection = _get_ip_port(address)
-            if connection:
-                modules_info.append(
-                    ModuleInfo(uid, ss58_address, connection, result["Incentive"][netuid][uid], result["Dividends"][netuid][uid], total_stake)
-                )
-    return modules_info
+    return result
 
 
-async def vote(key: Keypair, comx_client: CommuneClient, uids: list[int], weights: list[int], netuid: int):
-    """
-    Perform a vote on the network.
-
-    This function sends a voting transaction to the network using the provided key for authentication.
-    Each UID in the `uids` list is voted for with the corresponding weight from the `weights` list.
-
-    Params:
-        key (Keypair): Key used to authenticate the vote.
-        comx_client (CommuneClient): Client to perform the vote.
-        uids (list[int]): List of unique identifiers (UIDs) of the nodes to vote for.
-        weights (list[int]): List of weights associated with each UID.
-        netuid (int): Network identifier used for the votes.
-    """
-    print(f"Voting uids: {uids} - weights: {weights}")
-    try:
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, comx_client.vote, key, uids, weights, netuid)
-    except Exception as e:
-        print(e)
-
-
-async def get_active_validators(key: Keypair, comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
+async def get_active_validators(key: Keypair, netuid: int) -> List[ModuleInfo]:
     """
     Retrieve a list of active validators.
 
@@ -138,13 +152,16 @@ async def get_active_validators(key: Keypair, comx_client: CommuneClient, netuid
 
     Params:
         key (Keypair): Key used to authenticate the requests.
-        comx_client (CommuneClient): Client to perform system queries.
         netuid (int): Network identifier used for the queries.
 
     Returns:
         List[ModuleInfo]: A list of `ModuleInfo` objects representing active validators.
+        
+    Raises:
+        CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
-    validators = get_filtered_modules(comx_client, netuid, ModuleType.VALIDATOR)
+    # get_filtered_modules could raise CommuneNetworkUnreachable
+    validators = get_filtered_modules(netuid, ModuleType.VALIDATOR)
 
     async def _get_active_validators(validator):
         ping_response = await execute_miner_request(key, validator.connection, validator.ss58_address, "ping", timeout=PING_TIMEOUT)
@@ -158,19 +175,22 @@ async def get_active_validators(key: Keypair, comx_client: CommuneClient, netuid
     return active_validators
 
 
-async def get_truthful_validators(key: Keypair, comx_client: CommuneClient, netuid: int) -> List[ModuleInfo]:
+async def get_truthful_validators(key: Keypair, netuid: int) -> List[ModuleInfo]:
     """
     Retrieves a list of truthful validators based on a minimum stake requirement.
 
     Params:
         key (Keypair): The keypair used for signing requests.
-        comx_client (CommuneClient): The CommuneX client used for network interactions.
         netuid (int): The network UID.
 
     Returns:
         List[ModuleInfo]: A list of ModuleInfo objects representing the truthful validators.
+
+    Raises:
+        CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
-    active_validators = await get_active_validators(key, comx_client, netuid)
+    # get_active_validators could raise CommuneNetworkUnreachable
+    active_validators = await get_active_validators(key, netuid)
     return list(filter(lambda validator: validator.stake > TRUTHFUL_STAKE_AMOUNT, active_validators))
 
 
@@ -194,30 +214,46 @@ async def ping_proposer_validator(key: Keypair, module: ModuleInfo, retries: int
     return False
 
 
-def get_filtered_modules(comx_client: CommuneClient, netuid: int, type: ModuleType = ModuleType.MINER) -> List[ModuleInfo]:
-    """
-    Retrieve a list of miners or validators.
+def get_staketo(ss58_address: Ss58Address, netuid: int) -> dict[str, int]:
+    for _ in range(5):
+        comx_client = get_comx_client(testnet=config_manager.config.testnet)
 
-    This function queries the network to retrieve module information and filters the modules to
-    identify miner or validator. A module is considered a miner or validator if its incentive is equal to its dividends
-    and both are zero, or if its incentive is greater than its dividends.
+        result = _run_with_timeout(comx_client.get_staketo, (ss58_address, netuid,), timeout=15)
+
+        if result is not None:
+            return result
+
+    raise CommuneNetworkUnreachable()
+
+
+def vote(key: Keypair, uids: list[int], weights: list[int], netuid: int):
+    """
+    Perform a vote on the network.
+
+    This function sends a voting transaction to the network using the provided key for authentication.
+    Each UID in the `uids` list is voted for with the corresponding weight from the `weights` list.
 
     Params:
-        comx_client (CommuneClient): Client to perform system queries.
-        netuid (int): Network identifier used for the queries.
-
-    Returns:
-        List[ModuleInfo]: A list of `ModuleInfo` objects representing miners.
+        key (Keypair): Key used to authenticate the vote.
+        uids (list[int]): List of unique identifiers (UIDs) of the nodes to vote for.
+        weights (list[int]): List of weights associated with each UID.
+        netuid (int): Network identifier used for the votes.
     """
-    modules = get_modules(comx_client, netuid)
-    result = []
+    print(f"Voting uids: {uids} - weights: {weights}")
 
-    for module in modules:
-        condition = module.incentives > module.dividends if type == ModuleType.MINER else module.incentives < module.dividends
-        if (module.incentives == module.dividends == 0) or condition:
-            result.append(module)
+    try:
+        def _vote(key: Keypair, uids: list[int], weights: list[int], netuid: int):
+            for _ in range(5):
+                comx_client = get_comx_client(testnet=config_manager.config.testnet)
+                result = _run_with_timeout(comx_client.vote, (key, uids, weights, netuid,), timeout=15)
+                if result is not None:
+                    break
 
-    return result
+        vote_thread = threading.Thread(target=_vote, args=(key, uids, weights, netuid))
+        vote_thread.start()
+
+    except Exception as e:
+        print(f"Error voting - {e}")
 
 
 async def execute_miner_request(validator_key: Keypair, connection: ConnectionInfo, miner_key: Ss58Address, action: str, params: Dict[str, Any] = None, timeout: int = CALL_TIMEOUT):

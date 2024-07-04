@@ -22,11 +22,11 @@
 
 import time
 
-from communex.client import CommuneClient
 from communex.types import Ss58Address
 from substrateinterface import Keypair
 
-from smartdrive.commune.request import ModuleInfo, execute_miner_request, ConnectionInfo, get_filtered_modules
+from smartdrive.commune.request import execute_miner_request, get_filtered_modules
+from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.models.event import StoreEvent, Event, RemoveEvent, MinerProcess
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.database.database import Database
@@ -102,7 +102,7 @@ async def remove_chunk_request(keypair: Keypair, user_ss58_address: Ss58Address,
     return True if miner_answer else False
 
 
-async def process_events(events: list[Event], is_proposer_validator: bool, keypair: Keypair, comx_client: CommuneClient, netuid: int, database: Database):
+async def process_events(events: list[Event], is_proposer_validator: bool, keypair: Keypair, netuid: int, database: Database):
     """
     Process a list of events. Depending on the type of event, it either stores a file or removes it.
 
@@ -110,9 +110,11 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
         events (list[Event]): A list of events to process.
         is_proposer_validator (bool): Flag indicating if the current node is the proposer validator.
         keypair (Keypair): The keypair used for signing data.
-        comx_client (CommuneClient): The CommuneX client for network interactions.
         netuid (int): The network UID.
         database (Database): The database instance for storing or removing files.
+
+    Raises:
+        CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network. 
     """
     for event in events:
         if isinstance(event, StoreEvent):
@@ -136,7 +138,13 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
         elif isinstance(event, RemoveEvent):
             if is_proposer_validator:
                 miner_chunks = database.get_miner_chunks(event.event_params.file_uuid)
-                miners = get_filtered_modules(comx_client, netuid, ModuleType.MINER)
+
+                # get_filtered_modules could raise CommuneNetworkUnreachable
+                # If it is the events being processed by the validator when it is creating a block it should raise the
+                # exception and cancel the block creation. This method can also be launched in clint.py but in that case
+                # is not a proposer validator.
+                miners = get_filtered_modules(netuid, ModuleType.MINER)
+
                 miner_with_chunks = get_miner_info_with_chunk(miners, miner_chunks)
                 miner_processes = []
 
