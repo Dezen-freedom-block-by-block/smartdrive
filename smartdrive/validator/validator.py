@@ -286,7 +286,7 @@ if __name__ == "__main__":
     config_manager.initialize(config)
 
     key = classic_load_key(config_manager.config.key)
-    registered_modules = get_modules(config_manager.config.netuid)
+    registered_modules = get_modules(config_manager.config.netuid, config_manager.config.testnet)
 
     if key.ss58_address not in [module.ss58_address for module in registered_modules]:
         raise Exception(f"Your key: {key.ss58_address} is not registered.")

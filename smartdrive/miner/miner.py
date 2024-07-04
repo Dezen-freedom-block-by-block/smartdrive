@@ -255,7 +255,7 @@ if __name__ == "__main__":
     config = get_config()
     miner = Miner(config)
     key = classic_load_key(config.key)
-    registered_modules = get_modules(config.netuid)
+    registered_modules = get_modules(config.netuid, config.testnet)
 
     if key.ss58_address not in list(map(lambda module: module.ss58_address, registered_modules)):
         raise Exception(f"Your key: {key.ss58_address} is not registered.")

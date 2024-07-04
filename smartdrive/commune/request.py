@@ -64,7 +64,7 @@ def _run_with_timeout(target, args=(), timeout=15):
     return thread._return
 
 
-def get_modules(netuid: int) -> List[ModuleInfo]:
+def get_modules(netuid: int, testnet=False) -> List[ModuleInfo]:
     """
         Retrieves module information from a network specified by its unique network identifier (netuid).
 
@@ -75,7 +75,7 @@ def get_modules(netuid: int) -> List[ModuleInfo]:
             CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
     for _ in range(5):
-        comx_client = get_comx_client(testnet=config_manager.config.testnet)
+        comx_client = get_comx_client(testnet)
 
         queries = {
             "SubspaceModule": [
