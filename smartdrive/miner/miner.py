@@ -19,7 +19,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
+import asyncio
 import time
 import uuid
 import shutil
@@ -108,6 +108,20 @@ class Miner(Module):
 
         if current_dir_size > max_size_bytes:
             raise Exception(f"Current directory size exceeds the maximum allowed size. Current size: {current_dir_size / (2 ** 30):.2f} GB, allowed: {self.config.max_size} GB")
+
+    async def run_server(self, miner, config) -> None:
+        """
+        Starts and runs an asynchronous web server using Uvicorn.
+
+        This method configures and starts an Uvicorn server for an ASGI application
+        with SSL/TLS support. The server listens on all network interfaces (0.0.0.0)
+        and on the port specified in the instance configuration.
+        """
+        dir = os.path.dirname(os.path.abspath(__file__))
+        server = ModuleServer(miner, key, subnets_whitelist=[config.netuid], limiter=IpLimiterParams(), use_testnet=config.testnet)
+        configuration = uvicorn.Config(server.get_fastapi_app(), workers=8, host="0.0.0.0", port=config.port, ssl_keyfile=f"{dir}/cert/key.pem", ssl_certfile=f"{dir}/cert/cert.pem", log_level="info")
+        server = uvicorn.Server(configuration)
+        await server.serve()
 
     @endpoint
     def ping(self) -> dict:
@@ -260,6 +274,7 @@ if __name__ == "__main__":
     if key.ss58_address not in list(map(lambda module: module.ss58_address, registered_modules)):
         raise Exception(f"Your key: {key.ss58_address} is not registered.")
 
-    dir = os.path.dirname(os.path.abspath(__file__))
-    server = ModuleServer(miner, key, subnets_whitelist=[config.netuid], limiter=IpLimiterParams(), use_testnet=config.testnet)
-    uvicorn.run(server.get_fastapi_app(), host="0.0.0.0", port=config.port, ssl_keyfile=f"{dir}/cert/key.pem", ssl_certfile=f"{dir}/cert/cert.pem", log_level="info")
+    async def run_tasks():
+        await miner.run_server(miner, config)
+
+    asyncio.run(run_tasks())
