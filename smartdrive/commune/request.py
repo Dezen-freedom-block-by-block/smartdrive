@@ -37,7 +37,7 @@ from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 from smartdrive.validator.models.models import ModuleType
 
 PING_TIMEOUT = 5
-EXTENDED_PING_TIMEOUT = 15
+EXTENDED_PING_TIMEOUT = 60
 CALL_TIMEOUT = 60
 
 
