@@ -131,7 +131,7 @@ class File:
         Returns:
             bool: True if the instance has a positive expiration time, False otherwise.
         """
-        return self.expiration_ms > 0
+        return self.expiration_ms or 0 > 0
 
     def has_expired(self, current_timestamp) -> bool:
         """

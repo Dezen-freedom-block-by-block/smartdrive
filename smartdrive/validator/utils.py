@@ -142,8 +142,8 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
                 user_owner_ss58address=event.user_ss58_address,
                 file_uuid=event.event_params.file_uuid,
                 chunks=chunks,
-                created_at=None,
-                expiration_ms=_get_file_expiration()
+                created_at=event.event_params.created_at,
+                expiration_ms=event.event_params.expiration_ms
             )
             database.insert_file(file)
         elif isinstance(event, RemoveEvent):
@@ -183,7 +183,7 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
             database.remove_file(event.event_params.file_uuid)
             
             
-def _get_file_expiration() -> int:
+def get_file_expiration() -> int:
     """
     Generate a random expiration time in milliseconds within a range.
 

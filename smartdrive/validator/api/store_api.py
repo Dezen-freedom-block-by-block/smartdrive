@@ -42,7 +42,7 @@ from smartdrive.validator.models.models import MinerWithChunk, ModuleType
 from smartdrive.commune.request import execute_miner_request, get_filtered_modules
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.validator.node.node import Node
-from smartdrive.validator.utils import calculate_hash
+from smartdrive.validator.utils import calculate_hash, get_file_expiration
 
 
 class StoreAPI:
@@ -88,8 +88,7 @@ class StoreAPI:
             miners=miners,
             validator_keypair=self._key,
             user_ss58_address=user_ss58_address,
-            input_signed_params=input_signed_params,
-            save_in_one_miner=True
+            input_signed_params=input_signed_params
         )
 
         if not store_event:
@@ -112,7 +111,7 @@ async def store_new_file(
         validator_keypair: Keypair,
         user_ss58_address: Ss58Address,
         input_signed_params: str,
-        save_in_one_miner: bool = False
+        validating: bool = False
 ) -> StoreEvent | None:
     """
     Stores a new file across a list of miners.
@@ -159,7 +158,7 @@ async def store_new_file(
         else:
             return False
 
-    if save_in_one_miner:
+    if not validating:
         random.shuffle(miners)
         for miner in miners:
             if await handle_store_request(miner):
@@ -175,6 +174,8 @@ async def store_new_file(
         event_params = StoreParams(
             file_uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
             miners_processes=miners_processes,
+            created_at=int(time.time() * 1000) if validating else None,
+            expiration_ms=get_file_expiration() if validating else None,
             sub_chunk_start=sub_chunk_start,
             sub_chunk_end=sub_chunk_end,
             sub_chunk_encoded=sub_chunk_encoded

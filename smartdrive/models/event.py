@@ -65,6 +65,8 @@ class EventParams(BaseModel):
 class StoreParams(EventParams):
     file_uuid: str
     miners_processes: List[MinerProcess]
+    created_at: Optional[int]
+    expiration_ms: Optional[int]
     sub_chunk_start: int
     sub_chunk_end: int
     sub_chunk_encoded: str

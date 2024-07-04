@@ -109,7 +109,8 @@ async def validate_step(database: Database, key: Keypair, netuid: int) -> Option
             miners=miners_to_store,
             validator_keypair=key,
             user_ss58_address=Ss58Address(key.ss58_address),
-            input_signed_params=input_signed_params.hex()
+            input_signed_params=input_signed_params.hex(),
+            validating=True
         )
 
     return remove_events, validate_events, store_event
