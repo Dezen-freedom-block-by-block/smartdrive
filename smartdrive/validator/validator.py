@@ -91,6 +91,7 @@ class Validator(Module):
     MAX_EVENTS_PER_BLOCK = 100
     BLOCK_INTERVAL_SECONDS = 12
     VALIDATION_INTERVAL_SECONDS = 3 * 60
+    VOTE_INTERVAL_SECONDS = 60
     # TODO: CHECK INTERVAL DAYS FOR SCORE MINER
     DAYS_INTERVAL = 14
 
@@ -184,6 +185,7 @@ class Validator(Module):
 
     async def create_blocks(self):
         last_validation_time = time.time()
+        last_vote_time = time.time()
 
         while True:
             try:
@@ -227,10 +229,13 @@ class Validator(Module):
                 if time.time() - last_validation_time >= self.VALIDATION_INTERVAL_SECONDS:
                     if proposer_validator.ss58_address == self._key.ss58_address:
                         print("Starting validation task")
-                        # asyncio.create_task(self.validation_task())
+                        asyncio.create_task(self.validation_task())
 
-                    asyncio.create_task(self.vote_miners())
                     last_validation_time = time.time()
+
+                if time.time() - last_vote_time >= self.VOTE_INTERVAL_SECONDS:
+                    asyncio.create_task(self.vote_miners())
+                    last_vote_time = time.time()
 
                 elapsed = time.time() - start_time
                 if elapsed < self.BLOCK_INTERVAL_SECONDS:
