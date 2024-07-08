@@ -39,38 +39,22 @@ FAILURE_WEIGHT = 1
 
 def score_miner(total_calls: int, failed_calls: int) -> float:
     """
-    Calculate the score for a miner based on the number of total calls, failed responses, and average response time.
+    Calculate the score for a miner based on the number of total calls and failed responses.
 
     Params:
         total_calls (int): The total number of calls made.
         failed_responses (int): The number of failed responses.
-        avg_response_time (float): The average response time of the miner (in seconds).
 
     Returns:
-        float: The calculated score for the miner.
+        float: The calculated score for the miner, between 0 and 1.
     """
-    # Ensure total_calls is not zero to avoid division by zero
-    if total_calls == 0:
-        return 0
+    if total_calls <= 0:
+        return 0.0
 
-    # Initialize score
-    score = 1
-
-    # Calculate failure ratio
     failure_ratio = failed_calls / total_calls
 
-    # If failure ratio is 1 or greater, score should be 0
-    if failure_ratio >= 1:
-        return 0
+    return max(0.0, 1.0 - failure_ratio)
 
-    # Final score
-    combined_penalty = failure_ratio * FAILURE_WEIGHT
-    score -= combined_penalty
-
-    # Ensure the score is between 0 and 1
-    score = max(0, min(score, 1))
-
-    return score
 
 # MIT No Attribution
 # 
