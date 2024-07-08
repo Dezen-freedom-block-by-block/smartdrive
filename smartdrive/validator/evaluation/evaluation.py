@@ -30,7 +30,6 @@ from smartdrive.validator.evaluation.sigmoid import threshold_sigmoid_reward_dis
 
 # TODO: Set with the subnet production value
 MAX_ALLOWED_WEIGHTS = 420
-MIN_ALLOWED_WEIGHTS = 40
 MAX_ALLOWED_UIDS = 820
 
 # Miner weights
@@ -94,12 +93,8 @@ async def set_weights(score_dict: dict[int, float], netuid: int, key: Keypair):
     scores = sum(adjusted_to_sigmoid.values())
 
     # Iterate over the items in the score_dict
-    if scores == 0:
-        for uid, score in adjusted_to_sigmoid.items():
-            weighted_scores[uid] = int(MIN_ALLOWED_WEIGHTS / len(adjusted_to_sigmoid))
-    else:
-        for uid, score in adjusted_to_sigmoid.items():
-            weighted_scores[uid] = int(score * MAX_ALLOWED_WEIGHTS / scores)
+    for uid, score in adjusted_to_sigmoid.items():
+        weighted_scores[uid] = int(score * MAX_ALLOWED_WEIGHTS / scores)
 
     # filter out 0 weights
     weighted_scores = {k: v for k, v in weighted_scores.items() if v != 0}

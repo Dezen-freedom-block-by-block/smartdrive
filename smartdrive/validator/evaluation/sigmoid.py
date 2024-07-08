@@ -50,12 +50,9 @@ def threshold_sigmoid_reward_distribution(score_dict: dict[int, float]) -> dict[
     # Calculate the adjusted scores using the sigmoid function
     adjusted_scores: dict[int, float] = {}
     for uuid, score in score_dict.items():
-        if score == 0:
-            adjusted_scores[uuid] = 0
-        else:
-            normalized_score = (score - threshold) * steepness
-            reward_ratio = _sigmoid(normalized_score)
-            adjusted_score = low_reward + (high_reward - low_reward) * reward_ratio
-            adjusted_scores[uuid] = adjusted_score
+        normalized_score = (score - threshold) * steepness
+        reward_ratio = _sigmoid(normalized_score)
+        adjusted_score = low_reward + (high_reward - low_reward) * reward_ratio
+        adjusted_scores[uuid] = adjusted_score
 
     return adjusted_scores
