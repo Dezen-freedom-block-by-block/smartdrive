@@ -26,8 +26,6 @@ def threshold_sigmoid_reward_distribution(score_dict: dict[int, float]) -> dict[
     """
     Adjusts the distribution of scores, such that the best miners are rewarded significantly more than the rest.
 
-    Miners without a score (score = 0) will receive an adjusted score of 0.
-
     Params:
         score_dict (dict[int, float]): A dictionary mapping miner UIDs to their scores.
 

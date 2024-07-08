@@ -32,9 +32,6 @@ from smartdrive.validator.evaluation.sigmoid import threshold_sigmoid_reward_dis
 MAX_ALLOWED_WEIGHTS = 420
 MAX_ALLOWED_UIDS = 820
 
-# Miner weights
-FAILURE_WEIGHT = 1
-
 
 def score_miner(total_calls: int, failed_calls: int) -> float:
     """
