@@ -9,6 +9,7 @@ DEFAULT_NUM_CONNECTIONS = 1
 
 def _try_get_client(url, num_connections):
     try:
+        time.sleep(3)
         return CommuneClient(url, num_connections=num_connections)
     except Exception:
         return None

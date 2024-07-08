@@ -729,7 +729,7 @@ class Database:
             query = '''
                 SELECT 
                     b.id AS block_id, b.proposer_signature, b.proposer_ss58_address,
-                    e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.file_created_at, a.file_expiration_ms, e.sub_chunk_start, e.sub_chunk_end, e.sub_chunk_encoded, e.event_signed_params, e.user_ss58_address, e.file, e.input_signed_params,
+                    e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.file_created_at, e.file_expiration_ms, e.sub_chunk_start, e.sub_chunk_end, e.sub_chunk_encoded, e.event_signed_params, e.user_ss58_address, e.file, e.input_signed_params,
                     m.chunk_uuid, m.miner_ss58_address, m.succeed, m.processing_time
                 FROM block b
                 LEFT JOIN events e ON b.id = e.block_id
