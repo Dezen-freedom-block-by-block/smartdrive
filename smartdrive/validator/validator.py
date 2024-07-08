@@ -39,6 +39,7 @@ from smartdrive.validator.config import Config, config_manager
 from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.api.api import API
+from smartdrive.validator.errors import InitialSyncError
 from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.node.node import Node
@@ -150,7 +151,7 @@ class Validator(Module):
 
                 connection = ConnectionInfo(validator["connection"]["ip"], validator["connection"]["port"])
                 headers = create_headers(sign_data({}, self._key), self._key)
-                answer = await fetch_with_retries("database", connection, headers=headers, params=None, timeout=30)
+                answer = await fetch_with_retries("database", connection, headers=headers, params=None, timeout=60)
 
                 if answer and answer.status_code == 200:
                     with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_zip:
@@ -174,8 +175,10 @@ class Validator(Module):
                     print("Failed to fetch the database, trying the next validator.")
                     truthful_database.remove(validator)
 
-            print("No more validators available.")
+            raise InitialSyncError("Could not synchronize the database, please try again")
 
+        except InitialSyncError as e:
+            raise e
         except Exception as e:
             print(f"Error initializing - {e}")
 
@@ -299,12 +302,15 @@ if __name__ == "__main__":
     _validator = Validator()
 
     async def run_tasks():
-        await _validator.initial_sync()
-        _validator.node = Node()
-        _validator.api = API(_validator.node)
-        await asyncio.gather(
-            _validator.api.run_server(),
-            _validator.create_blocks()
-        )
+        try:
+            await _validator.initial_sync()
+            _validator.node = Node()
+            _validator.api = API(_validator.node)
+            await asyncio.gather(
+                _validator.api.run_server(),
+                _validator.create_blocks()
+            )
+        except InitialSyncError as e:
+            print(f"Error - {e}")
 
     asyncio.run(run_tasks())
