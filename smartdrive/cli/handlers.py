@@ -313,11 +313,9 @@ def _get_validator_url(key: Keypair, testnet: bool = False) -> str:
     try:
         validators = loop.run_until_complete(get_active_validators(key, netuid, testnet, EXTENDED_PING_TIMEOUT))
     except CommuneNetworkUnreachable:
-        print("CommuneNetworkUnreachable")
         raise NoValidatorsAvailableException
 
     if not validators:
-        print(validators)
         raise NoValidatorsAvailableException
 
     validator = random.choice(validators)

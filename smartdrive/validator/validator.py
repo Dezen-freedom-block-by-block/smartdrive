@@ -85,10 +85,10 @@ def get_config() -> Config:
 
 
 class Validator(Module):
-    MAX_EVENTS_PER_BLOCK = 25
-    BLOCK_INTERVAL = 12
-
-    VALIDATION_INTERVAL = 60
+    # TODO: REPLACE THIS WITH bytes
+    MAX_EVENTS_PER_BLOCK = 100
+    BLOCK_INTERVAL_SECONDS = 12
+    VALIDATION_INTERVAL_SECONDS = 3 * 60
     # TODO: CHECK INTERVAL DAYS FOR SCORE MINER
     DAYS_INTERVAL = 14
 
@@ -100,7 +100,6 @@ class Validator(Module):
 
     def __init__(self):
         super().__init__()
-
         self._key = classic_load_key(config_manager.config.key)
         self._database = Database()
 
@@ -216,7 +215,7 @@ class Validator(Module):
 
                     asyncio.create_task(self.node.send_block_to_validators(block=block))
 
-                if time.time() - last_validation_time >= self.VALIDATION_INTERVAL:
+                if time.time() - last_validation_time >= self.VALIDATION_INTERVAL_SECONDS:
                     if proposer_validator.ss58_address == self._key.ss58_address:
                         print("Starting validation task")
                         asyncio.create_task(self.validation_task())
@@ -225,14 +224,14 @@ class Validator(Module):
                     last_validation_time = time.time()
 
                 elapsed = time.time() - start_time
-                if elapsed < self.BLOCK_INTERVAL:
-                    sleep_time = self.BLOCK_INTERVAL - elapsed
+                if elapsed < self.BLOCK_INTERVAL_SECONDS:
+                    sleep_time = self.BLOCK_INTERVAL_SECONDS - elapsed
                     print(f"Sleeping for {sleep_time} seconds before trying to create the next block.")
                     await asyncio.sleep(sleep_time)
 
             except Exception as e:
                 print(f"Error create blocks - {e}")
-                await asyncio.sleep(self.BLOCK_INTERVAL)
+                await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS)
 
     async def validation_task(self):
         result = await validate_step(

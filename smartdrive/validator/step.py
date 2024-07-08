@@ -28,17 +28,14 @@ from typing import List, Optional, Tuple
 from substrateinterface import Keypair
 from communex.types import Ss58Address
 
-from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.request import get_filtered_modules
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.store_api import store_new_file
-from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.api.validate_api import validate_chunk_request
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.evaluation.utils import generate_data
-from smartdrive.models.event import RemoveEvent, ValidateEvent, StoreEvent, MinerProcess, EventParams, RemoveParams, \
-    RemoveInputParams
+from smartdrive.models.event import RemoveEvent, ValidateEvent, StoreEvent, MinerProcess, EventParams, RemoveParams, RemoveInputParams
 from smartdrive.validator.models.models import File, ModuleType, SubChunk
 from smartdrive.validator.utils import calculate_hash
 
@@ -68,13 +65,13 @@ async def validate_step(database: Database, key: Keypair, netuid: int) -> Option
         print("Skipping validation step, there is not any miner.")
         return
 
-    files = database.get_files_with_expiration()
+    files_with_expiration = database.get_files_with_expiration()
 
     # Split them in expired or not
     expired_files = []
     non_expired_files = []
     current_timestamp = int(time.time() * 1000)
-    for file in files:
+    for file in files_with_expiration:
         expired_files.append(file) if file.has_expired(current_timestamp) else non_expired_files.append(file)
 
     remove_events, validate_events, store_event = [], [], None
@@ -97,7 +94,8 @@ async def validate_step(database: Database, key: Keypair, netuid: int) -> Option
 
     # TODO: Move store before validate to check the new files
     # Store new file
-    miners_to_store = _determine_miners_to_store(files, expired_files, miners)
+    miners_to_store = _determine_miners_to_store(files_with_expiration, expired_files, miners)
+
     if miners_to_store:
         file_data = generate_data(5)
         input_params = {"file": calculate_hash(file_data)}
@@ -236,7 +234,7 @@ async def _validate_miners(files: list[File], keypair: Keypair, netuid: int) -> 
     return events
 
 
-def _determine_miners_to_store(files: list[File], expired_files_dict: list[File], active_miners: list[ModuleInfo]):
+def _determine_miners_to_store(files_with_expiration: list[File], expired_files_dict: list[File], miners: list[ModuleInfo]):
     """
     Determines which miners should store new files.
 
@@ -246,38 +244,40 @@ def _determine_miners_to_store(files: list[File], expired_files_dict: list[File]
     files are selected.
 
     Params:
-        files (list[File]): The list of current files.
+        files_with_expiration (list[File]): The list of current files with expiration.
         expired_files_dict (list[File]): The list of expired files.
-        active_miners (list[ModuleInfo]): The list of active miners.
+        miners (list[ModuleInfo]): The list of miners.
 
     Returns:
         list[ModuleInfo]: The list of miners that should store new files.
     """
     miners_to_store = []
 
-    if not files:
-        miners_to_store = active_miners
+    if not files_with_expiration:
+        miners_to_store = miners
 
     else:
-        # Collect miners from expired files
-        expired_miners = {
-            file.chunks[0].miner_owner_ss58address
+        # Map expired miner ss58_address
+        expired_miners_ss58_address = {
+            chunk.miner_owner_ss58address
             for file in expired_files_dict
+            for chunk in file.chunks
         }
 
-        # Add miners with matching ss58_address
-        for miner in active_miners:
-            if miner.ss58_address in expired_miners:
+        # Add expired miner to list
+        for miner in miners:
+            if miner.ss58_address in expired_miners_ss58_address:
                 miners_to_store.append(miner)
 
-        # Add miners not present in expired_miners
-        users_ss58addresses = [
+        # Add miners without any file
+        users_ss58_addresses_having_files = [
             chunk.miner_owner_ss58address
-            for file in files
+            for file in files_with_expiration
             for chunk in file.chunks
         ]
-        for miner in active_miners:
-            if miner.ss58_address not in users_ss58addresses:
+
+        for miner in miners:
+            if miner.ss58_address not in users_ss58_addresses_having_files:
                 miners_to_store.append(miner)
 
     return miners_to_store

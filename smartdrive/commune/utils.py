@@ -1,4 +1,5 @@
 import random
+import time
 
 from communex._common import ComxSettings
 from communex.client import CommuneClient

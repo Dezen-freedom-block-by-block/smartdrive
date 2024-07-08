@@ -244,7 +244,6 @@ def vote(key: Keypair, uids: list[int], weights: list[int], netuid: int):
         netuid (int): Network identifier used for the votes.
     """
     print(f"Voting uids: {uids} - weights: {weights}")
-
     try:
         def _vote(key: Keypair, uids: list[int], weights: list[int], netuid: int):
             for _ in range(5):

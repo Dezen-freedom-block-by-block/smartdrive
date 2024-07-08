@@ -211,9 +211,19 @@ class Server(multiprocessing.Process):
 
         except Exception as e:
             print(f"Error handling connection: {e}")
+            traceback.print_exc()
             client_socket.close()
 
     def _set_keepalive_options(self, sock):
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 
         # The following options are Linux platform specific:
+
+        # Defines the inactivity time in seconds that must elapse before the operating system sends the first keep-alive message.
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 5)
+
+        # Defines the interval in seconds between subsequent keep-alive messages that are sent if no response is received to the previous keep-alive message.
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)
+
+        # Defines the number of failed keep-alive attempts before the operating system considers the connection to be down and closes the socket.
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)

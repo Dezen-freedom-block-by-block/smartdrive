@@ -117,13 +117,14 @@ class Database:
                     )
                 '''
 
-                # TODO: Don't store sub_chunk info in params must be stored in MineProcess once the split system it's completed
                 create_event_table = '''
                     CREATE TABLE events (
                         uuid TEXT PRIMARY KEY,
                         validator_ss58_address TEXT NOT NULL,
                         event_type INTEGER NOT NULL,
                         file_uuid TEXT NOT NULL,
+                        file_created_at INTEGER,
+                        file_expiration_ms INTEGER,
                         sub_chunk_start INTEGER,
                         sub_chunk_end INTEGER,
                         sub_chunk_encoded TEXT,
@@ -446,7 +447,6 @@ class Database:
             for row in rows:
                 file_uuid, user_owner_uuid, created_at, expiration_ms = row
 
-                # A file with expiration only can contain one chunk
                 miner_chunk_query = '''
                     SELECT 
                         mc.miner_ss58_address, 
@@ -457,13 +457,14 @@ class Database:
                         chunk c ON mc.chunk_uuid = c.uuid
                     WHERE 
                         c.file_uuid = ?
-                    LIMIT 1
                 '''
                 cursor.execute(miner_chunk_query, (file_uuid,))
-                miner_chunk = cursor.fetchone()
+                chunk_rows = cursor.fetchall()
 
-                if miner_chunk:
-                    miner_ss58_address, chunk_uuid = miner_chunk
+                chunks = []
+
+                for chunk_row in chunk_rows:
+                    miner_ss58_address, chunk_uuid = chunk_row
 
                     sub_chunk_query = '''
                         SELECT 
@@ -485,9 +486,10 @@ class Database:
                         sub_chunk_id, start, end, data = sub_chunk_row
                         sub_chunk = SubChunk(sub_chunk_id, start, end, chunk_uuid, data)
 
-                    chunk = Chunk(miner_ss58_address, chunk_uuid, file_uuid, sub_chunk)
-                    file = File(user_owner_uuid, file_uuid, [chunk], created_at, expiration_ms)
-                    files.append(file)
+                    chunks.append(Chunk(miner_ss58_address, chunk_uuid, file_uuid, sub_chunk))
+
+                file = File(user_owner_uuid, file_uuid, chunks, created_at, expiration_ms)
+                files.append(file)
 
         except sqlite3.Error as e:
             print(f"Database error: {e}")
@@ -652,6 +654,8 @@ class Database:
 
         # Initialize common fields
         file_uuid = event.event_params.file_uuid
+        file_created_at = None
+        file_expiration_ms = None
         sub_chunk_start = None
         sub_chunk_end = None
         sub_chunk_encoded = None
@@ -665,16 +669,18 @@ class Database:
 
         # Populate specific fields based on event type
         if isinstance(event, StoreEvent):
+            file_created_at = event.event_params.created_at
+            file_expiration_ms = event.event_params.expiration_ms
             sub_chunk_start = event.event_params.sub_chunk_start
             sub_chunk_end = event.event_params.sub_chunk_end
             sub_chunk_encoded = event.event_params.sub_chunk_encoded
             file = event.input_params.file
 
         cursor.execute('''
-            INSERT INTO events (uuid, validator_ss58_address, event_type, file_uuid, sub_chunk_start, sub_chunk_end, sub_chunk_encoded, event_signed_params, user_ss58_address, file, input_signed_params, block_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO events (uuid, validator_ss58_address, event_type, file_uuid, file_created_at, file_expiration_ms, sub_chunk_start, sub_chunk_end, sub_chunk_encoded, event_signed_params, user_ss58_address, file, input_signed_params, block_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-        event.uuid, validator_ss58_address, event_type, file_uuid, sub_chunk_start, sub_chunk_end, sub_chunk_encoded,
+        event.uuid, validator_ss58_address, event_type, file_uuid, file_created_at, file_expiration_ms, sub_chunk_start, sub_chunk_end, sub_chunk_encoded,
         event_signed_params, user_ss58_address, file, input_signed_params, block_id))
 
         # Insert miner processes if applicable
@@ -723,7 +729,7 @@ class Database:
             query = '''
                 SELECT 
                     b.id AS block_id, b.proposer_signature, b.proposer_ss58_address,
-                    e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.sub_chunk_start, e.sub_chunk_end, e.sub_chunk_encoded, e.event_signed_params, e.user_ss58_address, e.file, e.input_signed_params,
+                    e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.file_created_at, a.file_expiration_ms, e.sub_chunk_start, e.sub_chunk_end, e.sub_chunk_encoded, e.event_signed_params, e.user_ss58_address, e.file, e.input_signed_params,
                     m.chunk_uuid, m.miner_ss58_address, m.succeed, m.processing_time
                 FROM block b
                 LEFT JOIN events e ON b.id = e.block_id
@@ -786,6 +792,8 @@ class Database:
 
         if event_type == Action.STORE.value:
             event_params.update({
+                "created_at": row['file_created_at'],
+                "expiration_ms": row['file_expiration_ms'],
                 "sub_chunk_start": row['sub_chunk_start'],
                 "sub_chunk_end": row['sub_chunk_end'],
                 "sub_chunk_encoded": row['sub_chunk_encoded']
