@@ -1,15 +1,17 @@
 import random
-import time
 
 from communex._common import ComxSettings
 from communex.client import CommuneClient
 
 DEFAULT_NUM_CONNECTIONS = 1
 
+# TODO: Currently, this is an initial phase since an instance of the Commune client is created in each connection.
+#  This is necessary because if you create an instance of Commune and the node you are connected to crashes, future
+#  calls to the node through Commune are indefinitely blocked.
+
 
 def _try_get_client(url, num_connections):
     try:
-        time.sleep(3)
         return CommuneClient(url, num_connections=num_connections)
     except Exception:
         return None
