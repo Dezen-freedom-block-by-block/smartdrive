@@ -36,6 +36,7 @@ import smartdrive
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.models.block import Block
 from smartdrive.validator.config import Config, config_manager
+from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.api.api import API
 from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
@@ -45,7 +46,7 @@ from smartdrive.validator.step import validate_step
 from smartdrive.validator.utils import extract_sql_file, fetch_with_retries, process_events
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.commune.request import get_filtered_modules, get_truthful_validators, ping_proposer_validator, get_modules
-from smartdrive.commune.models import ConnectionInfo
+from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 
 
 def get_config() -> Config:
@@ -190,8 +191,13 @@ class Validator(Module):
                 # get_truthful_validators or get_filtered_modules could raise CommuneNetworkUnreachable
                 truthful_validators = await get_truthful_validators(self._key, config_manager.config.netuid)
                 all_validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
+                own_validator = next((item for item in all_validators if item.ss58_address == self._key.ss58_address), None)
 
-                proposer_active_validator = max(truthful_validators if truthful_validators else all_validators, key=lambda v: v.stake or 0)
+                # Since I can't ping myself, I do this check to add it to the truthful array
+                if own_validator.stake >= TRUTHFUL_STAKE_AMOUNT:
+                    truthful_validators.append(own_validator)
+
+                proposer_active_validator = max(truthful_validators, key=lambda v: v.stake or 0)
                 proposer_validator = max(all_validators, key=lambda v: v.stake or 0)
 
                 if proposer_validator.ss58_address != proposer_active_validator.ss58_address:

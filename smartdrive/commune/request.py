@@ -198,7 +198,7 @@ async def get_truthful_validators(key: Keypair, netuid: int) -> List[ModuleInfo]
     return list(filter(lambda validator: validator.stake > TRUTHFUL_STAKE_AMOUNT, active_validators))
 
 
-async def ping_proposer_validator(key: Keypair, module: ModuleInfo, retries: int = 3, sleep_time: int = 5) -> bool:
+async def ping_proposer_validator(key: Keypair, module: ModuleInfo, retries: int = 3, sleep_time: int = 2) -> bool:
     """
     Pings the proposer validator to check if it's available and active.
 
@@ -206,7 +206,7 @@ async def ping_proposer_validator(key: Keypair, module: ModuleInfo, retries: int
         key (Keypair): The keypair used for signing the request.
         module (ModuleInfo): The module information of the proposer validator.
         retries (int): Number of retry attempts if the ping fails. Default is 3.
-        sleep_time (int): Time to wait between retries in seconds. Default is 5.
+        sleep_time (int): Time to wait between retries in seconds. Default is 2.
 
     Returns:
         bool: True if the proposer validator responds correctly, False otherwise.
