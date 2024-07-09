@@ -141,8 +141,8 @@ class RetrieveAPI:
         if miners_with_chunks[0]["chunk"]:
             return miners_with_chunks[0]["chunk"]
         else:
-            print("The chunk does not exists")
-            raise HTTPException(status_code=404, detail="The chunk does not exist")
+            print("The file currently is not available")
+            raise HTTPException(status_code=404, detail="The file currently is not available")
 
 
 async def retrieve_request(keypair: Keypair, user_ss58address: Ss58Address, miner: ModuleInfo, chunk_uuid: str) -> Optional[str]:
