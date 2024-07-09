@@ -82,7 +82,7 @@ comx module register <your_miner_name> <your_commune_key> --ip <your-ip-address>
 
 2. Launch the miner (*at the root of the project*)
 ````
-python3 -m smartdrive.miner.miner --key <your_commune_key> --name <your_miner_name>
+python3 -m smartdrive.miner.miner --key <your_commune_key> --port <8000>
 ````
 Other useful parameters:
 - --data_path: Path to the data.
