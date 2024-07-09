@@ -30,6 +30,7 @@ from smartdrive.models.block import Block, block_to_block_event
 from smartdrive.models.event import Event, MessageEvent, StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.config import config_manager
+from smartdrive.validator.evaluation.evaluation import MAX_ALLOWED_UIDS
 from smartdrive.validator.node.connection_pool import ConnectionPool
 from smartdrive.validator.node.server import Server
 from smartdrive.validator.node.util.message_code import MessageCode

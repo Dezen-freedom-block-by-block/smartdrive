@@ -22,6 +22,7 @@
 
 import os
 import re
+import subprocess
 from subprocess import *
 from pathlib import Path
 import tomli
@@ -82,8 +83,7 @@ def check_version(extra_args: [str] = None):
     # If version in GitHub is greater, update module.
     if version_str_to_num(__version__) < version_str_to_num(latest_version) and latest_version is not None:
         print(f"Updating to the latest version ({latest_version})...")
-        # TODO: Enable in production
-        # subprocess.run(["git", "reset", "--hard"], cwd=root_directory)
+        subprocess.run(["git", "reset", "--hard"], cwd=root_directory)
         run(["git", "pull"], cwd=root_directory)
         run(["pip", "install", "-e", "."], cwd=root_directory)
         if extra_args:
@@ -100,9 +100,7 @@ def get_latest_version() -> str:
     """
 
     # The raw content URL of the file on GitHub.
-    # TODO: Change repository.
-    return "0.1.0"
-    url = "https://raw.githubusercontent.com/dezen/smartdrive/main/smartdrive/pyproject.toml"
+    url = "https://raw.githubusercontent.com/Dezen-freedom-block-by-block/smartdrive/main/pyproject.toml"
 
     # Send an HTTP GET request to the raw content URL.
     response = requests.get(url)

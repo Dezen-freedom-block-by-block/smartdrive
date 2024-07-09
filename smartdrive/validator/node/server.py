@@ -33,6 +33,7 @@ from smartdrive.commune.request import get_filtered_modules
 from smartdrive.validator.api.middleware.sign import verify_data_signature, sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.config import config_manager
+from smartdrive.validator.evaluation.evaluation import MAX_ALLOWED_UIDS
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.node.client import Client
 from smartdrive.validator.node.connection_pool import ConnectionPool
@@ -42,8 +43,7 @@ from smartdrive.validator.node.util.utils import send_json
 
 
 class Server(multiprocessing.Process):
-    # TODO: Replace with production validators number
-    MAX_N_CONNECTIONS = 255
+    MAX_N_CONNECTIONS = MAX_ALLOWED_UIDS - 1
     IDENTIFIER_TIMEOUT_SECONDS = 5
     CONNECTION_PROCESS_TIMEOUT_SECONDS = 10
 

@@ -131,8 +131,6 @@ async def store_new_file(
     """
     # TODO: Split in chunks
     # TODO: Don't use base64, file need be transferred directly.
-    # TODO: Set max length for sub_chunk
-    # TODO: Don't store sub_chunk info in params must be stored in MineProcess once the split system it's completed
     miners_processes = []
 
     file_encoded = base64.b64encode(file_bytes).decode("utf-8")
