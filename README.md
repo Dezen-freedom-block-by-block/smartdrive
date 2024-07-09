@@ -7,12 +7,18 @@ The subnet operates similarly to a blockchain, with validators serving as the no
 SmartDrive is currently in an early stage where runtime errors may occur. However, the information is safe to store, as only the user who uploads it has the ability to access it. At the moment, data duplication is something our team is working on. Currently, a file is only distributed to a single miner, which means the probability of losing the information in this initial phase of the subnet is high.
 ## Installation
 ### Manually, on Ubuntu 22.04
-- Install Python 3 and pip
+- Install Python 3
   ```sh
-  sudo apt install python3 python3-pip
+  sudo apt install python3
+- Install pip
+  ```sh
+  curl "https://bootstrap.pypa.io/get-pip.py" >> get-pip.py && python3 get-pip.py
+- Include this in your PATH
+  ```sh
+  export PATH=$PATH:$HOME/.local/bin
 - Install Poetry
   ```sh
-  sudo apt install python3-poetry
+  pip install poetry
 - At the root of the project, activate the Python environment.
   ```sh
   poetry shell
