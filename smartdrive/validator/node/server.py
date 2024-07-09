@@ -46,7 +46,6 @@ class Server(multiprocessing.Process):
     MAX_N_CONNECTIONS = 255
     IDENTIFIER_TIMEOUT_SECONDS = 5
     CONNECTION_PROCESS_TIMEOUT_SECONDS = 10
-    TCP_PORT = 9001
 
     _event_pool = None
     _connection_pool = None
@@ -65,7 +64,7 @@ class Server(multiprocessing.Process):
             self._start_check_connections_process()
             server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            server_socket.bind(("0.0.0.0", self.TCP_PORT))
+            server_socket.bind(("0.0.0.0", config_manager.config.port + 1))
             server_socket.listen(self.MAX_N_CONNECTIONS)
             self._set_keepalive_options(server_socket)
 
@@ -111,7 +110,6 @@ class Server(multiprocessing.Process):
 
     def _initialize_validators(self, connection_pool: ConnectionPool, event_pool, validators):
         # TODO: Each connection try in for loop should be async and we should wait for all of them.
-        # TODO: Actually multiple validators with same IP will not work since they will try to connect always the TCP port self.TCP_PORT.
         try:
             if validators is None:
                 # get_filtered_modules could raise CommuneNetworkUnreachable
@@ -123,7 +121,7 @@ class Server(multiprocessing.Process):
                 validator_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
                 try:
-                    validator_socket.connect((validator.connection.ip, self.TCP_PORT))
+                    validator_socket.connect((validator.connection.ip, validator.connection.port + 1))
                     self._set_keepalive_options(validator_socket)
                     body = {
                         "code": MessageCode.MESSAGE_CODE_IDENTIFIER.value,

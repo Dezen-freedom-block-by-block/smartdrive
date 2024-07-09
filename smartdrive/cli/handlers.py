@@ -93,7 +93,6 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
         compressed_data = data.getvalue()
 
         spinner.stop_with_message("¡Done!")
-        print(f"Compression ratio: {round((1 - (len(compressed_data) / total_size)) * 100, 2)}%")
 
         # Step 2: Sign the request
         spinner = Spinner("Signing request")

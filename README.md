@@ -7,13 +7,13 @@ The subnet operates similarly to a blockchain, with validators serving as the no
 SmartDrive is currently in an early stage where runtime errors may occur. However, the information is safe to store, as only the user who uploads it has the ability to access it. At the moment, data duplication is something our team is working on. Currently, a file is only distributed to a single miner, which means the probability of losing the information in this initial phase of the subnet is high.
 ## Installation
 ### Manually, on Ubuntu 22.04
-- Install Python 3
+- Install Python 3 and pip
   ```sh
-  sudo apt install python3
+  sudo apt install python3 python3-pip
 - Install Poetry
   ```sh
-  pip install poetry
-- Enter the Python environment
+  sudo apt install python3-poetry
+- At the root of the project, activate the Python environment.
   ```sh
   poetry shell
 - Install the Python dependencies
@@ -49,19 +49,17 @@ Validators need to run continuously to monitor and validate data, ensuring the n
 comx module register <your_validator_name> <your_commune_key> --ip <your_ip_address> --port <port> --netuid <SmartDrive_netuid>  
 ````
 
-2. Launch the validator
+2. Launch the validator (*at the root of the project*)
 ````
-python3 -m smartdrive.validator.validator --key <your_commune_key>
+python3 -m smartdrive.validator.validator --key <your_commune_key> --port <8001>
 ````
 
-3. Open TCP port: In order for the validators to connect to each other, it is necessary to open TCP port 9001
+3. In order for the validators to connect to each other, it is necessary to open a TCP port. Since there is no way to know via Commune which TCP port a validator is using, the system currently uses the port specified in the --port parameter plus 1.
 
 Other useful parameters:
 - --database_path: Path to the database.
 - --port: Default remote api port (Defaults 8001).
 - --testnet: Use testnet or not.
-
-Note: There is no need to specify your IP address as the system will automatically obtain the public IP of the device on which the validator is running.
 
 
 ## Running a Miner
@@ -76,7 +74,7 @@ There is not a strict requirements in order to run a miner. However, as a miner,
 comx module register <your_miner_name> <your_commune_key> --ip <your-ip-address> --port <port> --netuid <SmartDrive netuid>  
 ````
 
-2. Launch the miner
+2. Launch the miner (*at the root of the project*)
 ````
 python3 -m smartdrive.miner.miner --key <your_commune_key> --name <your_miner_name>
 ````
@@ -85,8 +83,6 @@ Other useful parameters:
 - --max_size: Size (in GB) of path to fill.
 - --port: Default remote api port (Defaults 8000).
 - --testnet: Use testnet or not.
-
-Note: There is no need to specify your IP address as the system will automatically obtain the public IP of the device on which the validator is running.
 
 ## Note
 - Make sure to serve and register the miner or the validator using the same key.
@@ -103,8 +99,7 @@ And look for the name SmartDrive
 ## Running the Subnet Client
 The SmartDrive subnet client allows users to interact with the SmartDrive network using three main commands: **store**, **retrieve**, and **remove**. Below are the instructions on how to use each command.
 
-### Installing the cli
-
+### Installing the cli (*at the root of the project*)
 ```
 pip install -e .
 ```
