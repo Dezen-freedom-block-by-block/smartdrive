@@ -76,9 +76,9 @@ async def validate_step(database: Database, key: Keypair, netuid: int) -> Option
 
     remove_events, validate_events, store_event = [], [], None
 
-    # Remove expired files
+    # Get remove events
     if expired_files:
-        remove_events = await _remove_files(
+        remove_events = _remove_files(
             files=expired_files,
             keypair=key
         )
@@ -114,7 +114,7 @@ async def validate_step(database: Database, key: Keypair, netuid: int) -> Option
     return remove_events, validate_events, store_event
 
 
-async def _remove_files(files: List[File], keypair: Keypair) -> List[RemoveEvent]:
+def _remove_files(files: List[File], keypair: Keypair) -> List[RemoveEvent]:
     """
     Removes files from the SmartDrive network and generates removal events.
 
@@ -130,7 +130,7 @@ async def _remove_files(files: List[File], keypair: Keypair) -> List[RemoveEvent
     """
     events: List[RemoveEvent] = []
 
-    async def process_file(file: File):
+    for file in files:
         event_params = RemoveParams(
             file_uuid=file.file_uuid,
             miners_processes=[],
@@ -151,9 +151,6 @@ async def _remove_files(files: List[File], keypair: Keypair) -> List[RemoveEvent
             input_signed_params=input_signed_params.hex()
         )
         events.append(event)
-
-    futures = [process_file(file) for file in files]
-    await asyncio.gather(*futures)
 
     return events
 

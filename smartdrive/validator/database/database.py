@@ -28,12 +28,9 @@ import zipfile
 from typing import List, Optional, Union
 from datetime import datetime, timedelta
 
-from substrateinterface import Keypair
-
 from smartdrive.models.event import MinerProcess, StoreEvent, Event, Action, StoreParams, StoreInputParams, RemoveEvent, \
     RemoveParams, RemoveInputParams, RetrieveEvent, EventParams, RetrieveInputParams, ValidateEvent, UserEvent
 from smartdrive.models.block import Block
-from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.models.models import MinerWithChunk, SubChunk, File, Chunk
 

@@ -147,16 +147,16 @@ async def store_new_file(
         )
         final_time = time.time() - start_time
 
-        if miner_answer:
-            miners_processes.append(MinerProcess(
-                chunk_uuid=miner_answer.chunk_uuid,
-                miner_ss58_address=miner.ss58_address,
-                succeed=True,
-                processing_time=final_time
-            ))
-            return True
-        else:
-            return False
+        succeed = True if miner_answer else False
+
+        miners_processes.append(MinerProcess(
+            chunk_uuid=miner_answer.chunk_uuid if succeed else None,
+            miner_ss58_address=miner.ss58_address,
+            succeed=succeed,
+            processing_time=final_time
+        ))
+
+        return succeed
 
     if not validating:
         random.shuffle(miners)

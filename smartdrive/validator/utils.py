@@ -129,23 +129,28 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
     """
     for event in events:
         if isinstance(event, StoreEvent):
-            chunks = []
-            for miner_chunk in event.event_params.miners_processes:
-                chunks.append(Chunk(
-                    miner_owner_ss58address=miner_chunk.miner_ss58_address,
-                    chunk_uuid=miner_chunk.chunk_uuid,
+
+            at_least_one_succeed = any(miner_process.succeed for miner_process in event.event_params.miners_processes)
+            if at_least_one_succeed:
+
+                chunks = []
+                for miner_process in event.event_params.miners_processes:
+                    chunks.append(Chunk(
+                        miner_owner_ss58address=miner_process.miner_ss58_address,
+                        chunk_uuid=miner_process.chunk_uuid,
+                        file_uuid=event.event_params.file_uuid,
+                        sub_chunk=SubChunk(id=None, start=event.event_params.sub_chunk_start, end=event.event_params.sub_chunk_end,
+                                           data=event.event_params.sub_chunk_encoded, chunk_uuid=miner_process.chunk_uuid)
+                    ))
+                file = File(
+                    user_owner_ss58address=event.user_ss58_address,
                     file_uuid=event.event_params.file_uuid,
-                    sub_chunk=SubChunk(id=None, start=event.event_params.sub_chunk_start, end=event.event_params.sub_chunk_end,
-                                       data=event.event_params.sub_chunk_encoded, chunk_uuid=miner_chunk.chunk_uuid)
-                ))
-            file = File(
-                user_owner_ss58address=event.user_ss58_address,
-                file_uuid=event.event_params.file_uuid,
-                chunks=chunks,
-                created_at=event.event_params.created_at,
-                expiration_ms=event.event_params.expiration_ms
-            )
-            database.insert_file(file)
+                    chunks=chunks,
+                    created_at=event.event_params.created_at,
+                    expiration_ms=event.event_params.expiration_ms
+                )
+                database.insert_file(file)
+
         elif isinstance(event, RemoveEvent):
             if is_proposer_validator:
                 miner_chunks = database.get_miner_chunks(event.event_params.file_uuid)
