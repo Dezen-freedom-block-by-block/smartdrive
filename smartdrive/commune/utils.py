@@ -1,7 +1,11 @@
 import random
+from typing import List
 
 from communex._common import ComxSettings
 from communex.client import CommuneClient
+
+from smartdrive.commune.models import ModuleInfo
+from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 
 DEFAULT_NUM_CONNECTIONS = 1
 
@@ -28,3 +32,7 @@ def get_comx_client(testnet: bool, num_connections: int = DEFAULT_NUM_CONNECTION
             return comx_client
 
     raise Exception("No valid comx_client could be found")
+
+
+def filter_truthful_validators(active_validators: list[ModuleInfo]) -> List[ModuleInfo]:
+    return list(filter(lambda validator: validator.stake > TRUTHFUL_STAKE_AMOUNT, active_validators))

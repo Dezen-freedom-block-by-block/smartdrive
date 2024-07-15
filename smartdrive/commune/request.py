@@ -33,7 +33,6 @@ from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.commune.module.client import ModuleClient
 from smartdrive.commune.utils import get_comx_client
 from smartdrive.validator.config import config_manager
-from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 from smartdrive.validator.models.models import ModuleType
 
 PING_TIMEOUT = 5
@@ -146,6 +145,7 @@ def get_filtered_modules(netuid: int, type: ModuleType = ModuleType.MINER, testn
     return result
 
 
+# This function should only be called by the smartdrive client
 async def get_active_validators(key: Keypair, netuid: int, testnet=None, timeout=PING_TIMEOUT) -> List[ModuleInfo]:
     """
     Retrieve a list of active validators.
@@ -177,45 +177,6 @@ async def get_active_validators(key: Keypair, netuid: int, testnet=None, timeout
     results = await asyncio.gather(*futures, return_exceptions=True)
     active_validators = [result for result in results if isinstance(result, ModuleInfo)]
     return active_validators
-
-
-async def get_truthful_validators(key: Keypair, netuid: int) -> List[ModuleInfo]:
-    """
-    Retrieves a list of truthful validators based on a minimum stake requirement.
-
-    Params:
-        key (Keypair): The keypair used for signing requests.
-        netuid (int): The network UID.
-
-    Returns:
-        List[ModuleInfo]: A list of ModuleInfo objects representing the truthful validators.
-
-    Raises:
-        CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
-    """
-    # get_active_validators could raise CommuneNetworkUnreachable
-    active_validators = await get_active_validators(key, netuid)
-    return list(filter(lambda validator: validator.stake > TRUTHFUL_STAKE_AMOUNT, active_validators))
-
-
-async def ping_proposer_validator(key: Keypair, module: ModuleInfo, retries: int = 3, sleep_time: int = 2) -> bool:
-    """
-    Pings the proposer validator to check if it's available and active.
-
-    Params:
-        key (Keypair): The keypair used for signing the request.
-        module (ModuleInfo): The module information of the proposer validator.
-        retries (int): Number of retry attempts if the ping fails. Default is 3.
-        sleep_time (int): Time to wait between retries in seconds. Default is 2.
-
-    Returns:
-        bool: True if the proposer validator responds correctly, False otherwise.
-    """
-    for _ in range(retries):
-        if (response := await execute_miner_request(key, module.connection, module.ss58_address, "ping", timeout=PING_TIMEOUT)) and response["type"] == "validator":
-            return True
-        await asyncio.sleep(sleep_time)
-    return False
 
 
 def get_staketo(ss58_address: Ss58Address, netuid: int) -> dict[str, int]:

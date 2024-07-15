@@ -48,14 +48,19 @@ class Server(multiprocessing.Process):
     CONNECTION_PROCESS_TIMEOUT_SECONDS = 10
 
     _event_pool = None
+    _active_validators_manager = None
+    _initial_sync_completed = None
     _connection_pool = None
     _keypair = None
 
-    def __init__(self, event_pool, connection_pool: ConnectionPool):
+    def __init__(self, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed, connection_pool: ConnectionPool):
         multiprocessing.Process.__init__(self)
         self._event_pool = event_pool
+        self._event_pool_lock = event_pool_lock
+        self._active_validators_manager = active_validators_manager
         self._connection_pool = connection_pool
         self._keypair = classic_load_key(config_manager.config.key)
+        self._initial_sync_completed = initial_sync_completed
 
     def run(self):
         server_socket = None
@@ -66,11 +71,10 @@ class Server(multiprocessing.Process):
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_socket.bind(("0.0.0.0", config_manager.config.port + 1))
             server_socket.listen(self.MAX_N_CONNECTIONS)
-            self._set_keepalive_options(server_socket)
 
             while True:
                 client_socket, address = server_socket.accept()
-                process = multiprocessing.Process(target=self._handle_connection, args=(self._connection_pool, self._event_pool, client_socket, address))
+                process = multiprocessing.Process(target=self._handle_connection, args=(self._connection_pool, self._event_pool, self._event_pool_lock, self._active_validators_manager, self._initial_sync_completed, client_socket, address,))
                 process.start()
                 client_socket.close()  # Close the socket in the parent process
 
@@ -83,10 +87,10 @@ class Server(multiprocessing.Process):
     def _start_check_connections_process(self):
         # Although these variables are managed by multiprocessing.Manager(),
         # we explicitly pass them as parameters to make it clear that they are dependencies of the server process.
-        process = multiprocessing.Process(target=self._check_connections_process, args=(self._connection_pool, self._event_pool,))
+        process = multiprocessing.Process(target=self._check_connections_process, args=(self._connection_pool, self._event_pool, self._event_pool_lock, self._active_validators_manager, self._initial_sync_completed,))
         process.start()
 
-    def _check_connections_process(self, connection_pool: ConnectionPool, event_pool):
+    def _check_connections_process(self, connection_pool: ConnectionPool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed):
         while True:
             try:
                 # get_filtered_modules could raise CommuneNetworkUnreachable
@@ -100,7 +104,7 @@ class Server(multiprocessing.Process):
                         removed_connection.close()
                 identifiers = connection_pool.get_identifiers()
                 new_validators = [validator for validator in validators if validator.ss58_address not in identifiers and validator.ss58_address != self._keypair.ss58_address]
-                self._initialize_validators(connection_pool, event_pool, new_validators)
+                self._initialize_validators(connection_pool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed, new_validators)
 
             except Exception as e:
                 print(f"Error check connections process - {e}")
@@ -108,7 +112,7 @@ class Server(multiprocessing.Process):
             finally:
                 time.sleep(self.CONNECTION_PROCESS_TIMEOUT_SECONDS)
 
-    def _initialize_validators(self, connection_pool: ConnectionPool, event_pool, validators):
+    def _initialize_validators(self, connection_pool: ConnectionPool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed, validators):
         # TODO: Each connection try in for loop should be async and we should wait for all of them.
         try:
             if validators is None:
@@ -122,7 +126,6 @@ class Server(multiprocessing.Process):
 
                 try:
                     validator_socket.connect((validator.connection.ip, validator.connection.port + 1))
-                    self._set_keepalive_options(validator_socket)
                     body = {
                         "code": MessageCode.MESSAGE_CODE_IDENTIFIER.value,
                         "data": {"ss58_address": self._keypair.ss58_address}
@@ -135,8 +138,9 @@ class Server(multiprocessing.Process):
                     }
                     send_json(validator_socket, message)
                     connection_pool.add_connection(validator.ss58_address, validator, validator_socket)
-                    client_receiver = Client(validator_socket, validator.ss58_address, connection_pool, event_pool)
+                    client_receiver = Client(validator_socket, validator.ss58_address, connection_pool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed)
                     client_receiver.start()
+                    active_validators_manager.update_validator(validator, validator_socket)
                     print(f"Validator {validator.ss58_address} connected and added to the pool.")
 
                 except Exception as e:
@@ -147,10 +151,8 @@ class Server(multiprocessing.Process):
         except Exception as e:
             print(f"Error initializing validators: {e}")
 
-    def _handle_connection(self, connection_pool: ConnectionPool, event_pool, client_socket, address):
+    def _handle_connection(self, connection_pool: ConnectionPool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed, client_socket, address):
         try:
-            self._set_keepalive_options(client_socket)
-
             # Wait self.IDENTIFIER_TIMEOUT_SECONDS as maximum time to get the identifier message
             ready = select.select([client_socket], [], [], self.IDENTIFIER_TIMEOUT_SECONDS)
             if ready[0]:
@@ -192,8 +194,9 @@ class Server(multiprocessing.Process):
                         if connection_pool.get_remaining_capacity() > 0:
                             connection_pool.add_connection(validator_connection.ss58_address, validator_connection, client_socket)
                             print(f"Connection added {validator_connection}")
-                            client_receiver = Client(client_socket, connection_identifier, connection_pool, event_pool)
+                            client_receiver = Client(client_socket, connection_identifier, connection_pool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed)
                             client_receiver.start()
+                            active_validators_manager.update_validator(validator_connection, client_socket)
                         else:
                             print(f"No space available in the connection pool for connection {connection_identifier}.")
                             client_socket.close()
@@ -211,17 +214,3 @@ class Server(multiprocessing.Process):
             print(f"Error handling connection: {e}")
             traceback.print_exc()
             client_socket.close()
-
-    def _set_keepalive_options(self, sock):
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-
-        # The following options are Linux platform specific:
-
-        # Defines the inactivity time in seconds that must elapse before the operating system sends the first keep-alive message.
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 5)
-
-        # Defines the interval in seconds between subsequent keep-alive messages that are sent if no response is received to the previous keep-alive message.
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)
-
-        # Defines the number of failed keep-alive attempts before the operating system considers the connection to be down and closes the socket.
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)

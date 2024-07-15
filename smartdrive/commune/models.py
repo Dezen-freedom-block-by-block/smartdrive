@@ -43,5 +43,13 @@ class ModuleInfo:
         self.dividends = dividends
         self.stake = stake
 
+    def __eq__(self, other):
+        if isinstance(other, ModuleInfo):
+            return self.ss58_address == other.ss58_address
+        return False
+
+    def __hash__(self):
+        return hash(self.ss58_address)
+
     def __repr__(self):
         return f"ModuleInfo(uid={self.uid}, ss58_address={self.ss58_address}, connection={self.connection}, incentives={self.incentives}, dividends={self.dividends}, stake={self.stake})"
