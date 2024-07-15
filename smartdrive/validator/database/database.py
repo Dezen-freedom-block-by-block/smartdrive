@@ -732,6 +732,7 @@ class Database:
                 LEFT JOIN events e ON b.id = e.block_id
                 LEFT JOIN miner_processes m ON e.uuid = m.event_uuid
                 WHERE b.id BETWEEN ? AND ?
+                ORDER BY b.id, e.uuid, m.id
             '''
 
             cursor.execute(query, (start, end))
