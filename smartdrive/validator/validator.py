@@ -46,8 +46,9 @@ from smartdrive.validator.node.node import Node
 from smartdrive.validator.step import validate_step
 from smartdrive.validator.utils import extract_sql_file, fetch_with_retries, process_events
 from smartdrive.validator.api.middleware.sign import sign_data
-from smartdrive.commune.request import get_filtered_modules, get_truthful_validators, ping_proposer_validator, get_modules
-from smartdrive.commune.models import ConnectionInfo, ModuleInfo
+from smartdrive.commune.request import get_filtered_modules, get_modules
+from smartdrive.commune.utils import filter_truthful_validators
+from smartdrive.commune.models import ConnectionInfo
 
 
 def get_config() -> Config:
@@ -89,7 +90,11 @@ def get_config() -> Config:
 class Validator(Module):
     # TODO: REPLACE THIS WITH bytes
     MAX_EVENTS_PER_BLOCK = 100
-    BLOCK_INTERVAL_SECONDS = 12
+    BLOCK_INTERVAL_SECONDS = 30
+    PING_INTERVAL_SECONDS = 5
+    MAX_RETRIES = 2
+    RETRY_DELAY_INITIAL_SYNC = 10
+    RETRY_DELAY_CREATION_BLOCK = 5
     VALIDATION_INTERVAL_SECONDS = 3 * 60
     VOTE_INTERVAL_SECONDS = 60
     # TODO: CHECK INTERVAL DAYS FOR SCORE MINER
@@ -103,6 +108,7 @@ class Validator(Module):
 
     def __init__(self):
         super().__init__()
+        self.node = Node()
         self._key = classic_load_key(config_manager.config.key)
         self._database = Database()
 
@@ -112,33 +118,36 @@ class Validator(Module):
         selecting the validator with the highest version, downloading the database, and importing it.
         """
         try:
-            # get_truthful_validators could raise CommuneNetworkUnreachable
-            truthful_validators = await get_truthful_validators(self._key, config_manager.config.netuid)
+            # Get truthful validators
+            retries = 0
+            truthful_validators = []
+            while not truthful_validators and retries < self.MAX_RETRIES:
+                retries += 1
+                await asyncio.sleep(self.RETRY_DELAY_INITIAL_SYNC)
+                truthful_validators = filter_truthful_validators(self.node.get_active_validators())
 
             if not truthful_validators:
                 return
 
-            headers = create_headers(sign_data({}, self._key), self._key)
+            # Gets block numbers from truthful validators
+            await self.node.get_block_numbers()
+            retries = 0
             truthful_database = []
-
-            for validator in truthful_validators:
-                response = await fetch_with_retries("block-number", validator.connection, params=None, headers=headers, timeout=30)
-                if response and response.status_code == 200:
-                    try:
-                        truthful_database.append({
-                            "uid": validator.uid,
-                            "ss58_address": validator.ss58_address,
-                            "connection": {
-                                "ip": validator.connection.ip,
-                                "port": validator.connection.port
-                            },
-                            "database_block": int(response.json()["block"] or 0)
-                        })
-                    except Exception as e:
-                        print(e)
-                        continue
+            while not truthful_database and retries < self.MAX_RETRIES:
+                retries += 1
+                await asyncio.sleep(self.RETRY_DELAY_INITIAL_SYNC)
+                truthful_database = self.node.get_validator_block_numbers()
 
             if not truthful_database:
+                return
+
+            # Compare whether the truthful block numbers are the same or at least only one block varies.
+            block_nums = [v['database_block'] for v in truthful_database]
+            min_block = min(block_nums)
+            max_block = max(block_nums)
+
+            if (max_block - min_block) > 1:
+                print("There is a discrepancy in the block number between the validators. Skipping database import.")
                 return
 
             block_number = self._database.get_last_block() or 0
@@ -182,6 +191,8 @@ class Validator(Module):
             raise e
         except Exception as e:
             print(f"Error initializing - {e}")
+        finally:
+            self.node.clear_validator_block_numbers()
 
     async def create_blocks(self):
         last_validation_time = time.time()
@@ -189,30 +200,39 @@ class Validator(Module):
 
         while True:
             try:
+                if time.time() - last_vote_time >= self.VOTE_INTERVAL_SECONDS:
+                    asyncio.create_task(self.vote_miners())
+                    last_vote_time = time.time()
+            except Exception as e:
+                print(f"Error voting - {e}")
+
+            try:
                 start_time = time.time()
 
                 block_number = self._database.get_last_block() or 0
 
-                # get_truthful_validators or get_filtered_modules could raise CommuneNetworkUnreachable
-                truthful_validators = await get_truthful_validators(self._key, config_manager.config.netuid)
+                truthful_validators = filter_truthful_validators(self.node.get_active_validators())
+                retries = 0
+                while not truthful_validators and retries < self.MAX_RETRIES:
+                    retries += 1
+                    await asyncio.sleep(self.RETRY_DELAY_CREATION_BLOCK)
+                    truthful_validators = filter_truthful_validators(self.node.get_active_validators())
+
                 all_validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
                 own_validator = next((item for item in all_validators if item.ss58_address == self._key.ss58_address), None)
 
                 # Since I can't ping myself, I do this check to add it to the truthful array
-                if own_validator.stake >= TRUTHFUL_STAKE_AMOUNT:
+                if own_validator and own_validator.stake >= TRUTHFUL_STAKE_AMOUNT:
                     truthful_validators.append(own_validator)
 
                 proposer_active_validator = max(truthful_validators, key=lambda v: v.stake or 0)
                 proposer_validator = max(all_validators, key=lambda v: v.stake or 0)
 
                 if proposer_validator.ss58_address != proposer_active_validator.ss58_address:
-                    ping_validator = await ping_proposer_validator(self._key, proposer_validator)
-                    if not ping_validator:
-                        proposer_validator = proposer_active_validator
+                    proposer_validator = proposer_active_validator
 
                 if proposer_validator.ss58_address == self._key.ss58_address:
                     block_number += 1
-
                     block_events = self.node.consume_pool_events(count=self.MAX_EVENTS_PER_BLOCK)
                     await process_events(events=block_events, is_proposer_validator=True, keypair=self._key, netuid=config_manager.config.netuid, database=self._database)
                     proposer_signature = sign_data({"block_number": block_number, "events": [event.dict() for event in block_events]}, self._key)
@@ -232,10 +252,6 @@ class Validator(Module):
                         asyncio.create_task(self.validation_task())
 
                     last_validation_time = time.time()
-
-                if time.time() - last_vote_time >= self.VOTE_INTERVAL_SECONDS:
-                    asyncio.create_task(self.vote_miners())
-                    last_vote_time = time.time()
 
                 elapsed = time.time() - start_time
                 if elapsed < self.BLOCK_INTERVAL_SECONDS:
@@ -290,6 +306,11 @@ class Validator(Module):
         if score_dict:
             await set_weights(score_dict, config_manager.config.netuid, self._key)
 
+    async def periodically_ping_validators(self):
+        while True:
+            await self.node.ping_validators()
+            await asyncio.sleep(self.PING_INTERVAL_SECONDS)
+
 
 if __name__ == "__main__":
     smartdrive.check_version()
@@ -308,8 +329,9 @@ if __name__ == "__main__":
 
     async def run_tasks():
         try:
+            asyncio.create_task(_validator.periodically_ping_validators())
             await _validator.initial_sync()
-            _validator.node = Node()
+            _validator.node.initial_sync_completed.value = True
             _validator.api = API(_validator.node)
             await asyncio.gather(
                 _validator.api.run_server(),

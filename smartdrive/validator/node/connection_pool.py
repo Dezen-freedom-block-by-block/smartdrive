@@ -22,6 +22,8 @@
 
 from multiprocessing import Manager, Lock
 
+from smartdrive.commune.models import ModuleInfo
+
 
 class ConnectionPool:
 
@@ -59,6 +61,22 @@ class ConnectionPool:
     def get_all_connections(self):
         with self._pool_lock:
             return list(self._connections.values())
+
+    def get_connection(self, identifier):
+        with self._pool_lock:
+            if identifier in self._connections:
+                return self._connections[identifier]
+
+        return None
+
+    def get_validator(self, identifier: str) -> ModuleInfo | None:
+        connection = self.get_connection(identifier)
+        validator = None
+
+        if connection:
+            validator = connection.get(ConnectionPool.MODULEINFO)
+
+        return validator
 
     def get_identifiers(self):
         self._pool_lock.acquire()

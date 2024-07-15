@@ -23,7 +23,6 @@
 from enum import Enum
 from typing import List, Optional
 import time
-import random
 
 from communex.types import Ss58Address
 
@@ -156,6 +155,15 @@ class File:
         for chunk in self.chunks:
             sub_chunks.append(chunk.sub_chunk)
         return sub_chunks
+
+
+class ActiveValidator:
+    def __init__(self, active_validators: dict, last_response_time: float):
+        self.active_validators = active_validators
+        self.last_response_time = last_response_time
+
+    def __repr__(self):
+        return f"ActiveValidator(active_validators={self.active_validators}, last_response_time={self.last_response_time})"
 
 
 class ModuleType(Enum):
