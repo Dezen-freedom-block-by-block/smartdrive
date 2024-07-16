@@ -76,7 +76,6 @@ class CommuneConnectionPool:
             client = self._try_get_client(self.urls, self.num_connections)
             if client:
                 self.pool.put(client)
-                print(f"INITIALIZING {client.url}")
                 with self.active_connections_lock:
                     self.active_connections += 1
 
