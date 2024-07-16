@@ -20,12 +20,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import random
-from time import sleep
-
 from substrateinterface import Keypair
 
-from smartdrive.commune.request import vote
+from smartdrive.commune.commune_client_manager import vote
 from smartdrive.validator.evaluation.sigmoid import threshold_sigmoid_reward_distribution
 
 MAX_ALLOWED_WEIGHTS = 256

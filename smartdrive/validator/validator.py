@@ -33,6 +33,7 @@ from communex.compat.key import classic_load_key
 from communex.types import Ss58Address
 
 import smartdrive
+from smartdrive.commune.commune_client_manager import initialize_commune_connection_pool
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.models.block import Block
 from smartdrive.validator.config import Config, config_manager
@@ -318,8 +319,10 @@ if __name__ == "__main__":
     config = get_config()
     config_manager.initialize(config)
 
+    initialize_commune_connection_pool(config_manager.config.testnet)
+
     key = classic_load_key(config_manager.config.key)
-    registered_modules = get_modules(config_manager.config.netuid, config_manager.config.testnet)
+    registered_modules = get_modules(config_manager.config.netuid)
 
     if key.ss58_address not in [module.ss58_address for module in registered_modules]:
         raise Exception(f"Your key: {key.ss58_address} is not registered.")

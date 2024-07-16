@@ -39,6 +39,7 @@ from communex.compat.key import is_encrypted, classic_load_key
 import smartdrive
 from smartdrive.cli.errors import NoValidatorsAvailableException
 from smartdrive.cli.spinner import Spinner
+from smartdrive.commune.commune_client_manager import initialize_commune_connection_pool
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_active_validators, EXTENDED_PING_TIMEOUT
@@ -47,6 +48,8 @@ from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.utils import decode_b64_to_bytes, calculate_hash
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+initialize_commune_connection_pool(testnet=False, pool_size=1, num_connections=1)
 
 
 def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
@@ -310,7 +313,7 @@ def _get_validator_url(key: Keypair, testnet: bool = False) -> str:
     netuid = smartdrive.TESTNET_NETUID if testnet else smartdrive.NETUID
 
     try:
-        validators = loop.run_until_complete(get_active_validators(key, netuid, testnet, EXTENDED_PING_TIMEOUT))
+        validators = loop.run_until_complete(get_active_validators(key, netuid, EXTENDED_PING_TIMEOUT))
     except CommuneNetworkUnreachable:
         raise NoValidatorsAvailableException
 
