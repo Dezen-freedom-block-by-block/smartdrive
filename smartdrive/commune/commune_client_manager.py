@@ -135,7 +135,7 @@ def retry_on_failure(retries):
                     pool.release_client(client)
                     return result
                 except (WebSocketException, TimeoutException) as e:
-                    print(f"Replacing broken client...")
+                    print(f"Replacing broken commune client...")
                     pool.replace_broken_client()
                 except Exception as e:
                     print(f"Retrying with another commune client... {e}")
