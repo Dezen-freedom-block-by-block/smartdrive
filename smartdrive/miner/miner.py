@@ -270,7 +270,7 @@ if __name__ == "__main__":
     config = get_config()
     miner = Miner(config)
 
-    initialize_commune_connection_pool(config.testnet, num_connections=1, pool_size=1)
+    initialize_commune_connection_pool(config.testnet, num_connections=1, max_pool_size=1)
 
     key = classic_load_key(config.key)
     registered_modules = get_modules(config.netuid)

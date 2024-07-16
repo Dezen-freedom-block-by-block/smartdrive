@@ -59,25 +59,15 @@ def _run_with_timeout(target, args=(), timeout=TIMEOUT):
 
 
 class CommuneConnectionPool:
-    def __init__(self, testnet, pool_size=POOL_SIZE, num_connections=DEFAULT_NUM_CONNECTIONS):
+    def __init__(self, testnet, max_pool_size=POOL_SIZE, num_connections=DEFAULT_NUM_CONNECTIONS):
         comx_settings = ComxSettings()
         self.urls = comx_settings.TESTNET_NODE_URLS if testnet else comx_settings.NODE_URLS
-        self.pool_size = pool_size
+        self.max_pool_size = max_pool_size
         self.num_connections = num_connections
-        self.pool = Queue(maxsize=pool_size)
-        self.semaphore = Semaphore(pool_size)
+        self.pool = Queue()
+        self.semaphore = Semaphore(max_pool_size)
         self.active_connections = 0
         self.active_connections_lock = Lock()
-        self._initialize_pool()
-
-    def _initialize_pool(self):
-        for _ in range(self.pool_size):
-            random.shuffle(self.urls)
-            client = self._try_get_client(self.urls, self.num_connections)
-            if client:
-                self.pool.put(client)
-                with self.active_connections_lock:
-                    self.active_connections += 1
 
     def _try_get_client(self, urls, num_connections):
         for url in urls:
@@ -95,6 +85,10 @@ class CommuneConnectionPool:
                 return client
             else:
                 raise Exception("No available connections in the pool")
+
+        with self.active_connections_lock:
+            self.active_connections += 1
+
         try:
             client = self.pool.get_nowait()
             return client
@@ -104,7 +98,7 @@ class CommuneConnectionPool:
 
     def release_client(self, client):
         with self.active_connections_lock:
-            if self.active_connections > self.pool_size:
+            if self.active_connections > self.max_pool_size:
                 self.active_connections -= 1
             else:
                 self.pool.put(client)
@@ -216,6 +210,6 @@ def get_modules(netuid: int, timeout=TIMEOUT) -> List[ModuleInfo]:
 comx_pool: CommuneConnectionPool | None = None
 
 
-def initialize_commune_connection_pool(testnet, pool_size=POOL_SIZE, num_connections=DEFAULT_NUM_CONNECTIONS):
+def initialize_commune_connection_pool(testnet, max_pool_size=POOL_SIZE, num_connections=DEFAULT_NUM_CONNECTIONS):
     global comx_pool
-    comx_pool = CommuneConnectionPool(testnet=testnet, pool_size=pool_size, num_connections=num_connections)
+    comx_pool = CommuneConnectionPool(testnet=testnet, max_pool_size=max_pool_size, num_connections=num_connections)

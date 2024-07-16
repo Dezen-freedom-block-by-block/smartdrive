@@ -49,7 +49,7 @@ from smartdrive.validator.utils import decode_b64_to_bytes, calculate_hash
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-initialize_commune_connection_pool(testnet=False, pool_size=1, num_connections=1)
+initialize_commune_connection_pool(testnet=False, max_pool_size=1, num_connections=1)
 
 
 def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
