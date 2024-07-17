@@ -20,7 +20,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import time
 import threading
 from queue import Queue, Empty
 from typing import Dict, List
@@ -39,7 +38,6 @@ from smartdrive.commune.utils import _get_ip_port
 
 DEFAULT_NUM_CONNECTIONS = 5
 POOL_SIZE = 10
-DELAY = 3
 RETRIES = 5
 TIMEOUT = 30
 
@@ -107,11 +105,10 @@ class CommuneConnectionPool:
             else:
                 raise Exception("No available connections in the pool")
 
-        with self.active_connections_lock:
-            self.active_connections += 1
-
         try:
             client = self.pool.get_nowait()
+            with self.active_connections_lock:
+                self.active_connections -= 1
             return client
         except Empty:
             client = self._try_get_client(self.urls, self.num_connections)
@@ -122,19 +119,17 @@ class CommuneConnectionPool:
             if self.active_connections > self.max_pool_size:
                 self.active_connections -= 1
             else:
+                self.active_connections += 1
                 self.pool.put(client)
             self.semaphore.release()
 
     def replace_broken_client(self):
         with self.active_connections_lock:
-            self.active_connections -= 1
-
-        self.semaphore.release()
-        new_client = self._try_get_client(self.urls, self.num_connections)
-        if new_client:
-            self.pool.put(new_client)
-            with self.active_connections_lock:
+            new_client = self._try_get_client(self.urls, self.num_connections)
+            if new_client:
                 self.active_connections += 1
+                self.pool.put(new_client)
+            self.semaphore.release()
 
 
 def retry_on_failure(retries):
@@ -146,15 +141,14 @@ def retry_on_failure(retries):
                 client = pool.get_client()
                 try:
                     result = func(client, *args, **kwargs)
-                    pool.release_client(client)
                     return result
                 except (WebSocketException, TimeoutException) as e:
                     print(f"Replacing broken commune client...")
                     pool.replace_broken_client()
                 except Exception as e:
                     print(f"Retrying with another commune client... {e}")
+                finally:
                     pool.release_client(client)
-                    time.sleep(DELAY)
             raise Exception("Operation failed after several retries")
         return wrapper
     return decorator
