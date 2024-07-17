@@ -19,7 +19,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
+import asyncio
 import multiprocessing
 import socket
 import select
@@ -103,7 +103,7 @@ class Server(multiprocessing.Process):
                         removed_connection.close()
                 identifiers = connection_pool.get_identifiers()
                 new_validators = [validator for validator in validators if validator.ss58_address not in identifiers and validator.ss58_address != self._keypair.ss58_address]
-                self._initialize_validators(connection_pool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed, new_validators)
+                asyncio.run(self._initialize_validators(connection_pool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed, new_validators))
 
             except Exception as e:
                 print(f"Error check connections process - {e}")
@@ -111,41 +111,52 @@ class Server(multiprocessing.Process):
             finally:
                 time.sleep(self.CONNECTION_PROCESS_TIMEOUT_SECONDS)
 
-    def _initialize_validators(self, connection_pool: ConnectionPool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed, validators):
-        # TODO: Each connection try in for loop should be async and we should wait for all of them.
+    async def _connect_to_validator(self, validator, keypair, connection_pool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed):
+        validator_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            await asyncio.get_event_loop().sock_connect(validator_socket, (validator.connection.ip, validator.connection.port + 1))
+            body = {
+                "code": MessageCode.MESSAGE_CODE_IDENTIFIER.value,
+                "data": {"ss58_address": keypair.ss58_address}
+            }
+            body_sign = sign_data(body, keypair)
+            message = {
+                "body": body,
+                "signature_hex": body_sign.hex(),
+                "public_key_hex": keypair.public_key.hex()
+            }
+            send_json(validator_socket, message)
+            connection_pool.add_connection(validator.ss58_address, validator, validator_socket)
+            client_receiver = Client(validator_socket, validator.ss58_address, connection_pool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed)
+            client_receiver.start()
+            active_validators_manager.update_validator(validator, validator_socket)
+            print(f"Validator {validator.ss58_address} connected and added to the pool.")
+        except Exception as e:
+            connection_pool.remove_connection(validator.ss58_address)
+            validator_socket.close()
+            print(f"Error connecting to validator {validator.ss58_address}: {e}")
+
+    async def _initialize_validators(self, connection_pool: ConnectionPool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed, validators):
         try:
             if validators is None:
                 validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
 
             validators = [validator for validator in validators if validator.ss58_address != self._keypair.ss58_address]
 
-            for validator in validators:
-                validator_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            tasks = [
+                self._connect_to_validator(
+                    validator,
+                    self._keypair,
+                    connection_pool,
+                    event_pool,
+                    event_pool_lock,
+                    active_validators_manager,
+                    initial_sync_completed
+                )
+                for validator in validators
+            ]
 
-                try:
-                    validator_socket.connect((validator.connection.ip, validator.connection.port + 1))
-                    body = {
-                        "code": MessageCode.MESSAGE_CODE_IDENTIFIER.value,
-                        "data": {"ss58_address": self._keypair.ss58_address}
-                    }
-                    body_sign = sign_data(body, self._keypair)
-                    message = {
-                        "body": body,
-                        "signature_hex": body_sign.hex(),
-                        "public_key_hex": self._keypair.public_key.hex()
-                    }
-                    send_json(validator_socket, message)
-                    connection_pool.add_connection(validator.ss58_address, validator, validator_socket)
-                    client_receiver = Client(validator_socket, validator.ss58_address, connection_pool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed)
-                    client_receiver.start()
-                    active_validators_manager.update_validator(validator, validator_socket)
-                    print(f"Validator {validator.ss58_address} connected and added to the pool.")
-
-                except Exception as e:
-                    connection_pool.remove_connection(validator.ss58_address)
-                    validator_socket.close()
-                    print(f"Error connecting to validator {validator.ss58_address}: {e}")
-
+            await asyncio.gather(*tasks)
         except Exception as e:
             print(f"Error initializing validators: {e}")
 
