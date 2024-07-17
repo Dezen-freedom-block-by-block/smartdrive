@@ -39,7 +39,7 @@ from communex.compat.key import is_encrypted, classic_load_key
 import smartdrive
 from smartdrive.cli.errors import NoValidatorsAvailableException
 from smartdrive.cli.spinner import Spinner
-from smartdrive.commune.commune_client_manager import initialize_commune_connection_pool
+from smartdrive.commune.commune_connection_pool import initialize_commune_connection_pool
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_active_validators, EXTENDED_PING_TIMEOUT

@@ -26,7 +26,7 @@ from substrateinterface import Keypair
 
 from communex.types import Ss58Address
 
-from smartdrive.commune.commune_client_manager import get_modules
+from smartdrive.commune.commune_connection_pool import get_modules
 from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.commune.module.client import ModuleClient
 from smartdrive.validator.models.models import ModuleType

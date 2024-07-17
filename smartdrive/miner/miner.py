@@ -37,7 +37,7 @@ from communex.module.module import Module, endpoint
 from communex.module._rate_limiters.limiters import IpLimiterParams
 
 import smartdrive
-from smartdrive.commune.commune_client_manager import initialize_commune_connection_pool
+from smartdrive.commune.commune_connection_pool import initialize_commune_connection_pool
 from smartdrive.commune.request import get_modules
 from smartdrive.miner.utils import has_enough_space, get_directory_size
 

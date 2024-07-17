@@ -34,7 +34,7 @@ from substrateinterface.utils.ss58 import ss58_encode
 from communex.types import Ss58Address
 from communex.compat.key import classic_load_key
 
-from smartdrive.commune.commune_client_manager import get_staketo
+from smartdrive.commune.commune_connection_pool import get_staketo
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.config import config_manager

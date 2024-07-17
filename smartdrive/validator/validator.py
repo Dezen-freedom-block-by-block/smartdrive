@@ -33,7 +33,7 @@ from communex.compat.key import classic_load_key
 from communex.types import Ss58Address
 
 import smartdrive
-from smartdrive.commune.commune_client_manager import initialize_commune_connection_pool
+from smartdrive.commune.commune_connection_pool import initialize_commune_connection_pool
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.models.block import Block
 from smartdrive.validator.config import Config, config_manager
