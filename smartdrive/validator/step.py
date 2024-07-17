@@ -58,7 +58,6 @@ async def validate_step(database: Database, key: Keypair, netuid: int) -> Option
     Raises:
         CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
-    # get_filtered_modules could raise CommuneNetworkUnreachable
     miners = get_filtered_modules(netuid, ModuleType.MINER)
 
     if not miners:
@@ -85,7 +84,6 @@ async def validate_step(database: Database, key: Keypair, netuid: int) -> Option
 
     # Validate non expired files
     if non_expired_files:
-        # _validate_miners could raise CommuneNetworkUnreachable
         validate_events = await _validate_miners(
             files=non_expired_files,
             keypair=key,
@@ -101,7 +99,6 @@ async def validate_step(database: Database, key: Keypair, netuid: int) -> Option
         input_params = {"file": calculate_hash(file_data)}
         input_signed_params = sign_data(input_params, key)
 
-        # store_new_file could raise CommuneNetworkUnreachable
         store_event = await store_new_file(
             file_bytes=file_data,
             miners=miners_to_store,
@@ -176,7 +173,6 @@ async def _validate_miners(files: list[File], keypair: Keypair, netuid: int) -> 
     """
     events: List[ValidateEvent] = []
 
-    # get_filtered_modules could raise CommuneNetworkUnreachable
     miners = get_filtered_modules(netuid, ModuleType.MINER)
     if not miners:
         return events

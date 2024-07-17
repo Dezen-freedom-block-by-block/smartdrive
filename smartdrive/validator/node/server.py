@@ -93,7 +93,6 @@ class Server(multiprocessing.Process):
     def _check_connections_process(self, connection_pool: ConnectionPool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed):
         while True:
             try:
-                # get_filtered_modules could raise CommuneNetworkUnreachable
                 validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
 
                 active_ss58_addresses = {validator.ss58_address for validator in validators}
@@ -116,7 +115,6 @@ class Server(multiprocessing.Process):
         # TODO: Each connection try in for loop should be async and we should wait for all of them.
         try:
             if validators is None:
-                # get_filtered_modules could raise CommuneNetworkUnreachable
                 validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
 
             validators = [validator for validator in validators if validator.ss58_address != self._keypair.ss58_address]
@@ -184,7 +182,6 @@ class Server(multiprocessing.Process):
                     client_socket.close()
                     return
 
-                # get_filtered_modules could raise CommuneNetworkUnreachable
                 validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
 
                 if validators:

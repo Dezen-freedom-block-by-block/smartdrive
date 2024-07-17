@@ -155,7 +155,6 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
             if is_proposer_validator:
                 miner_chunks = database.get_miner_chunks(event.event_params.file_uuid)
 
-                # get_filtered_modules could raise CommuneNetworkUnreachable
                 # If it is the events being processed by the validator when it is creating a block it should raise the
                 # exception and cancel the block creation. This method can also be launched in clint.py but in that case
                 # is not a proposer validator.

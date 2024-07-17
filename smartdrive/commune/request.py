@@ -27,6 +27,7 @@ from substrateinterface import Keypair
 from communex.types import Ss58Address
 
 from smartdrive.commune.commune_connection_pool import get_modules
+from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.commune.module.client import ModuleClient
 from smartdrive.validator.models.models import ModuleType
@@ -53,7 +54,6 @@ def get_filtered_modules(netuid: int, type: ModuleType = ModuleType.MINER) -> Li
     Raises:
         CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
-    # get_modules could raise CommuneNetworkUnreachable
     modules = get_modules(netuid)
     result = []
 
@@ -84,7 +84,6 @@ async def get_active_validators(key: Keypair, netuid: int, timeout=PING_TIMEOUT)
     Raises:
         CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
-    # get_filtered_modules could raise CommuneNetworkUnreachable
     validators = get_filtered_modules(netuid, ModuleType.VALIDATOR)
 
     async def _get_active_validators(validator):

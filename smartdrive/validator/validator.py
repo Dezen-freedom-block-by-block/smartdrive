@@ -215,7 +215,6 @@ class Validator(Module):
             CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
         """
         score_dict = {}
-        # get_filtered_modules could raise CommuneNetworkUnreachable
         for miner in get_filtered_modules(config_manager.config.netuid, ModuleType.MINER):
             if miner.ss58_address == self._key.ss58_address:
                 continue
