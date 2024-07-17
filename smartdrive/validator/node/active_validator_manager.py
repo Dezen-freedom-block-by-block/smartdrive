@@ -19,6 +19,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 import multiprocessing
 import time
 
@@ -32,7 +33,6 @@ class ActiveValidatorsManager:
     def __init__(self):
         manager = multiprocessing.Manager()
         self.active_validators = manager.list()
-        self.validator_block_numbers = manager.list()
         self.lock = multiprocessing.Lock()
 
     def update_validator(self, validator, connection):
@@ -42,11 +42,6 @@ class ActiveValidatorsManager:
                     v.last_response_time = time.time()
                     return
             self.active_validators.append(ActiveValidator({ConnectionPool.MODULEINFO: validator, ConnectionPool.CONNECTION: connection}, time.time()))
-
-    def update_validator_block_number(self, validator: dict):
-        with self.lock:
-            if not any(v['ss58_address'] == validator['ss58_address'] for v in self.validator_block_numbers):
-                self.validator_block_numbers.append(validator)
 
     def remove_inactive_validators(self):
         with self.lock:
@@ -62,11 +57,3 @@ class ActiveValidatorsManager:
     def get_active_validators_connections(self):
         with self.lock:
             return [v.active_validators.get(ConnectionPool.CONNECTION) for v in self.active_validators]
-
-    def get_validator_block_numbers(self):
-        with self.lock:
-            return list(self.validator_block_numbers)
-
-    def remove_validator_block_numbers(self):
-        with self.lock:
-            self.validator_block_numbers[:] = []

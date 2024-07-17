@@ -113,95 +113,13 @@ class Validator(Module):
         self._key = classic_load_key(config_manager.config.key)
         self._database = Database()
 
-    async def initial_sync(self):
-        """
-        Performs the initial synchronization by fetching database versions from truthful active validators,
-        selecting the validator with the highest version, downloading the database, and importing it.
-        """
-        try:
-            # Get truthful validators
-            retries = 0
-            truthful_validators = []
-            while not truthful_validators and retries < self.MAX_RETRIES:
-                retries += 1
-                await asyncio.sleep(self.RETRY_DELAY_INITIAL_SYNC)
-                truthful_validators = filter_truthful_validators(self.node.get_active_validators())
-
-            if not truthful_validators:
-                return
-
-            # Gets block numbers from truthful validators
-            await self.node.get_block_numbers()
-            retries = 0
-            truthful_database = []
-            while not truthful_database and retries < self.MAX_RETRIES:
-                retries += 1
-                await asyncio.sleep(self.RETRY_DELAY_INITIAL_SYNC)
-                truthful_database = self.node.get_validator_block_numbers()
-
-            if not truthful_database:
-                return
-
-            # Compare whether the truthful block numbers are the same or at least only one block varies.
-            block_nums = [v['database_block'] for v in truthful_database]
-            min_block = min(block_nums)
-            max_block = max(block_nums)
-
-            if (max_block - min_block) > 1:
-                print("There is a discrepancy in the block number between the validators. Skipping database import.")
-                return
-
-            block_number = self._database.get_last_block() or 0
-
-            while truthful_database:
-                validator = max(truthful_database, key=lambda obj: obj["database_block"])
-
-                if block_number > validator["database_block"]:
-                    # If local block is greater than truthful validator we just erase the database and fetch
-                    self._database.clear_database()
-
-                connection = ConnectionInfo(validator["connection"]["ip"], validator["connection"]["port"])
-                headers = create_headers(sign_data({}, self._key), self._key)
-                answer = await fetch_with_retries("database", connection, headers=headers, params=None, timeout=60)
-
-                if answer and answer.status_code == 200:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_zip:
-                        temp_zip.write(answer.content)
-                        temp_zip_path = temp_zip.name
-
-                    if zipfile.is_zipfile(temp_zip_path):
-                        sql_file_path = extract_sql_file(temp_zip_path)
-                        if sql_file_path:
-                            self._database.import_database(sql_file_path)
-                            os.remove(temp_zip_path)
-                            os.remove(sql_file_path)
-                            return
-                        else:
-                            print("Failed to extract SQL file.")
-                            os.remove(temp_zip_path)
-                    else:
-                        print("The downloaded file is not a valid ZIP file.")
-                        os.remove(temp_zip_path)
-                else:
-                    print("Failed to fetch the database, trying the next validator.")
-                    truthful_database.remove(validator)
-
-            raise InitialSyncError("Could not synchronize the database, please try again")
-
-        except InitialSyncError as e:
-            raise e
-        except Exception as e:
-            print(f"Error initializing - {e}")
-        finally:
-            self.node.clear_validator_block_numbers()
-
     async def create_blocks(self):
         last_validation_time = time.time()
         last_vote_time = time.time()
 
         while True:
             try:
-                if time.time() - last_vote_time >= self.VOTE_INTERVAL_SECONDS:
+                if _validator.node.initial_sync_completed.value and time.time() - last_vote_time >= self.VOTE_INTERVAL_SECONDS:
                     asyncio.create_task(self.vote_miners())
                     last_vote_time = time.time()
             except Exception as e:
@@ -246,6 +164,9 @@ class Validator(Module):
                     self._database.create_block(block=block)
 
                     asyncio.create_task(self.node.send_block_to_validators(block=block))
+
+                    if not _validator.node.initial_sync_completed.value:
+                        _validator.node.initial_sync_completed.value = True
 
                 if time.time() - last_validation_time >= self.VALIDATION_INTERVAL_SECONDS:
                     if proposer_validator.ss58_address == self._key.ss58_address:
@@ -333,8 +254,6 @@ if __name__ == "__main__":
     async def run_tasks():
         try:
             asyncio.create_task(_validator.periodically_ping_validators())
-            await _validator.initial_sync()
-            _validator.node.initial_sync_completed.value = True
             _validator.api = API(_validator.node)
             await asyncio.gather(
                 _validator.api.run_server(),

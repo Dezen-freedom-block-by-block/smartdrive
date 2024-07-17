@@ -77,12 +77,6 @@ class Node:
     def get_active_validators_connections(self):
         return self._active_validators_manager.get_active_validators_connections()
 
-    def get_validator_block_numbers(self):
-        return self._active_validators_manager.get_validator_block_numbers()
-
-    def clear_validator_block_numbers(self):
-        self._active_validators_manager.remove_validator_block_numbers()
-
     def get_connections(self):
         return self._connection_pool.get_all_connections()
 
@@ -172,22 +166,3 @@ class Node:
             removed_connection = self._connection_pool.remove_connection(identifier)
             if removed_connection:
                 removed_connection.close()
-
-    async def get_block_numbers(self):
-        connections = self.get_active_validators_connections()
-
-        async def _get_block_number(c):
-            try:
-                body = {"code": MessageCode.MESSAGE_CODE_BLOCK_NUMBER.value}
-                body_sign = sign_data(body, self._keypair)
-                message = {
-                    "body": body,
-                    "signature_hex": body_sign.hex(),
-                    "public_key_hex": self._keypair.public_key.hex()
-                }
-                send_json(c, message)
-            except Exception as e:
-                print(f"Error getting block number validator: {e}")
-
-        tasks = [_get_block_number(c) for c in connections]
-        await asyncio.gather(*tasks)

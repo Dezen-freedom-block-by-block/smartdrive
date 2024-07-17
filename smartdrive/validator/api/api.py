@@ -30,7 +30,6 @@ from smartdrive.validator.config import config_manager
 from smartdrive.validator.api.retrieve_api import RetrieveAPI
 from smartdrive.validator.api.remove_api import RemoveAPI
 from smartdrive.validator.api.store_api import StoreAPI
-from smartdrive.validator.api.database_api import DatabaseAPI
 from smartdrive.validator.node.node import Node
 
 
@@ -42,7 +41,6 @@ class API:
     remove_api: RemoveAPI = None
 
     def __init__(self, node: Node):
-        self.database_api = DatabaseAPI()
         self.store_api = StoreAPI(node)
         self.retrieve_api = RetrieveAPI(node)
         self.remove_api = RemoveAPI(node)
@@ -50,7 +48,6 @@ class API:
         self.app.add_middleware(SubnetMiddleware)
 
         self.app.add_api_route("/method/ping", self.ping_endpoint, methods=["POST"])
-        self.app.add_api_route("/database", self.database_api.database_endpoint, methods=["GET"])
         self.app.add_api_route("/store", self.store_api.store_endpoint, methods=["POST"])
         self.app.add_api_route("/retrieve", self.retrieve_api.retrieve_endpoint, methods=["GET"])
         self.app.add_api_route("/remove", self.remove_api.remove_endpoint, methods=["POST"])
