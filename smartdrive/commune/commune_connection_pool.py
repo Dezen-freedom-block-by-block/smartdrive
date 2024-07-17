@@ -85,8 +85,7 @@ class CommuneConnectionPool:
         self.num_connections = num_connections
         self.pool = Queue()
         self.semaphore = Semaphore(max_pool_size)
-        self.active_connections = 0
-        self.active_connections_lock = Lock()
+        self.clients_lock = Lock()
 
     def _try_get_client(self, urls, num_connections):
         for url in urls:
@@ -99,37 +98,30 @@ class CommuneConnectionPool:
     def get_client(self):
         acquired = self.semaphore.acquire(timeout=1)
         if not acquired:
-            client = self._try_get_client(self.urls, self.num_connections)
-            if client:
-                return client
-            else:
-                raise Exception("No available connections in the pool")
+            return self._try_get_client(self.urls, self.num_connections)
 
         try:
             client = self.pool.get_nowait()
-            with self.active_connections_lock:
-                self.active_connections -= 1
             return client
         except Empty:
             client = self._try_get_client(self.urls, self.num_connections)
             return client
 
     def release_client(self, client):
-        with self.active_connections_lock:
-            if self.active_connections > self.max_pool_size:
-                self.active_connections -= 1
-            else:
-                self.active_connections += 1
+        with self.clients_lock:
+            try:
                 self.pool.put(client)
-            self.semaphore.release()
+            finally:
+                self.semaphore.release()
 
     def replace_broken_client(self):
-        with self.active_connections_lock:
+        with self.clients_lock:
             new_client = self._try_get_client(self.urls, self.num_connections)
             if new_client:
-                self.active_connections += 1
-                self.pool.put(new_client)
-            self.semaphore.release()
+                try:
+                    self.pool.put(new_client)
+                finally:
+                    self.semaphore.release()
 
 
 def retry_on_failure(retries):
@@ -141,13 +133,13 @@ def retry_on_failure(retries):
                 client = pool.get_client()
                 try:
                     result = func(client, *args, **kwargs)
+                    pool.release_client(client)
                     return result
                 except (WebSocketException, TimeoutException) as e:
                     print(f"Replacing broken commune client...")
                     pool.replace_broken_client()
                 except Exception as e:
-                    print(f"Retrying with another commune client... {e}")
-                finally:
+                    print(f"Retrying with another commune client due to {e}...")
                     pool.release_client(client)
             raise Exception("Operation failed after several retries")
         return wrapper
