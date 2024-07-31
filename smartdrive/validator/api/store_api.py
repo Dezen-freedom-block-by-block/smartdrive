@@ -23,7 +23,6 @@
 import asyncio
 import random
 import time
-import base64
 import uuid
 from typing import Optional
 from substrateinterface import Keypair
@@ -42,7 +41,8 @@ from smartdrive.validator.models.models import MinerWithChunk, ModuleType
 from smartdrive.commune.request import execute_miner_request, get_filtered_modules
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.validator.node.node import Node
-from smartdrive.validator.utils import calculate_hash, get_file_expiration
+from smartdrive.validator.utils import get_file_expiration
+from smartdrive.commune.utils import calculate_hash
 
 
 class StoreAPI:
@@ -130,10 +130,7 @@ async def store_new_file(
         StoreEvent | None: An StoreEvent representing the storage operation for the file or None.
     """
     # TODO: Split in chunks
-    # TODO: Don't use base64, file need be transferred directly.
     miners_processes = []
-
-    file_encoded = base64.b64encode(file_bytes).decode("utf-8")
 
     async def handle_store_request(miner: ModuleInfo) -> bool:
         start_time = time.time()
@@ -141,7 +138,7 @@ async def store_new_file(
             keypair=validator_keypair,
             miner=miner,
             user_ss58_address=user_ss58_address,
-            base64_bytes=file_encoded
+            file_bytes=file_bytes
         )
         final_time = time.time() - start_time
 
@@ -165,9 +162,9 @@ async def store_new_file(
         await asyncio.gather(*[handle_store_request(miner) for miner in miners])
 
     if miners_processes:
-        sub_chunk_end = random.randint(51, len(file_encoded) - 1)
+        sub_chunk_end = random.randint(51, len(file_bytes) - 1)
         sub_chunk_start = sub_chunk_end - 50
-        sub_chunk_encoded = file_encoded[sub_chunk_start:sub_chunk_end]
+        sub_chunk_encoded = str(file_bytes[sub_chunk_start:sub_chunk_end])
 
         event_params = StoreParams(
             file_uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
@@ -194,28 +191,29 @@ async def store_new_file(
     return None
 
 
-async def _store_request(keypair: Keypair, miner: ModuleInfo, user_ss58_address: Ss58Address, base64_bytes: str) -> Optional[MinerWithChunk]:
+async def _store_request(keypair: Keypair, miner: ModuleInfo, user_ss58_address: Ss58Address, file_bytes: bytes) -> Optional[MinerWithChunk]:
     """
      Sends a request to a miner to store a file chunk.
 
      This method sends an asynchronous request to a specified miner to store a file chunk
-     encoded in base64 format. The request includes the user's SS58 address as the folder
-     and the base64-encoded chunk.
+     in bytes format. The request includes the user's SS58 address as the folder
+     and the bytes chunk.
 
      Params:
          keypair (Keypair): The validator key used to authorize the request.
          miner (ModuleInfo): The miner's module information containing connection details and SS58 address.
          user_ss58_address (Ss58Address): The SS58 address of the user associated with the file chunk.
-         base64_bytes (str): The base64-encoded file chunk to be stored.
+         file_bytes (bytes): The chunk in bytes.
 
      Returns:
          Optional[MinerWithChunk]: An object containing a MinerWithChunk if the storage request is successful, otherwise None.
      """
+
     miner_answer = await execute_miner_request(
         keypair, miner.connection, miner.ss58_address, "store",
-        {
-            "folder": user_ss58_address,
-            "chunk": base64_bytes
+        files={
+           'folder': user_ss58_address,
+           'chunk': file_bytes
         }
     )
 

@@ -37,7 +37,9 @@ def create_headers(signature: bytes, key: Keypair, timestamp_iso: str = iso_time
 def create_request_data(
     my_key: Keypair,
     target_key: Ss58Address,
-    params: Any
+    params: Any,
+    show_content_type=True,
+    content_type="application/json"
 ) -> tuple[bytes, dict[str, str]]:
     timestamp_iso = iso_timestamp_now()
 
@@ -48,11 +50,10 @@ def create_request_data(
     }
 
     serialized_data = serialize(request_data)
-    request_data["timestamp"] = timestamp_iso
     serialized_stamped_data = serialize(request_data)
     signature = sign(my_key, serialized_stamped_data)
 
-    headers = create_headers(signature, my_key, timestamp_iso)
+    headers = create_headers(signature, my_key, timestamp_iso, show_content_type=show_content_type, content_type=content_type)
 
     return serialized_data, headers
 

@@ -19,7 +19,9 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 import asyncio
+import io
 import time
 import uuid
 import shutil
@@ -28,19 +30,20 @@ import argparse
 from argparse import Namespace
 
 import os
-import uvicorn
-from fastapi import HTTPException
 
-from communex.module.server import ModuleServer
+import uvicorn
+from fastapi import Request, FastAPI
+from fastapi import HTTPException
+from starlette.responses import StreamingResponse
 from communex.compat.key import classic_load_key
-from communex.module.module import Module, endpoint
+from communex.module.module import Module
 from communex.module._rate_limiters.limiters import IpLimiterParams
 
 import smartdrive
 from smartdrive.commune.commune_connection_pool import initialize_commune_connection_pool
 from smartdrive.commune.request import get_modules
-from smartdrive.miner.utils import has_enough_space, get_directory_size
-
+from smartdrive.miner.middleware.miner_middleware import MinerMiddleware
+from smartdrive.miner.utils import has_enough_space, get_directory_size, parse_body
 
 def get_config() -> Namespace:
     """
@@ -110,7 +113,7 @@ class Miner(Module):
         if current_dir_size > max_size_bytes:
             raise Exception(f"Current directory size exceeds the maximum allowed size. Current size: {current_dir_size / (2 ** 30):.2f} GB, allowed: {self.config.max_size} GB")
 
-    async def run_server(self, miner, config) -> None:
+    async def run_server(self, config) -> None:
         """
         Starts and runs an asynchronous web server using Uvicorn.
 
@@ -119,12 +122,19 @@ class Miner(Module):
         and on the port specified in the instance configuration.
         """
         dir = os.path.dirname(os.path.abspath(__file__))
-        server = ModuleServer(miner, key, subnets_whitelist=[config.netuid], limiter=IpLimiterParams(), use_testnet=config.testnet)
-        configuration = uvicorn.Config(server.get_fastapi_app(), workers=8, host="0.0.0.0", port=config.port, ssl_keyfile=f"{dir}/cert/key.pem", ssl_certfile=f"{dir}/cert/cert.pem", log_level="info")
+
+        app = FastAPI()
+        app.add_middleware(MinerMiddleware, key=key, limiter=IpLimiterParams(), subnets_whitelist=[config.netuid], use_testnet=config.testnet)
+        app.add_api_route("/method/store", self.store, methods=["POST"])
+        app.add_api_route("/method/retrieve", self.retrieve, methods=["POST"])
+        app.add_api_route("/method/remove", self.remove, methods=["POST"])
+        app.add_api_route("/method/validation", self.validation, methods=["POST"])
+        app.add_api_route("/method/ping", self.ping, methods=["POST"])
+
+        configuration = uvicorn.Config(app, workers=8, host="0.0.0.0", port=config.port, ssl_keyfile=f"{dir}/cert/key.pem", ssl_certfile=f"{dir}/cert/cert.pem", log_level="info")
         server = uvicorn.Server(configuration)
         await server.serve()
 
-    @endpoint
     def ping(self) -> dict:
         """
         Ping the miner to check its status.
@@ -141,16 +151,14 @@ class Miner(Module):
 
         return {"type": "miner", "version": smartdrive.__version__, "max_size": self.config.max_size}
 
-    @endpoint
-    def store(self, folder: str, chunk: bytes) -> dict:
+    async def store(self, request: Request) -> dict:
         """
         Store a chunk in the filesystem.
 
         This function stores a chunk of data in the specified folder, generating a unique identifier for the chunk.
 
         Params:
-            folder: The name of the folder where the chunk will be stored.
-            chunk: The binary content of the chunk to be stored.
+            request: The request.
 
         Returns:
             dict: A dictionary containing the unique identifier of the stored chunk.
@@ -159,32 +167,34 @@ class Miner(Module):
             HTTPException: If there is not enough space to store the file or if another error occurs.
         """
         try:
-            if not has_enough_space(len(chunk), config.max_size, self.config.data_path):
+            body = await request.form()
+            chunk_data = await body["chunk"].read()
+
+            if not has_enough_space(len(chunk_data), self.config.max_size, self.config.data_path):
                 raise HTTPException(status_code=409, detail="Not enough space to store the file")
 
-            client_dir = os.path.join(self.config.data_path, folder)
+            client_dir = os.path.join(self.config.data_path, body["folder"])
             if not os.path.exists(client_dir):
                 os.makedirs(client_dir)
 
-            file_uuid: str = f"{int(time.time())}_{str(uuid.uuid4())}"
+            file_uuid = f"{int(time.time())}_{str(uuid.uuid4())}"
             chunk_path = os.path.join(client_dir, file_uuid)
             with open(chunk_path, 'wb') as chunk_file:
-                chunk_file.write(chunk)
+                chunk_file.write(chunk_data)
 
             return {"id": file_uuid}
         except Exception as e:
-            raise HTTPException(status_code=409, detail=f"Error: f{str(e)}")
+            print(f"ERROR store - {e}")
+            raise HTTPException(status_code=409, detail=f"Error: {str(e)}")
 
-    @endpoint
-    def remove(self, folder: str, chunk_uuid: str) -> dict:
+    async def remove(self, request: Request) -> dict:
         """
         Remove a chunk from the filesystem.
 
         This function deletes a chunk file from the specified folder.
 
         Params:
-            folder: The name of the folder where the chunk is stored.
-            chunk_uuid: The UUID of the chunk to be removed.
+            request: The request.
 
         Returns:
             dict: A dictionary containing a success message if the chunk was deleted.
@@ -193,7 +203,10 @@ class Miner(Module):
             HTTPException: If the chunk is not found or if another error occurs.
         """
         try:
-            chunk_path = os.path.join(self.config.data_path, folder, chunk_uuid)
+            body_bytes = await request.body()
+            body = parse_body(body_bytes)
+
+            chunk_path = os.path.join(self.config.data_path, body["folder"], body["chunk_uuid"])
             os.remove(chunk_path)
 
             return {"message": "Chunk deleted successfully"}
@@ -202,16 +215,14 @@ class Miner(Module):
         except Exception as e:
             raise HTTPException(status_code=409, detail=f"Error: f{str(e)}")
 
-    @endpoint
-    def retrieve(self, folder: str, chunk_uuid: str) -> dict:
+    async def retrieve(self, request: Request) -> StreamingResponse:
         """
         Retrieve a chunk from the filesystem.
 
         This function retrieves a chunk file from the specified folder and returns its content.
 
         Params:
-            folder: The name of the folder where the chunk is stored.
-            chunk_uuid: The UUID of the chunk to be retrieved.
+            request: The request.
 
         Returns:
             dict: A dictionary containing the chunk content in binary format.
@@ -220,18 +231,23 @@ class Miner(Module):
             HTTPException: If the chunk is not found or if another error occurs.
         """
         try:
-            chunk_path = os.path.join(self.config.data_path, folder, chunk_uuid)
-            with open(chunk_path, 'rb') as chunk_file:
-                chunk = chunk_file.read()
+            body_bytes = await request.body()
+            body = parse_body(body_bytes)
 
-            return {"chunk": chunk}
+            chunk_path = os.path.join(self.config.data_path, body["folder"], body["chunk_uuid"])
+
+            def iterfile():
+                with open(chunk_path, 'rb') as chunk_file:
+                    yield from chunk_file
+
+            return StreamingResponse(iterfile(), media_type='application/octet-stream')
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="Chunk not found")
         except Exception as e:
+            print(e)
             raise HTTPException(status_code=409, detail=f"Error: f{str(e)}")
 
-    @endpoint
-    def validation(self, folder: str, chunk_uuid: str, start: int, end: int) -> dict:
+    async def validation(self, request: Request) -> StreamingResponse:
         """
         Validate a specific portion of a chunk from the filesystem.
 
@@ -239,25 +255,26 @@ class Miner(Module):
         at a given byte offset and reading a specified number of bytes.
 
         Params:
-            folder: The name of the folder where the chunk is stored.
-            chunk_uuid: The UUID of the chunk to be validated.
-            start: The byte offset from where to start reading the chunk.
-            end: The byte offset from where to end reading the chunk.
+            request: The request.
 
         Returns:
-            dict: A dictionary containing the requested portion of the chunk content in binary format.
+            StreamingResponse: A StreamingResponse containing the requested portion of the chunk content in binary format.
 
         Raises:
             HTTPException: If the chunk is not found or if another error occurs.
         """
 
         try:
-            chunk_path = os.path.join(self.config.data_path, folder, chunk_uuid)
+            body_bytes = await request.body()
+            body = parse_body(body_bytes)
+            start = int(body["start"])
+            end = int(body["end"])
+            chunk_path = os.path.join(self.config.data_path, body["folder"], body["chunk_uuid"])
             with open(chunk_path, 'rb') as chunk_file:
                 chunk_file.seek(start)
                 sub_chunk = chunk_file.read(end - start)
 
-            return {"sub_chunk": sub_chunk}
+            return StreamingResponse(io.BytesIO(sub_chunk), media_type='application/octet-stream')
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="Chunk not found")
         except Exception as e:
@@ -279,6 +296,6 @@ if __name__ == "__main__":
         raise Exception(f"Your key: {key.ss58_address} is not registered.")
 
     async def run_tasks():
-        await miner.run_server(miner, config)
+        await miner.run_server(config)
 
     asyncio.run(run_tasks())

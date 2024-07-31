@@ -45,7 +45,7 @@ from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_active_validators, EXTENDED_PING_TIMEOUT
 from smartdrive.models.event import StoreInputParams, RetrieveInputParams, RemoveInputParams
 from smartdrive.validator.api.middleware.sign import sign_data
-from smartdrive.validator.utils import decode_b64_to_bytes, calculate_hash
+from smartdrive.commune.utils import calculate_hash
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -190,8 +190,7 @@ def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testn
         spinner = Spinner("Decompressing")
         spinner.start()
 
-        data_bytes = decode_b64_to_bytes(response.content)
-        data = io.BytesIO(data_bytes)
+        data = io.BytesIO(response.content)
 
         try:
             with py7zr.SevenZipFile(data, 'r', password=key.private_key.hex()) as archive:

@@ -20,8 +20,11 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import json
 import os
 import shutil
+
+from fastapi import HTTPException
 
 
 def get_directory_size(dir_path: str) -> int:
@@ -52,6 +55,13 @@ def get_directory_size(dir_path: str) -> int:
         print(f"An error occurred calculating total size: {e}")
 
     return total_size
+
+
+def parse_body(body_bytes: bytes) -> dict:
+    try:
+        return json.loads(body_bytes).get("params", {})
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON in request body")
 
 
 def has_enough_space(file_size: int, max_size_gb: float, dir_path: str) -> bool:

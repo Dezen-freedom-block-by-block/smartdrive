@@ -1,5 +1,9 @@
+import hashlib
 import re
 from typing import List, Optional
+
+from communex.types import Ss58Address
+from substrateinterface.utils.ss58 import is_valid_ss58_address, ss58_encode
 
 from smartdrive.commune.models import ModuleInfo, ConnectionInfo
 from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
@@ -57,3 +61,32 @@ def _get_ip_port(address_string: str) -> Optional[ConnectionInfo]:
         print(f"Error extracting IP and port: {e}")
         return None
 
+
+def get_ss58_address_from_public_key(public_key_hex) -> Optional[Ss58Address]:
+    """
+    Convert a public key in hexadecimal format to an Ss58Address if valid.
+
+    Params:
+        public_key_hex (str): The public key in hexadecimal format.
+
+    Returns:
+        Optional[Ss58Address]: The corresponding Ss58Address if valid, otherwise None.
+    """
+    public_key_bytes = bytes.fromhex(public_key_hex)
+    ss58_address = ss58_encode(public_key_bytes)
+    return Ss58Address(ss58_address) if is_valid_ss58_address(ss58_address) else None
+
+
+def calculate_hash(data: bytes) -> str:
+    """
+    Calculates the SHA-256 hash of the given data.
+
+    Params:
+        data (bytes): The data to hash, provided as a byte string.
+
+    Returns:
+        str: The hexadecimal representation of the SHA-256 hash of the input data.
+    """
+    sha256 = hashlib.sha256()
+    sha256.update(data)
+    return sha256.hexdigest()

@@ -26,19 +26,16 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp
-from typing import Awaitable, Callable, Optional
-from scalecodec.utils.ss58 import is_valid_ss58_address
+from typing import Awaitable, Callable
 
 from substrateinterface import Keypair
-from substrateinterface.utils.ss58 import ss58_encode
-from communex.types import Ss58Address
 from communex.compat.key import classic_load_key
 
 from smartdrive.commune.commune_connection_pool import get_staketo
 from smartdrive.commune.errors import CommuneNetworkUnreachable
+from smartdrive.commune.utils import get_ss58_address_from_public_key, calculate_hash
 from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.config import config_manager
-from smartdrive.validator.utils import calculate_hash
 
 Callback = Callable[[Request], Awaitable[Response]]
 exclude_paths = ["/method/ping"]
@@ -143,18 +140,3 @@ class SubnetMiddleware(BaseHTTPMiddleware):
 
         response = await call_next(request)
         return response
-
-
-def get_ss58_address_from_public_key(public_key_hex) -> Optional[Ss58Address]:
-    """
-    Convert a public key in hexadecimal format to an Ss58Address if valid.
-
-    Params:
-        public_key_hex (str): The public key in hexadecimal format.
-
-    Returns:
-        Optional[Ss58Address]: The corresponding Ss58Address if valid, otherwise None.
-    """
-    public_key_bytes = bytes.fromhex(public_key_hex)
-    ss58_address = ss58_encode(public_key_bytes)
-    return Ss58Address(ss58_address) if is_valid_ss58_address(ss58_address) else None

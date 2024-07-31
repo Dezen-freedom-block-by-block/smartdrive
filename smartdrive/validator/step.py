@@ -37,7 +37,7 @@ from smartdrive.validator.database.database import Database
 from smartdrive.validator.evaluation.utils import generate_data
 from smartdrive.models.event import RemoveEvent, ValidateEvent, StoreEvent, MinerProcess, EventParams, RemoveParams, RemoveInputParams
 from smartdrive.validator.models.models import File, ModuleType, SubChunk
-from smartdrive.validator.utils import calculate_hash
+from smartdrive.commune.utils import calculate_hash
 
 
 async def validate_step(database: Database, key: Keypair, netuid: int) -> Optional[Tuple[List[RemoveEvent], List[ValidateEvent], Optional[StoreEvent]]]:

@@ -19,13 +19,14 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
+import io
 import time
 import uuid
 from typing import Optional, List
 from fastapi import HTTPException, Request
 
 from communex.compat.key import classic_load_key
+from starlette.responses import StreamingResponse
 from substrateinterface import Keypair
 from communex.types import Ss58Address
 
@@ -97,6 +98,7 @@ class RetrieveAPI:
 
         # Create event
         miners_processes: List[MinerProcess] = []
+        chunks = []
         # TODO: This method currently is assuming that chunks are final files. This is an early stage.
         for miner_chunk in miners_with_chunks:
             start_time = time.time()
@@ -107,6 +109,10 @@ class RetrieveAPI:
                 connection
             )
             chunk = await retrieve_request(self._key, user_ss58_address, miner_info, miner_chunk["chunk_uuid"])
+
+            if chunk is not None:
+                chunks.append(chunk)
+
             final_time = time.time() - start_time
             miner_chunk["chunk"] = chunk
 
@@ -138,8 +144,8 @@ class RetrieveAPI:
         # Emit event
         self._node.send_event_to_validators(event)
 
-        if miners_with_chunks[0]["chunk"]:
-            return miners_with_chunks[0]["chunk"]
+        if chunks:
+            return StreamingResponse(io.BytesIO(chunks[0]), media_type='application/octet-stream')
         else:
             print("The file currently is not available")
             raise HTTPException(status_code=404, detail="The file currently is not available")
@@ -170,4 +176,4 @@ async def retrieve_request(keypair: Keypair, user_ss58address: Ss58Address, mine
         }
     )
 
-    return miner_answer["chunk"] if miner_answer else None
+    return miner_answer if miner_answer else None

@@ -97,7 +97,7 @@ async def get_active_validators(key: Keypair, netuid: int, timeout=PING_TIMEOUT)
     return active_validators
 
 
-async def execute_miner_request(validator_key: Keypair, connection: ConnectionInfo, miner_key: Ss58Address, action: str, params: Dict[str, Any] = None, timeout: int = CALL_TIMEOUT):
+async def execute_miner_request(validator_key: Keypair, connection: ConnectionInfo, miner_key: Ss58Address, action: str, params: Dict[str, Any] = None, files: Any = None, timeout: int = CALL_TIMEOUT):
     """
     Executes a request to a miner and returns the response.
 
@@ -110,6 +110,7 @@ async def execute_miner_request(validator_key: Keypair, connection: ConnectionIn
         miner_key (Ss58Address): The SS58 address key of the miner.
         action (str): The action to be performed by the miner.
         params (Dict[str, Any], optional): Additional parameters for the action. Defaults to an empty dictionary.
+        files (Any): Additional parameters for the action. Defaults to None.
         timeout (int, optional): Timeout for the call.
 
     Raises:
@@ -120,7 +121,7 @@ async def execute_miner_request(validator_key: Keypair, connection: ConnectionIn
 
     try:
         client = ModuleClient(connection.ip, int(connection.port), validator_key)
-        miner_answer = await client.call(action, miner_key, params, timeout=timeout)
+        miner_answer = client.call(fn=action, target_key=miner_key, params=params, files=files, timeout=timeout)
 
     except Exception as e:
         miner_answer = None

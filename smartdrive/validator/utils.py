@@ -21,7 +21,6 @@
 # SOFTWARE.
 
 import asyncio
-import base64
 import os
 import random
 import tempfile
@@ -29,7 +28,6 @@ import time
 import zipfile
 from typing import Optional
 import requests
-import hashlib
 
 from communex.types import Ss58Address
 from starlette.datastructures import Headers
@@ -197,44 +195,3 @@ def get_file_expiration() -> int:
     min_ms = 1 * 60 * 60 * 1000  # 1 hours
     max_ms = 4 * 60 * 60 * 1000  # 4 hours
     return random.randint(min_ms, max_ms)
-
-
-def encode_bytes_to_b64(data: bytes) -> str:
-    """
-    Encodes bytes into a base64 string.
-
-    Params:
-        data (bytes): The data to be encoded.
-
-    Returns:
-        str: The base64 encoded string.
-    """
-    return base64.b64encode(data).decode("utf-8")
-
-
-def decode_b64_to_bytes(data: str) -> bytes:
-    """
-    Decodes a base64 string into bytes.
-
-    Params:
-        data (str): The base64 encoded string.
-
-    Returns:
-        bytes: The decoded bytes.
-    """
-    return base64.b64decode(data)
-
-
-def calculate_hash(data: bytes) -> str:
-    """
-    Calculates the SHA-256 hash of the given data.
-
-    Params:
-        data (bytes): The data to hash, provided as a byte string.
-
-    Returns:
-        str: The hexadecimal representation of the SHA-256 hash of the input data.
-    """
-    sha256 = hashlib.sha256()
-    sha256.update(data)
-    return sha256.hexdigest()
