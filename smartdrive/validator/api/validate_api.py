@@ -54,4 +54,4 @@ async def validate_chunk_request(keypair: Keypair, user_owner_ss58_address: Ss58
             "end": subchunk.end
         }
     )
-    return True if miner_answer else False
+    return str(miner_answer) == subchunk.data if miner_answer else False

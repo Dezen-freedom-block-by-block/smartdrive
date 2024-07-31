@@ -75,6 +75,8 @@ def check_version(extra_args: [str] = None):
     Params:
         extra_args ([str]): Command to execute before exit.
     """
+    # TODO: remove return in production
+    return
     latest_version = get_latest_version()
 
     current_file_path = Path(__file__).resolve()
