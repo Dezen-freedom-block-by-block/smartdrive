@@ -19,9 +19,11 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
+import asyncio
 import json
+import aiohttp
 import requests
+from aiohttp import ClientSession, ClientResponse
 from urllib3.exceptions import InsecureRequestWarning
 
 from substrateinterface import Keypair
@@ -42,55 +44,51 @@ class ModuleClient:
         self.port = port
         self.key = key
 
-    def call(self, fn, target_key, params=None, files=None, timeout=16):
+    async def call(self, fn, target_key, params=None, files=None, timeout=16):
         if params is None:
             params = {}
 
         url = create_method_endpoint(self.host, self.port, fn)
 
-        try:
-            if files:
-                file_content = files['chunk']
-                file_hash = calculate_hash(file_content)
-                files = {
-                    'folder': (None, files['folder']),
-                    'chunk': ('file', file_content, 'application/octet-stream'),
-                    'target_key': (None, target_key)
-                }
-                data_to_sign = {'folder': files['folder'][1], 'chunk': file_hash}
-                serialized_data, headers = create_request_data(self.key, target_key, data_to_sign, False)
-
-                response = requests.post(
-                    url,
-                    files=files,
-                    headers=headers,
-                    timeout=timeout,
-                    verify=False
-                )
-            else:
-                serialized_data, headers = create_request_data(self.key, target_key, params)
-
-                response = requests.post(
-                    url,
-                    json=json.loads(serialized_data),
-                    headers=headers,
-                    timeout=timeout,
-                    verify=False
-                )
-
+        async def _get_body(response: ClientResponse):
             response.raise_for_status()
+            if response.status != 200:
+                raise Exception(f"Unexpected status code: {response.status}, response: {await response.text()}")
 
-            if response.status_code != 200:
-                raise Exception(f"Unexpected status code: {response.status_code}, response: {response.text}")
-
-            if response.headers.get('Content-Type') == 'application/json':
-                return response.json()
-            elif response.headers.get('Content-Type') == 'application/octet-stream':
-                return response.content
+            content_type = response.headers.get('Content-Type')
+            if content_type == 'application/json':
+                return await response.json()
+            elif content_type == 'application/octet-stream':
+                return await response.read()
             else:
-                raise Exception(f"Unknown content type: {response.headers.get('Content-Type')}")
+                raise Exception(f"Unknown content type: {content_type}")
 
-        except requests.exceptions.Timeout as e:
+        try:
+            async with ClientSession() as session:
+                if files:
+                    file_content = files['chunk']
+                    file_hash = calculate_hash(file_content)
+                    files_data = {
+                        'folder': files['folder'],
+                        'chunk': file_content,
+                        'target_key': target_key
+                    }
+                    data_to_sign = {'folder': files['folder'], 'chunk': file_hash}
+                    serialized_data, headers = create_request_data(self.key, target_key, data_to_sign, False)
+
+                    form_data = aiohttp.FormData()
+                    form_data.add_field('folder', files_data['folder'])
+                    form_data.add_field('chunk', file_content, filename='file', content_type='application/octet-stream')
+                    form_data.add_field('target_key', target_key)
+
+                    async with session.post(url, data=form_data, headers=headers, timeout=timeout, ssl=False) as response:
+                        return await _get_body(response)
+                else:
+                    serialized_data, headers = create_request_data(self.key, target_key, params)
+                    async with session.post(url, json=json.loads(serialized_data), headers=headers, timeout=timeout, ssl=False) as response:
+                        return await _get_body(response)
+
+        except asyncio.TimeoutError as e:
             raise Exception(f"The call took longer than the timeout of {timeout} second(s)").with_traceback(e.__traceback__)
-        except requests.exceptions.RequestException as e:
+        except aiohttp.ClientError as e:
             raise Exception(f"An error occurred: {e}").with_traceback(e.__traceback__)

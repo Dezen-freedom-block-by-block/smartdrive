@@ -121,7 +121,7 @@ async def execute_miner_request(validator_key: Keypair, connection: ConnectionIn
 
     try:
         client = ModuleClient(connection.ip, int(connection.port), validator_key)
-        miner_answer = client.call(fn=action, target_key=miner_key, params=params, files=files, timeout=timeout)
+        miner_answer = await client.call(fn=action, target_key=miner_key, params=params, files=files, timeout=timeout)
 
     except Exception as e:
         miner_answer = None
