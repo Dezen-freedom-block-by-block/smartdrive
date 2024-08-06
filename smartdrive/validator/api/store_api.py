@@ -259,7 +259,7 @@ async def _store_request(keypair: Keypair, miner: ModuleInfo, user_ss58_address:
 
     miner_answer = await execute_miner_request(
         keypair, miner.connection, miner.ss58_address, "store",
-        files={
+        file={
            'folder': user_ss58_address,
            'chunk': file_bytes
         }

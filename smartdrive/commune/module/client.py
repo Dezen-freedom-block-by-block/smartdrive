@@ -44,7 +44,7 @@ class ModuleClient:
         self.port = port
         self.key = key
 
-    async def call(self, fn, target_key, params=None, files=None, timeout=16):
+    async def call(self, fn, target_key, params=None, file=None, timeout=16):
         if params is None:
             params = {}
 
@@ -65,19 +65,14 @@ class ModuleClient:
 
         try:
             async with ClientSession() as session:
-                if files:
-                    file_content = files['chunk']
+                if file:
+                    file_content = file['chunk']
                     file_hash = calculate_hash(file_content)
-                    files_data = {
-                        'folder': files['folder'],
-                        'chunk': file_content,
-                        'target_key': target_key
-                    }
-                    data_to_sign = {'folder': files['folder'], 'chunk': file_hash}
+                    data_to_sign = {'folder': file['folder'], 'chunk': file_hash}
                     serialized_data, headers = create_request_data(self.key, target_key, data_to_sign, False)
 
                     form_data = aiohttp.FormData()
-                    form_data.add_field('folder', files_data['folder'])
+                    form_data.add_field('folder', file['folder'])
                     form_data.add_field('chunk', file_content, filename='file', content_type='application/octet-stream')
                     form_data.add_field('target_key', target_key)
 
