@@ -33,7 +33,7 @@ from smartdrive.validator.models.models import ModuleType
 
 PING_TIMEOUT = 5
 EXTENDED_PING_TIMEOUT = 60
-CALL_TIMEOUT = 60
+CALL_TIMEOUT = 10
 
 
 def get_filtered_modules(netuid: int, type: ModuleType = ModuleType.MINER) -> List[ModuleInfo]:
@@ -121,6 +121,8 @@ async def execute_miner_request(validator_key: Keypair, connection: ConnectionIn
 
     try:
         client = ModuleClient(connection.ip, int(connection.port), validator_key)
+        print(connection.ip)
+        print(connection.port)
         miner_answer = await client.call(fn=action, target_key=miner_key, params=params, files=files, timeout=timeout)
 
     except Exception as e:
