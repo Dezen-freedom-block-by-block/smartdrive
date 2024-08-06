@@ -24,6 +24,7 @@ import os
 import argparse
 import time
 import asyncio
+
 from substrateinterface import Keypair
 
 from communex.module.module import Module
@@ -31,7 +32,7 @@ from communex.compat.key import classic_load_key
 from communex.types import Ss58Address
 
 import smartdrive
-from smartdrive.commune.commune_connection_pool import initialize_commune_connection_pool
+from smartdrive.commune.connection_pool import initialize_commune_connection_pool
 from smartdrive.models.block import Block
 from smartdrive.validator.config import Config, config_manager
 from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT

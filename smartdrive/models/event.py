@@ -57,6 +57,14 @@ class MinerProcess(BaseModel):
     processing_time: Optional[float] = None
 
 
+class ChunkEvent(BaseModel):
+    uuid: Optional[str]
+    chunk_index: int
+    sub_chunk_start: int
+    sub_chunk_end: int
+    sub_chunk_encoded: str
+
+
 class EventParams(BaseModel):
     file_uuid: str
     miners_processes: Optional[List[MinerProcess]]
@@ -67,9 +75,7 @@ class StoreParams(EventParams):
     miners_processes: List[MinerProcess]
     created_at: Optional[int]
     expiration_ms: Optional[int]
-    sub_chunk_start: int
-    sub_chunk_end: int
-    sub_chunk_encoded: str
+    chunks: List[ChunkEvent]
 
 
 class RemoveParams(EventParams):

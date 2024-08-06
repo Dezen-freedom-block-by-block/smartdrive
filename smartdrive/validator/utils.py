@@ -39,7 +39,7 @@ from smartdrive.models.event import Event, StoreEvent, RemoveEvent, MinerProcess
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.utils import get_miner_info_with_chunk, remove_chunk_request
 from smartdrive.validator.database.database import Database
-from smartdrive.validator.models.models import Chunk, SubChunk, File, ModuleType
+from smartdrive.validator.models.models import Chunk, File, ModuleType
 
 MAX_RETRIES = 3
 RETRY_DELAY = 5
@@ -131,23 +131,33 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
             at_least_one_succeed = any(miner_process.succeed for miner_process in event.event_params.miners_processes)
             if at_least_one_succeed:
 
+                total_chunks_index = set()
                 chunks = []
                 for miner_process in event.event_params.miners_processes:
-                    chunks.append(Chunk(
-                        miner_owner_ss58address=miner_process.miner_ss58_address,
-                        chunk_uuid=miner_process.chunk_uuid,
-                        file_uuid=event.event_params.file_uuid,
-                        sub_chunk=SubChunk(id=None, start=event.event_params.sub_chunk_start, end=event.event_params.sub_chunk_end,
-                                           data=event.event_params.sub_chunk_encoded, chunk_uuid=miner_process.chunk_uuid)
-                    ))
+                    matching_chunks = list(filter(lambda sc: sc.uuid == miner_process.chunk_uuid, event.event_params.chunks))
+
+                    if matching_chunks:
+                        chunk = matching_chunks[0]
+                        total_chunks_index.add(chunk.chunk_index)
+                        chunks.append(Chunk(
+                            miner_owner_ss58address=miner_process.miner_ss58_address,
+                            chunk_uuid=miner_process.chunk_uuid,
+                            file_uuid=event.event_params.file_uuid,
+                            chunk_index=chunk.chunk_index,
+                            sub_chunk_start=chunk.sub_chunk_start,
+                            sub_chunk_end=chunk.sub_chunk_end,
+                            sub_chunk_encoded=chunk.sub_chunk_encoded,
+                        )
+                        )
                 file = File(
                     user_owner_ss58address=event.user_ss58_address,
+                    total_chunks=len(total_chunks_index),
                     file_uuid=event.event_params.file_uuid,
                     chunks=chunks,
                     created_at=event.event_params.created_at,
                     expiration_ms=event.event_params.expiration_ms
                 )
-                database.insert_file(file)
+                database.insert_file(file=file, event_uuid=event.uuid)
 
         elif isinstance(event, RemoveEvent):
             if is_proposer_validator:

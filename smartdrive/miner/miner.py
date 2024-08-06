@@ -40,10 +40,11 @@ from communex.module.module import Module
 from communex.module._rate_limiters.limiters import IpLimiterParams
 
 import smartdrive
-from smartdrive.commune.commune_connection_pool import initialize_commune_connection_pool
+from smartdrive.commune.connection_pool import initialize_commune_connection_pool
 from smartdrive.commune.request import get_modules
 from smartdrive.miner.middleware.miner_middleware import MinerMiddleware
 from smartdrive.miner.utils import has_enough_space, get_directory_size, parse_body
+
 
 def get_config() -> Namespace:
     """
@@ -272,9 +273,9 @@ class Miner(Module):
             chunk_path = os.path.join(self.config.data_path, body["folder"], body["chunk_uuid"])
             with open(chunk_path, 'rb') as chunk_file:
                 chunk_file.seek(start)
-                sub_chunk = chunk_file.read(end - start)
+                chunk = chunk_file.read(end - start)
 
-            return StreamingResponse(io.BytesIO(sub_chunk), media_type='application/octet-stream')
+            return StreamingResponse(io.BytesIO(chunk), media_type='application/octet-stream')
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="Chunk not found")
         except Exception as e:

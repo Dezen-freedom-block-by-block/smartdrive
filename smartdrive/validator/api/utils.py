@@ -25,10 +25,10 @@ from substrateinterface import Keypair
 
 from smartdrive.commune.request import execute_miner_request
 from smartdrive.commune.models import ModuleInfo
-from smartdrive.validator.models.models import MinerWithChunk, MinerWithSubChunk
+from smartdrive.validator.models.models import MinerWithChunk
 
 
-def get_miner_info_with_chunk(miners: list[ModuleInfo], miner_chunks: list[MinerWithChunk] | list[MinerWithSubChunk]) -> list:
+def get_miner_info_with_chunk(miners: list[ModuleInfo], miner_chunks: list[MinerWithChunk]) -> list:
     """
     Gather information about active miners and their associated chunks.
 
@@ -37,7 +37,7 @@ def get_miner_info_with_chunk(miners: list[ModuleInfo], miner_chunks: list[Miner
 
     Params:
         miners (list[ModuleInfo]): A list of miner objects.
-        miner_chunks (list[MinerWithChunk] | list [MinerWithSubChunk]): A list of miner chunk objects.
+        miner_chunks (list[MinerWithChunk]): A list of miner chunk objects.
 
     Returns:
         list[dict]: A list of dictionaries, each containing:
@@ -45,7 +45,6 @@ def get_miner_info_with_chunk(miners: list[ModuleInfo], miner_chunks: list[Miner
             ss58_address (SS58_address): The SS58 address of the miner.
             connection (dict): A dictionary containing the IP address and port of the miner's connection.
             chunk_uuid (str): The UUID of the chunk associated with the miner.
-            sub_chunk (Optional): The sub-chunk information if available.
     """
     miner_info_with_chunk = []
 
@@ -60,10 +59,11 @@ def get_miner_info_with_chunk(miners: list[ModuleInfo], miner_chunks: list[Miner
                         "port": miner.connection.port
                     },
                     "chunk_uuid": miner_chunk.chunk_uuid,
+                    "sub_chunk_start": miner_chunk.sub_chunk_start,
+                    "sub_chunk_end": miner_chunk.sub_chunk_end,
+                    "sub_chunk_encoded": miner_chunk.sub_chunk_encoded,
+                    "chunk_index": miner_chunk.chunk_index
                 }
-
-                if isinstance(miner_chunk, MinerWithSubChunk):
-                    data["sub_chunk"] = miner_chunk.sub_chunk
 
                 miner_info_with_chunk.append(data)
 

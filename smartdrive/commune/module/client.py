@@ -20,13 +20,16 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-
 import json
 import requests
+from urllib3.exceptions import InsecureRequestWarning
 
 from substrateinterface import Keypair
+
 from ._protocol import create_method_endpoint, create_request_data
 from ..utils import calculate_hash
+
+requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 
 class ModuleClient:

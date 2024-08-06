@@ -19,7 +19,10 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
+import asyncio
 import io
+import random
 import time
 import uuid
 from typing import Optional, List
@@ -75,8 +78,8 @@ class RetrieveAPI:
         input_signed_params = request.headers.get("X-Signature")
         user_ss58_address = get_ss58_address_from_public_key(user_public_key)
 
-        file_exists = self._database.check_if_file_exists(user_ss58_address, file_uuid)
-        if not file_exists:
+        file = self._database.get_file(user_ss58_address, file_uuid)
+        if not file:
             print("The file not exists")
             raise HTTPException(status_code=404, detail="File does not exist")
 
@@ -94,35 +97,69 @@ class RetrieveAPI:
             print("Currently there are no miners")
             raise HTTPException(status_code=404, detail="Currently there are no miners")
 
+        # Group miner_chunks by chunk_index
         miners_with_chunks = get_miner_info_with_chunk(miners, miner_chunks)
+        miner_chunks_by_index = {}
+        for miner_chunk in miners_with_chunks:
+            chunk_index = miner_chunk["chunk_index"]
+            if chunk_index not in miner_chunks_by_index:
+                miner_chunks_by_index[chunk_index] = []
+            miner_chunks_by_index[chunk_index].append(miner_chunk)
+
+        # Shuffle the items in each list within the dictionary
+        for chunk_index in miner_chunks_by_index:
+            random.shuffle(miner_chunks_by_index[chunk_index])
 
         # Create event
         miners_processes: List[MinerProcess] = []
         chunks = []
-        # TODO: This method currently is assuming that chunks are final files. This is an early stage.
-        for miner_chunk in miners_with_chunks:
-            start_time = time.time()
-            connection = ConnectionInfo(miner_chunk["connection"]["ip"], miner_chunk["connection"]["port"])
-            miner_info = ModuleInfo(
-                miner_chunk["uid"],
-                miner_chunk["ss58_address"],
-                connection
-            )
-            chunk = await retrieve_request(self._key, user_ss58_address, miner_info, miner_chunk["chunk_uuid"])
 
+        async def retrieve_chunk_from_miners(user_ss58_address, miners_with_chunks, miner_processes):
+            for miner_chunk in miners_with_chunks:
+                start_time = time.time()
+                connection = ConnectionInfo(miner_chunk["connection"]["ip"], miner_chunk["connection"]["port"])
+                miner_info = ModuleInfo(
+                    miner_chunk["uid"],
+                    miner_chunk["ss58_address"],
+                    connection
+                )
+                chunk = await retrieve_request(self._key, user_ss58_address, miner_info, miner_chunk["chunk_uuid"])
+                final_time = time.time() - start_time
+                succeed = chunk is not None
+
+                miner_process = MinerProcess(
+                    chunk_uuid=miner_chunk["chunk_uuid"],
+                    miner_ss58_address=miner_chunk["ss58_address"],
+                    succeed=succeed,
+                    processing_time=final_time
+                )
+                miner_processes.append(miner_process)
+
+                if succeed:
+                    return chunk
+            return None
+
+        async def fetch_chunk(chunk_index, miner_chunks_for_index):
+            chunk = await retrieve_chunk_from_miners(user_ss58_address, miner_chunks_for_index, miners_processes)
+            return (chunk_index, chunk)
+
+        # Use asyncio.gather to fetch all chunks concurrently
+        fetch_tasks = [
+            fetch_chunk(chunk_index, miner_chunks_for_index)
+            for chunk_index, miner_chunks_for_index in miner_chunks_by_index.items()
+        ]
+
+        fetched_chunks = await asyncio.gather(*fetch_tasks)
+
+        for chunk_index, chunk in fetched_chunks:
             if chunk is not None:
-                chunks.append(chunk)
+                chunks.append((chunk_index, chunk))
 
-            final_time = time.time() - start_time
-            miner_chunk["chunk"] = chunk
+        # Sort chunks by chunk_index
+        chunks.sort(key=lambda x: x[0])
 
-            miner_process = MinerProcess(
-                chunk_uuid=miner_chunk["chunk_uuid"],
-                miner_ss58_address=miner_chunk["ss58_address"],
-                succeed=chunk is not None,
-                processing_time=final_time
-            )
-            miners_processes.append(miner_process)
+        # Combine all chunks into a single file
+        final_file = b''.join(chunk for _, chunk in chunks)
 
         event_params = EventParams(
             file_uuid=file_uuid,
@@ -144,8 +181,8 @@ class RetrieveAPI:
         # Emit event
         self._node.send_event_to_validators(event)
 
-        if chunks:
-            return StreamingResponse(io.BytesIO(chunks[0]), media_type='application/octet-stream')
+        if len(chunks) == file.total_chunks:
+            return StreamingResponse(io.BytesIO(final_file), media_type='application/octet-stream')
         else:
             print("The file currently is not available")
             raise HTTPException(status_code=404, detail="The file currently is not available")

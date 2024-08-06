@@ -28,11 +28,12 @@ import zipfile
 from typing import List, Optional, Union
 from datetime import datetime, timedelta
 
-from smartdrive.models.event import MinerProcess, StoreEvent, Event, Action, StoreParams, StoreInputParams, RemoveEvent, \
-    RemoveParams, RemoveInputParams, RetrieveEvent, EventParams, RetrieveInputParams, ValidateEvent, UserEvent
+from smartdrive.models.event import MinerProcess, StoreEvent, Action, StoreParams, StoreInputParams, RemoveEvent, \
+    RemoveParams, RemoveInputParams, RetrieveEvent, EventParams, RetrieveInputParams, ValidateEvent, UserEvent, \
+    ChunkEvent
 from smartdrive.models.block import Block
 from smartdrive.validator.config import config_manager
-from smartdrive.validator.models.models import MinerWithChunk, SubChunk, File, Chunk
+from smartdrive.validator.models.models import MinerWithChunk, File, Chunk
 
 from communex.types import Ss58Address
 
@@ -64,7 +65,8 @@ class Database:
                 create_file_table = '''
                     CREATE TABLE file (
                         uuid TEXT PRIMARY KEY,
-                        user_ss58_address INTEGER
+                        user_ss58_address INTEGER,
+                        total_chunks INTEGER
                     )
                 '''
 
@@ -82,18 +84,13 @@ class Database:
                     CREATE TABLE chunk (
                         uuid TEXT PRIMARY KEY,
                         file_uuid TEXT,
-                        FOREIGN KEY (file_uuid) REFERENCES file(uuid) ON DELETE CASCADE
-                    )
-                '''
-
-                create_sub_chunk_table = '''
-                    CREATE TABLE sub_chunk (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        chunk_uuid TEXT,
-                        start INTEGER,
-                        end INTEGER,
-                        data TEXT,
-                        FOREIGN KEY (chunk_uuid) REFERENCES chunk(uuid) ON DELETE CASCADE
+                        event_uuid TEXT,
+                        chunk_index INTEGER,
+                        sub_chunk_start INTEGER,
+                        sub_chunk_end INTEGER,
+                        sub_chunk_encoded TEXT,
+                        FOREIGN KEY (file_uuid) REFERENCES file(uuid) ON DELETE CASCADE,
+                        FOREIGN KEY (event_uuid) REFERENCES events(uuid) ON DELETE CASCADE
                     )
                 '''
 
@@ -122,9 +119,6 @@ class Database:
                         file_uuid TEXT NOT NULL,
                         file_created_at INTEGER,
                         file_expiration_ms INTEGER,
-                        sub_chunk_start INTEGER,
-                        sub_chunk_end INTEGER,
-                        sub_chunk_encoded TEXT,
                         event_signed_params TEXT NOT NULL,
                         user_ss58_address TEXT,
                         file TEXT,
@@ -151,7 +145,6 @@ class Database:
                     _create_table_if_not_exists(cursor, 'file', create_file_table)
                     _create_table_if_not_exists(cursor, 'file_expiration', create_file_expiration_table)
                     _create_table_if_not_exists(cursor, 'chunk', create_chunk_table)
-                    _create_table_if_not_exists(cursor, 'sub_chunk', create_sub_chunk_table)
                     _create_table_if_not_exists(cursor, 'miner_chunk', create_miner_chunk_table)
                     _create_table_if_not_exists(cursor, 'block', create_block_table)
                     _create_table_if_not_exists(cursor, 'event', create_event_table)
@@ -281,7 +274,7 @@ class Database:
             if connection:
                 connection.close()
 
-    def insert_file(self, file: File) -> bool:
+    def insert_file(self, file: File, event_uuid: str) -> bool:
         """
         Inserts a file and its associated chunks into the database.
 
@@ -305,9 +298,9 @@ class Database:
                 connection.execute('BEGIN TRANSACTION')
 
                 cursor.execute('''
-                    INSERT INTO file (uuid, user_ss58_address)
-                    VALUES (?, ?)
-                ''', (file.file_uuid, file.user_owner_ss58address,))
+                    INSERT INTO file (uuid, user_ss58_address, total_chunks)
+                    VALUES (?, ?, ?)
+                ''', (file.file_uuid, file.user_owner_ss58address, file.total_chunks))
 
                 if file.has_expiration():
                     cursor.execute('''
@@ -317,20 +310,15 @@ class Database:
 
                 for chunk in file.chunks:
                     cursor.execute('''
-                        INSERT INTO chunk (uuid, file_uuid)
-                        VALUES (?, ?)
-                    ''', (chunk.chunk_uuid, file.file_uuid))
+                        INSERT INTO chunk (uuid, file_uuid, event_uuid, chunk_index, sub_chunk_start, sub_chunk_end, sub_chunk_encoded)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ''', (chunk.chunk_uuid, file.file_uuid, event_uuid, chunk.chunk_index, chunk.sub_chunk_start, chunk.sub_chunk_end, chunk.sub_chunk_encoded))
 
                     cursor.execute('''
                         INSERT INTO miner_chunk (miner_ss58_address, chunk_uuid)
                         VALUES (?, ?)
                     ''', (chunk.miner_owner_ss58address, chunk.chunk_uuid))
 
-                    if chunk.sub_chunk:
-                        cursor.execute('''
-                            INSERT INTO sub_chunk (chunk_uuid, start, end, data)
-                            VALUES (?, ?, ?, ?)
-                        ''', (chunk.chunk_uuid, chunk.sub_chunk.start, chunk.sub_chunk.end, chunk.sub_chunk.data))
 
                 connection.commit()
 
@@ -340,11 +328,11 @@ class Database:
             print(f"Database error: {e}")
             return False
 
-    def check_if_file_exists(self, user_ss58_address: str, file_uuid: str) -> bool:
+    def get_file(self, user_ss58_address: str, file_uuid: str) -> File | None:
         """
-        Check if a file exists in the database.
+        Get a file from the database.
 
-        This function checks if a file with a given UUID exists in the database
+        This function gets a file with a given UUID in the database
         for a specific user identified by their SS58 address.
 
         Params:
@@ -352,7 +340,7 @@ class Database:
             file_uuid: The UUID of the file to be checked.
 
         Returns:
-            bool: True if the file exists, False otherwise.
+            file: file if the file exists, None otherwise.
 
         Raises:
             None explicitly, but logs an error message if an SQLite error occurs.
@@ -362,17 +350,21 @@ class Database:
             connection = sqlite3.connect(self._database_file_path)
             cursor = connection.cursor()
             cursor.execute(
-                "SELECT 1 FROM file WHERE file.uuid = ? AND file.user_ss58_address = ? ",
+                "SELECT uuid, user_ss58_address, total_chunks FROM file WHERE file.uuid = ? AND file.user_ss58_address = ? ",
                 (f'{file_uuid}', f'{user_ss58_address}')
             )
-            result = cursor.fetchone()
+            row = cursor.fetchone()
+            if row is not None:
+                result = File(user_owner_ss58address=row[1], total_chunks=row[2], file_uuid=row[0], chunks=[], created_at=None, expiration_ms=None)
+            else:
+                result = None
         except sqlite3.Error as e:
             print(f"Database error: {e}")
-            result = False
+            result = None
         finally:
             if connection:
                 connection.close()
-        return result is not None
+        return result
 
     def get_miner_chunks(self, file_uuid: str) -> List[MinerWithChunk]:
         """
@@ -385,7 +377,7 @@ class Database:
             List[MinerWithChunk]: A list of MinerChunk objects containing the miners' addresses and chunk hashes.
         """
         query = """
-            SELECT mc.miner_ss58_address, c.uuid
+            SELECT mc.miner_ss58_address, c.uuid, c.chunk_index
             FROM miner_chunk mc
             INNER JOIN chunk c ON mc.chunk_uuid = c.uuid
             INNER JOIN file f ON c.file_uuid = f.uuid
@@ -398,7 +390,7 @@ class Database:
             cursor = connection.cursor()
             cursor.execute(query, (file_uuid,))
             rows = cursor.fetchall()
-            result = [MinerWithChunk(ss58_address=row[0], chunk_uuid=row[1]) for row in rows]
+            result = [MinerWithChunk(ss58_address=row[0], chunk_uuid=row[1], chunk_index=row[2]) for row in rows]
         except sqlite3.Error as e:
             print(f"Database error: {e}")
         finally:
@@ -431,7 +423,8 @@ class Database:
                     f.uuid AS file_uuid, 
                     f.user_ss58_address,
                     fe.created_at, 
-                    fe.expiration_ms
+                    fe.expiration_ms,
+                    f.total_chunks
                 FROM 
                     file f
                 JOIN 
@@ -442,12 +435,16 @@ class Database:
             rows = cursor.fetchall()
 
             for row in rows:
-                file_uuid, user_owner_uuid, created_at, expiration_ms = row
+                file_uuid, user_owner_uuid, created_at, expiration_ms, total_chunks = row
 
                 miner_chunk_query = '''
                     SELECT 
                         mc.miner_ss58_address, 
-                        mc.chunk_uuid 
+                        mc.chunk_uuid,
+                        c.sub_chunk_start, 
+                        c.sub_chunk_end, 
+                        c.sub_chunk_encoded,
+                        c.chunk_index
                     FROM 
                         miner_chunk mc
                     JOIN 
@@ -461,31 +458,10 @@ class Database:
                 chunks = []
 
                 for chunk_row in chunk_rows:
-                    miner_ss58_address, chunk_uuid = chunk_row
+                    miner_ss58_address, chunk_uuid, sub_chunk_start, sub_chunk_end, sub_chunk_encoded, chunk_index = chunk_row
+                    chunks.append(Chunk(miner_ss58_address, chunk_uuid, file_uuid, chunk_index, sub_chunk_start, sub_chunk_end, sub_chunk_encoded))
 
-                    sub_chunk_query = '''
-                        SELECT 
-                            id, 
-                            start, 
-                            end,
-                            data
-                        FROM 
-                            sub_chunk 
-                        WHERE 
-                            chunk_uuid = ?
-                        LIMIT 1
-                    '''
-                    cursor.execute(sub_chunk_query, (chunk_uuid,))
-                    sub_chunk_row = cursor.fetchone()
-
-                    sub_chunk = None
-                    if sub_chunk_row:
-                        sub_chunk_id, start, end, data = sub_chunk_row
-                        sub_chunk = SubChunk(sub_chunk_id, start, end, chunk_uuid, data)
-
-                    chunks.append(Chunk(miner_ss58_address, chunk_uuid, file_uuid, sub_chunk))
-
-                file = File(user_owner_uuid, file_uuid, chunks, created_at, expiration_ms)
+                file = File(user_owner_uuid, total_chunks, file_uuid, chunks, created_at, expiration_ms)
                 files.append(file)
 
         except sqlite3.Error as e:
@@ -653,9 +629,6 @@ class Database:
         file_uuid = event.event_params.file_uuid
         file_created_at = None
         file_expiration_ms = None
-        sub_chunk_start = None
-        sub_chunk_end = None
-        sub_chunk_encoded = None
         user_ss58_address = None
         input_signed_params = None
         file = None
@@ -668,16 +641,13 @@ class Database:
         if isinstance(event, StoreEvent):
             file_created_at = event.event_params.created_at
             file_expiration_ms = event.event_params.expiration_ms
-            sub_chunk_start = event.event_params.sub_chunk_start
-            sub_chunk_end = event.event_params.sub_chunk_end
-            sub_chunk_encoded = event.event_params.sub_chunk_encoded
             file = event.input_params.file
 
         cursor.execute('''
-            INSERT INTO events (uuid, validator_ss58_address, event_type, file_uuid, file_created_at, file_expiration_ms, sub_chunk_start, sub_chunk_end, sub_chunk_encoded, event_signed_params, user_ss58_address, file, input_signed_params, block_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO events (uuid, validator_ss58_address, event_type, file_uuid, file_created_at, file_expiration_ms, event_signed_params, user_ss58_address, file, input_signed_params, block_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-        event.uuid, validator_ss58_address, event_type, file_uuid, file_created_at, file_expiration_ms, sub_chunk_start, sub_chunk_end, sub_chunk_encoded,
+        event.uuid, validator_ss58_address, event_type, file_uuid, file_created_at, file_expiration_ms,
         event_signed_params, user_ss58_address, file, input_signed_params, block_id))
 
         # Insert miner processes if applicable
@@ -726,11 +696,13 @@ class Database:
             query = '''
                 SELECT 
                     b.id AS block_id, b.proposer_signature, b.proposer_ss58_address,
-                    e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.file_created_at, e.file_expiration_ms, e.sub_chunk_start, e.sub_chunk_end, e.sub_chunk_encoded, e.event_signed_params, e.user_ss58_address, e.file, e.input_signed_params,
-                    m.chunk_uuid, m.miner_ss58_address, m.succeed, m.processing_time
+                    e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.file_created_at, e.file_expiration_ms, e.event_signed_params, e.user_ss58_address, e.file, e.input_signed_params,
+                    m.chunk_uuid, m.miner_ss58_address, m.succeed, m.processing_time,
+                    c.sub_chunk_start, c.sub_chunk_end, c.sub_chunk_encoded, c.chunk_index
                 FROM block b
                 LEFT JOIN events e ON b.id = e.block_id
                 LEFT JOIN miner_processes m ON e.uuid = m.event_uuid
+                LEFT JOIN chunk c ON m.chunk_uuid = c.uuid
                 WHERE b.id BETWEEN ? AND ?
                 ORDER BY b.id, e.uuid, m.id
             '''
@@ -759,6 +731,16 @@ class Database:
                     miner_process = self._build_miner_process_from_row(row)
                     if miner_process and miner_process not in events[event_uuid].event_params.miners_processes:
                         events[event_uuid].event_params.miners_processes.append(miner_process)
+
+                    if isinstance(events[event_uuid].event_params, StoreParams) and row['sub_chunk_start'] is not None and row['sub_chunk_end'] is not None and row['sub_chunk_encoded'] is not None:
+                        chunk = ChunkEvent(
+                            sub_chunk_start=row['sub_chunk_start'],
+                            sub_chunk_end=row['sub_chunk_end'],
+                            sub_chunk_encoded=row['sub_chunk_encoded'],
+                            uuid=row['chunk_uuid'],
+                            chunk_index=row['chunk_index']
+                        )
+                        events[event_uuid].event_params.chunks.append(chunk)
 
             return list(blocks.values())
 
@@ -792,9 +774,7 @@ class Database:
             event_params.update({
                 "created_at": row['file_created_at'],
                 "expiration_ms": row['file_expiration_ms'],
-                "sub_chunk_start": row['sub_chunk_start'],
-                "sub_chunk_end": row['sub_chunk_end'],
-                "sub_chunk_encoded": row['sub_chunk_encoded']
+                "chunks": []
             })
             event = StoreEvent(
                 uuid=row['event_uuid'],

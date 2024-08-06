@@ -77,7 +77,7 @@ def _run_with_timeout(target, args=(), timeout=TIMEOUT):
     return thread._return
 
 
-class CommuneConnectionPool:
+class ConnectionPool:
     def __init__(self, testnet, max_pool_size=POOL_SIZE, num_connections=DEFAULT_NUM_CONNECTIONS):
         comx_settings = ComxSettings()
         self.urls = comx_settings.TESTNET_NODE_URLS if testnet else comx_settings.NODE_URLS
@@ -214,9 +214,9 @@ def get_modules(netuid: int, timeout=TIMEOUT) -> List[ModuleInfo]:
     raise CommuneNetworkUnreachable()
 
 
-comx_pool: CommuneConnectionPool | None = None
+comx_pool: ConnectionPool | None = None
 
 
 def initialize_commune_connection_pool(testnet, max_pool_size=POOL_SIZE, num_connections=DEFAULT_NUM_CONNECTIONS):
     global comx_pool
-    comx_pool = CommuneConnectionPool(testnet=testnet, max_pool_size=max_pool_size, num_connections=num_connections)
+    comx_pool = ConnectionPool(testnet=testnet, max_pool_size=max_pool_size, num_connections=num_connections)

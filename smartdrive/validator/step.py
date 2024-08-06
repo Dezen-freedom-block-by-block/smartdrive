@@ -36,7 +36,7 @@ from smartdrive.validator.api.validate_api import validate_chunk_request
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.evaluation.utils import generate_data
 from smartdrive.models.event import RemoveEvent, ValidateEvent, StoreEvent, MinerProcess, EventParams, RemoveParams, RemoveInputParams
-from smartdrive.validator.models.models import File, ModuleType, SubChunk
+from smartdrive.validator.models.models import File, ModuleType, Chunk
 from smartdrive.commune.utils import calculate_hash
 
 
@@ -177,30 +177,30 @@ async def _validate_miners(files: list[File], keypair: Keypair, netuid: int) -> 
     if not miners:
         return events
 
-    sub_chunks = list(chunk.sub_chunk is not None for file in files for chunk in file.chunks)
-    has_sub_chunks = any(sub_chunks)
+    sub_chunks_encoded = list(chunk.sub_chunk_encoded is not None for file in files for chunk in file.chunks)
+    has_sub_chunks_encoded = any(sub_chunks_encoded)
 
-    if not has_sub_chunks:
+    if not has_sub_chunks_encoded:
         return events
 
-    async def handle_validation_request(miner_info: ModuleInfo, user_owner_ss58_address: Ss58Address, subchunk: SubChunk):
+    async def handle_validation_request(miner_info: ModuleInfo, user_owner_ss58_address: Ss58Address, chunk: Chunk):
         start_time = time.time()
         validate_request_succeed = await validate_chunk_request(
             keypair=keypair,
             user_owner_ss58_address=user_owner_ss58_address,
             miner_module_info=miner_info,
-            subchunk=subchunk
+            chunk=chunk
         )
         final_time = time.time() - start_time
 
         miner_process = MinerProcess(
-            chunk_uuid=subchunk.chunk_uuid,
+            chunk_uuid=chunk.chunk_uuid,
             miner_ss58_address=miner_info.ss58_address,
             succeed=validate_request_succeed,
             processing_time=final_time
         )
         event_params = EventParams(
-            file_uuid=subchunk.chunk_uuid,
+            file_uuid=chunk.chunk_uuid,
             miners_processes=[miner_process],
         )
 
@@ -216,10 +216,9 @@ async def _validate_miners(files: list[File], keypair: Keypair, netuid: int) -> 
 
     async def process_file(file: File):
         for chunk in file.chunks:
-            if chunk.sub_chunk is not None:
-                chunk_miner_module_info = next((miner for miner in miners if miner.ss58_address == chunk.miner_owner_ss58address), None)
-                if chunk_miner_module_info:
-                    await handle_validation_request(chunk_miner_module_info, file.user_owner_ss58address, chunk.sub_chunk)
+            chunk_miner_module_info = next((miner for miner in miners if miner.ss58_address == chunk.miner_owner_ss58address), None)
+            if chunk_miner_module_info:
+                await handle_validation_request(chunk_miner_module_info, file.user_owner_ss58address, chunk)
 
     futures = [process_file(file) for file in files]
     await asyncio.gather(*futures)

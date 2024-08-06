@@ -63,8 +63,8 @@ class RemoveAPI:
         user_ss58_address = get_ss58_address_from_public_key(user_public_key)
 
         # Check if the file exists
-        file_exists = self._database.check_if_file_exists(user_ss58_address, file_uuid)
-        if not file_exists:
+        file = self._database.get_file(user_ss58_address, file_uuid)
+        if not file:
             raise HTTPException(status_code=404, detail="The file does not exist")
 
         # Get miners and chunks for the file
