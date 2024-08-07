@@ -216,7 +216,7 @@ async def _validate_miners(files: list[File], keypair: Keypair, netuid: int) -> 
 
     async def process_file(file: File):
         for chunk in file.chunks:
-            chunk_miner_module_info = next((miner for miner in miners if miner.ss58_address == chunk.miner_owner_ss58address), None)
+            chunk_miner_module_info = next((miner for miner in miners if miner.ss58_address == chunk.miner_ss58_address), None)
             if chunk_miner_module_info:
                 await handle_validation_request(chunk_miner_module_info, file.user_owner_ss58address, chunk)
 
@@ -251,7 +251,7 @@ def _determine_miners_to_store(files_with_expiration: list[File], expired_files_
     else:
         # Map expired miner ss58_address
         expired_miners_ss58_address = {
-            chunk.miner_owner_ss58address
+            chunk.miner_ss58_address
             for file in expired_files_dict
             for chunk in file.chunks
         }
@@ -263,7 +263,7 @@ def _determine_miners_to_store(files_with_expiration: list[File], expired_files_
 
         # Add miners without any file
         users_ss58_addresses_having_files = [
-            chunk.miner_owner_ss58address
+            chunk.miner_ss58_address
             for file in files_with_expiration
             for chunk in file.chunks
         ]

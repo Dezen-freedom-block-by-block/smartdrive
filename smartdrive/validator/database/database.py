@@ -85,21 +85,13 @@ class Database:
                         uuid TEXT PRIMARY KEY,
                         file_uuid TEXT,
                         event_uuid TEXT,
+                        miner_ss58_address TEXT,
                         chunk_index INTEGER,
                         sub_chunk_start INTEGER,
                         sub_chunk_end INTEGER,
                         sub_chunk_encoded TEXT,
                         FOREIGN KEY (file_uuid) REFERENCES file(uuid) ON DELETE CASCADE,
                         FOREIGN KEY (event_uuid) REFERENCES events(uuid) ON DELETE CASCADE
-                    )
-                '''
-
-                create_miner_chunk_table = '''
-                    CREATE TABLE miner_chunk (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        miner_ss58_address TEXT,
-                        chunk_uuid TEXT,
-                        FOREIGN KEY (chunk_uuid) REFERENCES chunk(uuid) ON DELETE CASCADE
                     )
                 '''
 
@@ -145,7 +137,6 @@ class Database:
                     _create_table_if_not_exists(cursor, 'file', create_file_table)
                     _create_table_if_not_exists(cursor, 'file_expiration', create_file_expiration_table)
                     _create_table_if_not_exists(cursor, 'chunk', create_chunk_table)
-                    _create_table_if_not_exists(cursor, 'miner_chunk', create_miner_chunk_table)
                     _create_table_if_not_exists(cursor, 'block', create_block_table)
                     _create_table_if_not_exists(cursor, 'event', create_event_table)
                     _create_table_if_not_exists(cursor, 'miner_process', create_miner_process)
@@ -310,15 +301,9 @@ class Database:
 
                 for chunk in file.chunks:
                     cursor.execute('''
-                        INSERT INTO chunk (uuid, file_uuid, event_uuid, chunk_index, sub_chunk_start, sub_chunk_end, sub_chunk_encoded)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ''', (chunk.chunk_uuid, file.file_uuid, event_uuid, chunk.chunk_index, chunk.sub_chunk_start, chunk.sub_chunk_end, chunk.sub_chunk_encoded))
-
-                    cursor.execute('''
-                        INSERT INTO miner_chunk (miner_ss58_address, chunk_uuid)
-                        VALUES (?, ?)
-                    ''', (chunk.miner_owner_ss58address, chunk.chunk_uuid))
-
+                        INSERT INTO chunk (uuid, file_uuid, event_uuid, miner_ss58_address, chunk_index, sub_chunk_start, sub_chunk_end, sub_chunk_encoded)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (chunk.chunk_uuid, file.file_uuid, event_uuid, chunk.miner_ss58_address, chunk.chunk_index, chunk.sub_chunk_start, chunk.sub_chunk_end, chunk.sub_chunk_encoded))
 
                 connection.commit()
 
@@ -366,7 +351,7 @@ class Database:
                 connection.close()
         return result
 
-    def get_miner_chunks(self, file_uuid: str) -> List[MinerWithChunk]:
+    def get_chunks(self, file_uuid: str) -> List[MinerWithChunk]:
         """
         Retrieves the miners' addresses and chunk hashes associated with a given file name.
 
@@ -377,9 +362,8 @@ class Database:
             List[MinerWithChunk]: A list of MinerChunk objects containing the miners' addresses and chunk hashes.
         """
         query = """
-            SELECT mc.miner_ss58_address, c.uuid, c.chunk_index
-            FROM miner_chunk mc
-            INNER JOIN chunk c ON mc.chunk_uuid = c.uuid
+            SELECT c.miner_ss58_address, c.uuid, c.chunk_index
+            FROM chunk c
             INNER JOIN file f ON c.file_uuid = f.uuid
             WHERE f.uuid = ?;
         """
@@ -437,22 +421,20 @@ class Database:
             for row in rows:
                 file_uuid, user_owner_uuid, created_at, expiration_ms, total_chunks = row
 
-                miner_chunk_query = '''
+                chunk_query = '''
                     SELECT 
-                        mc.miner_ss58_address, 
-                        mc.chunk_uuid,
+                        c.miner_ss58_address, 
+                        c.uuid,
                         c.sub_chunk_start, 
                         c.sub_chunk_end, 
                         c.sub_chunk_encoded,
                         c.chunk_index
                     FROM 
-                        miner_chunk mc
-                    JOIN 
-                        chunk c ON mc.chunk_uuid = c.uuid
+                        chunk c
                     WHERE 
                         c.file_uuid = ?
                 '''
-                cursor.execute(miner_chunk_query, (file_uuid,))
+                cursor.execute(chunk_query, (file_uuid,))
                 chunk_rows = cursor.fetchall()
 
                 chunks = []

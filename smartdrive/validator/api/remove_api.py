@@ -68,8 +68,8 @@ class RemoveAPI:
             raise HTTPException(status_code=404, detail="The file does not exist")
 
         # Get miners and chunks for the file
-        miner_chunks = self._database.get_miner_chunks(file_uuid)
-        if not miner_chunks:
+        chunks = self._database.get_chunks(file_uuid)
+        if not chunks:
             raise HTTPException(status_code=404, detail="Currently there are no miners with this file name")
 
         # Create event

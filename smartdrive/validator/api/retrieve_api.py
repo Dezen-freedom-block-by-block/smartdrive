@@ -83,8 +83,8 @@ class RetrieveAPI:
             print("The file not exists")
             raise HTTPException(status_code=404, detail="File does not exist")
 
-        miner_chunks = self._database.get_miner_chunks(file_uuid)
-        if not miner_chunks:
+        chunks = self._database.get_chunks(file_uuid)
+        if not chunks:
             print("Currently no miner has any chunk")
             raise HTTPException(status_code=404, detail="Currently no miner has any chunk")
 
@@ -98,7 +98,7 @@ class RetrieveAPI:
             raise HTTPException(status_code=404, detail="Currently there are no miners")
 
         # Group miner_chunks by chunk_index
-        miners_with_chunks = get_miner_info_with_chunk(miners, miner_chunks)
+        miners_with_chunks = get_miner_info_with_chunk(miners, chunks)
         miner_chunks_by_index = {}
         for miner_chunk in miners_with_chunks:
             chunk_index = miner_chunk["chunk_index"]

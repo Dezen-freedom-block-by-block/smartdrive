@@ -140,7 +140,7 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
                         chunk = matching_chunks[0]
                         total_chunks_index.add(chunk.chunk_index)
                         chunks.append(Chunk(
-                            miner_owner_ss58address=miner_process.miner_ss58_address,
+                            miner_ss58address=miner_process.miner_ss58_address,
                             chunk_uuid=miner_process.chunk_uuid,
                             file_uuid=event.event_params.file_uuid,
                             chunk_index=chunk.chunk_index,
@@ -161,14 +161,14 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
 
         elif isinstance(event, RemoveEvent):
             if is_proposer_validator:
-                miner_chunks = database.get_miner_chunks(event.event_params.file_uuid)
+                chunks = database.get_chunks(event.event_params.file_uuid)
 
                 # If it is the events being processed by the validator when it is creating a block it should raise the
                 # exception and cancel the block creation. This method can also be launched in clint.py but in that case
                 # is not a proposer validator.
                 miners = get_filtered_modules(netuid, ModuleType.MINER)
 
-                miner_with_chunks = get_miner_info_with_chunk(miners, miner_chunks)
+                miner_with_chunks = get_miner_info_with_chunk(miners, chunks)
                 miner_processes = []
 
                 for miner in miner_with_chunks:

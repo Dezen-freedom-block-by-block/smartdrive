@@ -36,8 +36,8 @@ class Chunk:
         chunk_uuid (str): The UUID of the chunk.
         file_uuid (Optional[str]): The UUID of the file to which the chunk belongs.
     """
-    def __init__(self, miner_owner_ss58address: Ss58Address, chunk_uuid: str, file_uuid: Optional[str], chunk_index: int, sub_chunk_start: int, sub_chunk_end: int, sub_chunk_encoded: str):
-        self.miner_owner_ss58address = miner_owner_ss58address
+    def __init__(self, miner_ss58address: Ss58Address, chunk_uuid: str, file_uuid: Optional[str], chunk_index: int, sub_chunk_start: int, sub_chunk_end: int, sub_chunk_encoded: str):
+        self.miner_ss58_address = miner_ss58address
         self.chunk_uuid = chunk_uuid
         self.file_uuid = file_uuid
         self.chunk_index = chunk_index
@@ -46,7 +46,7 @@ class Chunk:
         self.sub_chunk_encoded = sub_chunk_encoded
 
     def __repr__(self):
-        return f"Chunk(miner_owner_ss58address={self.miner_owner_ss58address}, chunk_uuid={self.chunk_uuid}, file_uuid={self.file_uuid}, sub_chunk_start={self.sub_chunk_start}, sub_chunk_end={self.sub_chunk_end}, sub_chunk_encoded={self.sub_chunk_encoded})"
+        return f"Chunk(miner_owner_ss58address={self.miner_ss58_address}, chunk_uuid={self.chunk_uuid}, file_uuid={self.file_uuid}, sub_chunk_start={self.sub_chunk_start}, sub_chunk_end={self.sub_chunk_end}, sub_chunk_encoded={self.sub_chunk_encoded})"
 
 
 class MinerWithChunk:
