@@ -52,7 +52,7 @@ class StoreInputParams(InputParams):
 
 class ChunkEvent(BaseModel):
     uuid: Optional[str]
-    miner_ss58_address: str
+    miner_ss58_address: Optional[str]
     chunk_index: Optional[int] = None
     sub_chunk_start: Optional[int] = None
     sub_chunk_end: Optional[int] = None
