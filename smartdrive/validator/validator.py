@@ -39,7 +39,7 @@ from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.api.api import API
 from smartdrive.validator.errors import InitialSyncError
-from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
+from smartdrive.validator.evaluation.evaluation import score_miners, set_weights
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.node.node import Node
 from smartdrive.validator.step import validate_step
@@ -93,8 +93,7 @@ class Validator(Module):
     MAX_RETRIES = 2
     RETRY_DELAY_INITIAL_SYNC = 10
     RETRY_DELAY_CREATION_BLOCK = 5
-    VALIDATION_INTERVAL_SECONDS = 3 * 60
-    VOTE_INTERVAL_SECONDS = 60
+    VALIDATION_VOTE_INTERVAL_SECONDS = 2 * 60
     # TODO: CHECK INTERVAL DAYS FOR SCORE MINER
     DAYS_INTERVAL = 14
 
@@ -112,15 +111,15 @@ class Validator(Module):
 
     async def create_blocks(self):
         last_validation_time = time.time()
-        last_vote_time = time.time()
 
         while True:
             try:
-                if _validator.node.initial_sync_completed.value and time.time() - last_vote_time >= self.VOTE_INTERVAL_SECONDS:
-                    asyncio.create_task(self.vote_miners())
-                    last_vote_time = time.time()
+                if time.time() - last_validation_time >= self.VALIDATION_VOTE_INTERVAL_SECONDS:
+                    print("Starting validation and voting task")
+                    asyncio.create_task(self.validation_task())
+                    last_validation_time = time.time()
             except Exception as e:
-                print(f"Error voting - {e}")
+                print(f"Error validation and voting - {e}")
 
             try:
                 start_time = time.time()
@@ -165,13 +164,6 @@ class Validator(Module):
                     if not _validator.node.initial_sync_completed.value:
                         _validator.node.initial_sync_completed.value = True
 
-                if time.time() - last_validation_time >= self.VALIDATION_INTERVAL_SECONDS:
-                    if proposer_validator.ss58_address == self._key.ss58_address:
-                        print("Starting validation task")
-                        asyncio.create_task(self.validation_task())
-
-                    last_validation_time = time.time()
-
                 elapsed = time.time() - start_time
                 if elapsed < self.BLOCK_INTERVAL_SECONDS:
                     sleep_time = self.BLOCK_INTERVAL_SECONDS - elapsed
@@ -183,46 +175,35 @@ class Validator(Module):
                 await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS)
 
     async def validation_task(self):
-        result = await validate_step(
-            database=self._database,
-            key=self._key,
-            netuid=config_manager.config.netuid
+        miners = [
+            miner for miner in get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
+            if miner.ss58_address != self._key.ss58_address
+        ]
+
+        remove_events, chunks_events, result_miners = await validate_step(
+                miners=miners,
+                database=self._database,
+                key=self._key,
+                validators_len=len(self.node.get_active_validators_connections()) + 1  # To include myself
         )
 
-        if result is not None:
-            remove_events, validate_events, store_event = result
-
-            if remove_events:
-                self.node.insert_pool_events(remove_events)
-
-            if validate_events:
-                self.node.insert_pool_events(validate_events)
-
-            if store_event:
-                self.node.insert_pool_event(store_event)
-
-    async def vote_miners(self):
-        """
-        Calculates the weights of the miners and sets them in the network.
-
-        Collects performance data of miners, calculates a score based on their successful and failed calls,
-        and then sets these weights in the network.
-
-        Raises:
-            CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
-        """
-        score_dict = {}
-        for miner in get_filtered_modules(config_manager.config.netuid, ModuleType.MINER):
-            if miner.ss58_address == self._key.ss58_address:
-                continue
-            total_calls, failed_calls = self._database.get_miner_processes(
-                miner_ss58_address=miner.ss58_address,
-                days_interval=self.DAYS_INTERVAL
+        if remove_events:
+            await process_events(
+                events=remove_events,
+                is_proposer_validator=True,
+                keypair=self._key,
+                netuid=config_manager.config.netuid,
+                database=self._database
             )
-            score_dict[int(miner.uid)] = score_miner(total_calls=total_calls, failed_calls=failed_calls)
 
-        if score_dict:
-            await set_weights(score_dict, config_manager.config.netuid, self._key)
+        if chunks_events:
+            self._database.insert_validation(chunk_events=chunks_events)
+
+        if result_miners:
+            # Voting
+            score_dict = score_miners(result_miners=result_miners)
+            if _validator.node.initial_sync_completed.value and score_dict:
+                await set_weights(score_dict, config_manager.config.netuid, self._key)
 
     async def periodically_ping_validators(self):
         while True:

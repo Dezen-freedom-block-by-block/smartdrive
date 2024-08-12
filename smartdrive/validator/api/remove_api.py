@@ -32,7 +32,7 @@ from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
-from smartdrive.models.event import RemoveEvent, RemoveParams, RemoveInputParams
+from smartdrive.models.event import RemoveEvent, RemoveInputParams, EventParams
 from smartdrive.validator.node.node import Node
 
 
@@ -73,7 +73,7 @@ class RemoveAPI:
             raise HTTPException(status_code=404, detail="Currently there are no miners with this file name")
 
         # Create event
-        event_params = RemoveParams(
+        event_params = EventParams(
             file_uuid=file_uuid
         )
 

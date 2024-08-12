@@ -25,33 +25,35 @@ from substrateinterface import Keypair
 
 from smartdrive.commune.request import execute_miner_request
 from smartdrive.commune.models import ModuleInfo
-from smartdrive.validator.models.models import Chunk
+from smartdrive.models.event import ChunkEvent
 
 
-async def validate_chunk_request(keypair: Keypair, user_owner_ss58_address: Ss58Address, miner_module_info: ModuleInfo, chunk: Chunk) -> bool:
+async def validate_chunk_request(keypair: Keypair, user_owner_ss58_address: Ss58Address, miner_module_info: ModuleInfo, chunk_event: ChunkEvent) -> bool:
     """
-    Sends a request to a miner to validate a specific sub-chunk.
+    Sends a request to a miner to validate a specific chunk.
 
-    This method sends an asynchronous request to a specified miner to validate a sub-chunk
+    This method sends an asynchronous request to a specified miner to validate a chunk
     identified by its UUID. The request is executed using the miner's connection and
     address information.
 
     Params:
         keypair (Keypair): The validator key used to authorize the request.
-        user_owner_ss58_address (Ss58Address): The SS58 address of the user associated with the sub-chunk.
+        user_owner_ss58_address (Ss58Address): The SS58 address of the user associated with the chunk.
         miner_module_info (ModuleInfo): The miner's module information.
-        subchunk (SubChunk): The sub-chunk to be validated.
+        chunk_event (ChunkEvent): The chunk_event to be validated.
 
     Returns:
         bool: Returns True if the miner confirms the validation request, otherwise False.
     """
+
     miner_answer = await execute_miner_request(
         keypair, miner_module_info.connection, miner_module_info.ss58_address, "validation",
         {
             "folder": user_owner_ss58_address,
-            "chunk_uuid": chunk.chunk_uuid,
-            "start": chunk.sub_chunk_start,
-            "end": chunk.sub_chunk_end
+            "chunk_uuid": chunk_event.uuid,
+            "start": chunk_event.sub_chunk_start,
+            "end": chunk_event.sub_chunk_end
         }
     )
-    return str(miner_answer) == chunk.sub_chunk_encoded if miner_answer else False
+
+    return str(miner_answer) == chunk_event.sub_chunk_encoded if miner_answer else False

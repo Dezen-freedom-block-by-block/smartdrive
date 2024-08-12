@@ -24,12 +24,12 @@ from typing import Union
 from communex.types import Ss58Address
 from pydantic import BaseModel
 
-from smartdrive.models.event import MessageEvent, parse_event, StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent
+from smartdrive.models.event import MessageEvent, parse_event, StoreEvent, RemoveEvent
 
 
 class Block(BaseModel):
     block_number: int
-    events: list[Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]]
+    events: list[Union[StoreEvent, RemoveEvent]]
     proposer_signature: str
     proposer_ss58_address: Ss58Address
 

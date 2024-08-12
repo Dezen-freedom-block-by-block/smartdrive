@@ -36,8 +36,8 @@ class Chunk:
         chunk_uuid (str): The UUID of the chunk.
         file_uuid (Optional[str]): The UUID of the file to which the chunk belongs.
     """
-    def __init__(self, miner_ss58address: Ss58Address, chunk_uuid: str, file_uuid: Optional[str], chunk_index: int, sub_chunk_start: int, sub_chunk_end: int, sub_chunk_encoded: str):
-        self.miner_ss58_address = miner_ss58address
+    def __init__(self, miner_ss58_address: Ss58Address, chunk_uuid: str, file_uuid: Optional[str], chunk_index: int, sub_chunk_start: Optional[int] = None, sub_chunk_end: Optional[int] = None, sub_chunk_encoded: Optional[str] = None):
+        self.miner_ss58_address = miner_ss58_address
         self.chunk_uuid = chunk_uuid
         self.file_uuid = file_uuid
         self.chunk_index = chunk_index

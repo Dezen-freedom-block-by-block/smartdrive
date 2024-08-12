@@ -6,7 +6,7 @@ from typing import List
 from communex.compat.key import classic_load_key
 
 import smartdrive
-from smartdrive.models.event import parse_event, MessageEvent, Action, Event
+from smartdrive.models.event import parse_event, MessageEvent, Action, Event, ChunkEvent
 from smartdrive.validator.api.middleware.sign import verify_data_signature, sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.config import config_manager
@@ -23,6 +23,7 @@ from smartdrive.validator.utils import process_events
 
 class Client(multiprocessing.Process):
     MAX_BLOCKS_SYNC = 500
+    MAX_VALIDATION_SYNC = 500
 
     _client_socket = None
     _identifier: str = None
@@ -207,6 +208,11 @@ class Client(multiprocessing.Process):
                             self._remove_events(block.events, event_pool)
                             self._database.create_block(block)
 
+                elif body['code'] == MessageCode.MESSAGE_CODE_CHUNK_EVENT.value:
+                    chunk_events = [ChunkEvent(**chunk) for chunk in body['data']]
+                    if chunk_events:
+                        self._database.insert_validation(chunk_events=chunk_events)
+
         except InvalidSignatureException as e:
             raise e
 
@@ -255,12 +261,7 @@ class Client(multiprocessing.Process):
         async def _get_synced_blocks(c):
             try:
                 body = {"code": MessageCode.MESSAGE_CODE_SYNC_BLOCK.value, "start": str(start), "end": str(end)}
-                body_sign = sign_data(body, self._keypair)
-                message = {
-                    "body": body,
-                    "signature_hex": body_sign.hex(),
-                    "public_key_hex": self._keypair.public_key.hex()
-                }
+                message = prepare_body_tcp(body, self._keypair)
                 send_json(c, message)
             except Exception as e:
                 print(f"Error getting synced blocks: {e}")

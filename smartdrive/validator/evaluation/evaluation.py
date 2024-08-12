@@ -29,23 +29,24 @@ MAX_ALLOWED_WEIGHTS = 256
 MAX_ALLOWED_UIDS = 256
 
 
-def score_miner(total_calls: int, failed_calls: int) -> float:
+def score_miners(result_miners: dict[int, bool]) -> dict[int, float]:
     """
-    Calculate the score for a miner based on the number of total calls and failed responses.
+    Calculate the score for a miner based on the response
 
     Params:
-        total_calls (int): The total number of calls made.
-        failed_responses (int): The number of failed responses.
+        result_miners (dict[int, bool]): A dictionary mapping miner UIDs to their success responses in validation.
 
     Returns:
-        float: The calculated score for the miner, between 0 and 1.
+        score_dict (dict[int, float]): A dictionary mapping miner UIDs to their scores.
+
     """
-    if total_calls <= 0:
-        return 0.0
 
-    failure_ratio = failed_calls / total_calls
+    # TODO: Right now the miner scoring is quite basic, in the future it will be changed to another system
+    score_dict = {}
+    for uid, success in result_miners.items():
+        score_dict[uid] = 1.0 if success else 0.0
 
-    return max(0.0, 1.0 - failure_ratio)
+    return score_dict
 
 
 async def set_weights(score_dict: dict[int, float], netuid: int, key: Keypair):

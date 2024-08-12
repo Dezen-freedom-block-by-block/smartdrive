@@ -30,7 +30,7 @@ SmartDrive is currently in an early stage where runtime errors may occur. Howeve
 Validators play a crucial role in maintaining the integrity and security of the SmartDrive storage network. Their responsibilities include:
 
 - Distributing Information: Ensuring data is distributed evenly and securely among miners to prevent single points of failure. Validators manage the distribution process to maintain redundancy and reliability.
-- Validating Data: Checking the integrity and availability of stored data by validating sub-chunks across miners. This ensures that the data remains consistent and uncorrupted throughout the network.
+- Validating Data: Checking the integrity and availability of stored data by validating chunks across miners. This ensures that the data remains consistent and uncorrupted throughout the network.
 - Ensuring Availability: Continuously monitoring the network to ensure that data is always accessible and retrievable. Validators perform regular checks to guarantee that all stored data is available for retrieval when needed.
 - Incentivizing Miners: Providing rewards to miners based on their performance in storing and maintaining data integrity. Validators assess miners' contributions and distribute rewards accordingly, encouraging high standards of reliability and performance.
 

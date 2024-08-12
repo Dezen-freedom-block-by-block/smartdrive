@@ -24,7 +24,6 @@ import asyncio
 import os
 import random
 import tempfile
-import time
 import zipfile
 from typing import Optional
 import requests
@@ -35,8 +34,7 @@ from substrateinterface import Keypair
 
 from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.commune.request import get_filtered_modules
-from smartdrive.models.event import Event, StoreEvent, RemoveEvent, MinerProcess
-from smartdrive.validator.api.middleware.sign import sign_data
+from smartdrive.models.event import Event, StoreEvent, RemoveEvent
 from smartdrive.validator.api.utils import get_miner_info_with_chunk, remove_chunk_request
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.models.models import Chunk, File, ModuleType
@@ -127,37 +125,27 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
     """
     for event in events:
         if isinstance(event, StoreEvent):
-
-            at_least_one_succeed = any(miner_process.succeed for miner_process in event.event_params.miners_processes)
-            if at_least_one_succeed:
-
-                total_chunks_index = set()
-                chunks = []
-                for miner_process in event.event_params.miners_processes:
-                    matching_chunks = list(filter(lambda sc: sc.uuid == miner_process.chunk_uuid, event.event_params.chunks))
-
-                    if matching_chunks:
-                        chunk = matching_chunks[0]
-                        total_chunks_index.add(chunk.chunk_index)
-                        chunks.append(Chunk(
-                            miner_ss58address=miner_process.miner_ss58_address,
-                            chunk_uuid=miner_process.chunk_uuid,
-                            file_uuid=event.event_params.file_uuid,
-                            chunk_index=chunk.chunk_index,
-                            sub_chunk_start=chunk.sub_chunk_start,
-                            sub_chunk_end=chunk.sub_chunk_end,
-                            sub_chunk_encoded=chunk.sub_chunk_encoded,
-                        )
-                        )
-                file = File(
-                    user_owner_ss58address=event.user_ss58_address,
-                    total_chunks=len(total_chunks_index),
-                    file_uuid=event.event_params.file_uuid,
-                    chunks=chunks,
-                    created_at=event.event_params.created_at,
-                    expiration_ms=event.event_params.expiration_ms
+            total_chunks_index = set()
+            chunks = []
+            for chunk in event.event_params.chunks:
+                total_chunks_index.add(chunk.chunk_index)
+                chunks.append(
+                    Chunk(
+                        miner_ss58_address=Ss58Address(chunk.miner_ss58_address),
+                        chunk_uuid=chunk.uuid,
+                        file_uuid=event.event_params.file_uuid,
+                        chunk_index=chunk.chunk_index
+                    )
                 )
-                database.insert_file(file=file, event_uuid=event.uuid)
+            file = File(
+                user_owner_ss58address=event.user_ss58_address,
+                total_chunks=len(total_chunks_index),
+                file_uuid=event.event_params.file_uuid,
+                chunks=chunks,
+                created_at=event.event_params.created_at,
+                expiration_ms=event.event_params.expiration_ms
+            )
+            database.insert_file(file=file, event_uuid=event.uuid)
 
         elif isinstance(event, RemoveEvent):
             if is_proposer_validator:
@@ -169,28 +157,11 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
                 miners = get_filtered_modules(netuid, ModuleType.MINER)
 
                 miner_with_chunks = get_miner_info_with_chunk(miners, chunks)
-                miner_processes = []
 
                 for miner in miner_with_chunks:
-                    start_time = time.time()
-
                     connection = ConnectionInfo(miner["connection"]["ip"], miner["connection"]["port"])
                     miner_info = ModuleInfo(miner["uid"], miner["ss58_address"], connection)
-                    result = await remove_chunk_request(keypair, event.user_ss58_address, miner_info, miner["chunk_uuid"])
-
-                    final_time = time.time() - start_time
-                    miner_process = MinerProcess(chunk_uuid=miner["chunk_uuid"], miner_ss58_address=miner["ss58_address"],
-                                                 succeed=True if result else False, processing_time=final_time)
-                    miner_processes.append(miner_process)
-
-                # Since in the remove call processed by a validator it cannot finish completing the event_params
-                # (since it does not fill in the miners processes), the already signed event must be replaced with a new
-                # event in which the miner processes are added to the file_uuid parameter that already existed.
-                # Once the parameters of this event have been replaced, they must be signed again, thus replacing
-                # the validator's signature with that of the proposer.
-                event.event_params.miners_processes = miner_processes
-                event.event_signed_params = sign_data(event.event_params.dict(), keypair).hex()
-                event.validator_ss58_address = Ss58Address(keypair.ss58_address)
+                    await remove_chunk_request(keypair, event.user_ss58_address, miner_info, miner["chunk_uuid"])
 
             database.remove_file(event.event_params.file_uuid)
             
@@ -200,8 +171,8 @@ def get_file_expiration() -> int:
     Generate a random expiration time in milliseconds within a range.
 
     Returns:
-        int: A random expiration time between 1 hours (min_ms) and 4 hours (max_ms) in milliseconds.
+        int: A random expiration time between 10 minutes (min_ms) and 1 hour (max_ms) in milliseconds.
     """
-    min_ms = 1 * 60 * 60 * 1000  # 1 hours
-    max_ms = 4 * 60 * 60 * 1000  # 4 hours
+    min_ms = 10 * 60 * 1000  # 10 minutes
+    max_ms = 1 * 60 * 60 * 1000  # 1 hour
     return random.randint(min_ms, max_ms)

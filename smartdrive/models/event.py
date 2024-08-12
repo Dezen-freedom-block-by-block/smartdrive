@@ -50,36 +50,28 @@ class StoreInputParams(InputParams):
     file: str
 
 
-class MinerProcess(BaseModel):
-    chunk_uuid: Optional[str]
-    miner_ss58_address: Ss58Address
-    succeed: Optional[bool] = None
-    processing_time: Optional[float] = None
-
-
 class ChunkEvent(BaseModel):
     uuid: Optional[str]
-    chunk_index: int
-    sub_chunk_start: int
-    sub_chunk_end: int
-    sub_chunk_encoded: str
+    miner_ss58_address: str
+    chunk_index: Optional[int] = None
+    sub_chunk_start: Optional[int] = None
+    sub_chunk_end: Optional[int] = None
+    sub_chunk_encoded: Optional[str] = None
+    expiration_ms: Optional[int] = None
+    created_at: Optional[int] = None
+    file_uuid: Optional[str] = None
+    user_owner_ss58_address: Optional[str] = None
 
 
 class EventParams(BaseModel):
     file_uuid: str
-    miners_processes: Optional[List[MinerProcess]]
 
 
 class StoreParams(EventParams):
     file_uuid: str
-    miners_processes: List[MinerProcess]
     created_at: Optional[int]
     expiration_ms: Optional[int]
     chunks: List[ChunkEvent]
-
-
-class RemoveParams(EventParams):
-    miners_processes: Optional[List[MinerProcess]] = None
 
 
 class Event(BaseModel):
@@ -102,10 +94,6 @@ class Event(BaseModel):
             return Action.STORE
         elif isinstance(self, RemoveEvent):
             return Action.REMOVE
-        elif isinstance(self, RetrieveEvent):
-            return Action.RETRIEVE
-        elif isinstance(self, ValidateEvent):
-            return Action.VALIDATION
         else:
             raise ValueError("Unknown event type")
 
@@ -122,21 +110,13 @@ class StoreEvent(UserEvent):
 
 
 class RemoveEvent(UserEvent):
-    event_params: RemoveParams
+    event_params: EventParams
     input_params: RemoveInputParams
-
-
-class RetrieveEvent(UserEvent):
-    input_params: RetrieveInputParams
-
-
-class ValidateEvent(Event):
-    pass
 
 
 class MessageEvent(BaseModel):
     event_action: Action
-    event: Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]
+    event: Union[StoreEvent, RemoveEvent]
 
     class Config:
         use_enum_values = True
@@ -147,17 +127,13 @@ class MessageEvent(BaseModel):
             event = StoreEvent(**data)
         elif event_action == Action.REMOVE:
             event = RemoveEvent(**data)
-        elif event_action == Action.RETRIEVE:
-            event = RetrieveEvent(**data)
-        elif event_action == Action.VALIDATION:
-            event = ValidateEvent(**data)
         else:
             raise ValueError(f"Unknown action: {event_action}")
 
         return cls(event_action=event_action, event=event)
 
 
-def parse_event(message_event: MessageEvent) -> Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]:
+def parse_event(message_event: MessageEvent) -> Union[StoreEvent, RemoveEvent]:
     """
     Parses a MessageEvent object into a specific Event object based on the event action.
 
@@ -165,7 +141,7 @@ def parse_event(message_event: MessageEvent) -> Union[StoreEvent, RemoveEvent, R
         message_event (MessageEvent): The MessageEvent object to be parsed.
 
     Returns:
-        Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]: The specific Event object (StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent).
+        Union[StoreEvent, RemoveEvent]: The specific Event object (StoreEvent, RemoveEvent).
 
     Raises:
         ValueError: If the event action is unknown.
@@ -196,14 +172,5 @@ def parse_event(message_event: MessageEvent) -> Union[StoreEvent, RemoveEvent, R
             input_params=RemoveInputParams(file_uuid=message_event.event.input_params.file_uuid),
             input_signed_params=message_event.event.input_signed_params
         )
-    elif message_event.event_action == Action.RETRIEVE.value:
-        return RetrieveEvent(
-            **common_params,
-            user_ss58_address=Ss58Address(message_event.event.user_ss58_address),
-            input_params=RetrieveInputParams(file_uuid=message_event.event.input_params.file_uuid),
-            input_signed_params=message_event.event.input_signed_params
-        )
-    elif message_event.event_action == Action.VALIDATION.value:
-        return ValidateEvent(**common_params)
     else:
         raise ValueError(f"Unknown action: {message_event.event_action}")

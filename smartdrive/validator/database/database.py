@@ -26,11 +26,9 @@ import tempfile
 import sqlite3
 import zipfile
 from typing import List, Optional, Union
-from datetime import datetime, timedelta
 
-from smartdrive.models.event import MinerProcess, StoreEvent, Action, StoreParams, StoreInputParams, RemoveEvent, \
-    RemoveParams, RemoveInputParams, RetrieveEvent, EventParams, RetrieveInputParams, ValidateEvent, UserEvent, \
-    ChunkEvent
+from smartdrive.commune.models import ModuleInfo
+from smartdrive.models.event import StoreEvent, Action, StoreParams, StoreInputParams, RemoveEvent, RemoveInputParams, EventParams, UserEvent, ChunkEvent
 from smartdrive.models.block import Block
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.models.models import MinerWithChunk, File, Chunk
@@ -70,16 +68,6 @@ class Database:
                     )
                 '''
 
-                create_file_expiration_table = '''
-                    CREATE TABLE file_expiration (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        file_uuid TEXT,
-                        expiration_ms INTEGER NOT NULL,
-                        created_at INTEGER,
-                        FOREIGN KEY (file_uuid) REFERENCES file(uuid) ON DELETE CASCADE
-                    )
-                '''
-
                 create_chunk_table = '''
                     CREATE TABLE chunk (
                         uuid TEXT PRIMARY KEY,
@@ -87,9 +75,6 @@ class Database:
                         event_uuid TEXT,
                         miner_ss58_address TEXT,
                         chunk_index INTEGER,
-                        sub_chunk_start INTEGER,
-                        sub_chunk_end INTEGER,
-                        sub_chunk_encoded TEXT,
                         FOREIGN KEY (file_uuid) REFERENCES file(uuid) ON DELETE CASCADE,
                         FOREIGN KEY (event_uuid) REFERENCES events(uuid) ON DELETE CASCADE
                     )
@@ -120,26 +105,26 @@ class Database:
                     )
                 '''
 
-                create_miner_process = '''
-                    CREATE TABLE miner_processes (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        chunk_uuid TEXT,
+                create_validation_table = '''
+                    CREATE TABLE validation (
+                        chunk_uuid TEXT PRIMARY KEY,
+                        file_uuid TEXT NOT NULL,
                         miner_ss58_address TEXT NOT NULL,
-                        succeed BOOLEAN,
-                        processing_time REAL,
-                        event_uuid TEXT NOT NULL,
-                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (event_uuid) REFERENCES events(uuid) ON DELETE CASCADE
+                        user_ss58_address INTEGER NOT NULL,
+                        sub_chunk_start INTEGER NOT NULL,
+                        sub_chunk_end INTEGER NOT NULL,
+                        sub_chunk_encoded TEXT NOT NULL,
+                        expiration_ms INTEGER,
+                        created_at INTEGER
                     )
                 '''
 
                 try:
                     _create_table_if_not_exists(cursor, 'file', create_file_table)
-                    _create_table_if_not_exists(cursor, 'file_expiration', create_file_expiration_table)
                     _create_table_if_not_exists(cursor, 'chunk', create_chunk_table)
                     _create_table_if_not_exists(cursor, 'block', create_block_table)
                     _create_table_if_not_exists(cursor, 'event', create_event_table)
-                    _create_table_if_not_exists(cursor, 'miner_process', create_miner_process)
+                    _create_table_if_not_exists(cursor, 'validation', create_validation_table)
                     connection.commit()
 
                 except sqlite3.Error as e:
@@ -293,17 +278,11 @@ class Database:
                     VALUES (?, ?, ?)
                 ''', (file.file_uuid, file.user_owner_ss58address, file.total_chunks))
 
-                if file.has_expiration():
-                    cursor.execute('''
-                        INSERT INTO file_expiration (file_uuid, expiration_ms, created_at)
-                        VALUES (?, ?, ?)
-                    ''', (file.file_uuid, file.expiration_ms, file.created_at,))
-
                 for chunk in file.chunks:
                     cursor.execute('''
-                        INSERT INTO chunk (uuid, file_uuid, event_uuid, miner_ss58_address, chunk_index, sub_chunk_start, sub_chunk_end, sub_chunk_encoded)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (chunk.chunk_uuid, file.file_uuid, event_uuid, chunk.miner_ss58_address, chunk.chunk_index, chunk.sub_chunk_start, chunk.sub_chunk_end, chunk.sub_chunk_encoded))
+                        INSERT INTO chunk (uuid, file_uuid, event_uuid, miner_ss58_address, chunk_index)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (chunk.chunk_uuid, file.file_uuid, event_uuid, chunk.miner_ss58_address, chunk.chunk_index))
 
                 connection.commit()
 
@@ -383,68 +362,49 @@ class Database:
 
         return result
 
-    def get_files_with_expiration(self) -> List[File]:
+    def get_chunk_events_with_expiration(self) -> List[ChunkEvent]:
         """
-        Retrieve a list of files with expiration information.
+        Retrieve a list of chunk events with expiration information.
 
-        This function queries the database to find files that have expiration information. It constructs a list of `File`
-         objects, each containing associated chunks and sub-chunks.
+        This function queries the database to find files that have expiration information. It constructs a list of `ChunkEvent`
+         objects.
 
         Returns:
-            List[File]: A list of `File` objects containing expiration information, chunks, and sub-chunks.
+            List[ChunkEvent]: A list of `ChunkEvent` objects.
 
         Raises:
             sqlite3.Error: If there is an error accessing the database.
         """
-        files = []
+        chunk_events: list[ChunkEvent] = []
         connection = None
         try:
             connection = sqlite3.connect(self._database_file_path)
+            connection.row_factory = sqlite3.Row
             cursor = connection.cursor()
 
             query = '''
-                SELECT 
-                    f.uuid AS file_uuid, 
-                    f.user_ss58_address,
-                    fe.created_at, 
-                    fe.expiration_ms,
-                    f.total_chunks
-                FROM 
-                    file f
-                JOIN 
-                    file_expiration fe ON f.uuid = fe.file_uuid
+                SELECT chunk_uuid, miner_ss58_address, sub_chunk_start, sub_chunk_end, sub_chunk_encoded,
+                           expiration_ms, created_at, file_uuid, user_ss58_address
+                FROM validation
+                WHERE expiration_ms IS NOT NULL AND created_at IS NOT NULL
             '''
 
             cursor.execute(query)
             rows = cursor.fetchall()
 
             for row in rows:
-                file_uuid, user_owner_uuid, created_at, expiration_ms, total_chunks = row
-
-                chunk_query = '''
-                    SELECT 
-                        c.miner_ss58_address, 
-                        c.uuid,
-                        c.sub_chunk_start, 
-                        c.sub_chunk_end, 
-                        c.sub_chunk_encoded,
-                        c.chunk_index
-                    FROM 
-                        chunk c
-                    WHERE 
-                        c.file_uuid = ?
-                '''
-                cursor.execute(chunk_query, (file_uuid,))
-                chunk_rows = cursor.fetchall()
-
-                chunks = []
-
-                for chunk_row in chunk_rows:
-                    miner_ss58_address, chunk_uuid, sub_chunk_start, sub_chunk_end, sub_chunk_encoded, chunk_index = chunk_row
-                    chunks.append(Chunk(miner_ss58_address, chunk_uuid, file_uuid, chunk_index, sub_chunk_start, sub_chunk_end, sub_chunk_encoded))
-
-                file = File(user_owner_uuid, total_chunks, file_uuid, chunks, created_at, expiration_ms)
-                files.append(file)
+                chunk_event = ChunkEvent(
+                    uuid=row["chunk_uuid"],
+                    miner_ss58_address=row["miner_ss58_address"],
+                    sub_chunk_start=row["sub_chunk_start"],
+                    sub_chunk_end=row["sub_chunk_end"],
+                    sub_chunk_encoded=row["sub_chunk_encoded"],
+                    expiration_ms=row["expiration_ms"],
+                    created_at=row["created_at"],
+                    file_uuid=row["file_uuid"],
+                    user_owner_ss58_address=row["user_ss58_address"]
+                )
+                chunk_events.append(chunk_event)
 
         except sqlite3.Error as e:
             print(f"Database error: {e}")
@@ -453,7 +413,7 @@ class Database:
             if connection:
                 connection.close()
 
-        return files
+        return chunk_events
 
     def remove_file(self, file_uuid: str) -> bool:
         """
@@ -477,63 +437,13 @@ class Database:
                 cursor = connection.cursor()
                 cursor.execute("PRAGMA foreign_keys = ON;")
                 cursor.execute("DELETE FROM file WHERE uuid = ?", (file_uuid,))
+                cursor.execute("DELETE FROM validation WHERE file_uuid = ?", (file_uuid,))
                 connection.commit()
         except sqlite3.Error as e:
             print(f"Database error: {e}")
             return False
 
         return True
-
-    def get_miner_processes(self, miner_ss58_address: str, days_interval=None) -> tuple:
-        """
-        Retrieve the total number of calls and the number of failed calls in a given time period of a miner.
-
-        Params:
-            miner_ss58_address (str): Ss58address of the miner.
-            days_interval (int, optional): The number of days to look back from the current time.
-                                           If None, retrieves all records.
-
-        Returns:
-            tuple: A tuple with failed calls, total calls and average time response.
-        """
-        # Calculate the time range based on the days_interval
-        end_time = datetime.now().date()
-        start_time = None
-
-        if days_interval is not None:
-            start_time = (datetime.now() - timedelta(days=days_interval)).date()
-
-        # Build the query
-        query = """
-        SELECT COUNT(*) as total_calls, 
-               SUM(CASE WHEN succeed = 0 THEN 1 ELSE 0 END) as failed_calls
-        FROM miner_processes
-        WHERE miner_ss58_address = ?
-        """
-        params = [miner_ss58_address]
-
-        if start_time is not None:
-            query += " AND DATE(timestamp) BETWEEN ? AND ?"
-            params.extend([start_time, end_time])
-
-        connection = None
-        try:
-            connection = sqlite3.connect(self._database_file_path)
-            cursor = connection.cursor()
-
-            cursor.execute(query, params)
-            result = cursor.fetchone()
-
-            total_calls = result[0] if result[0] is not None else 0
-            failed_calls = result[1] if result[1] is not None else 0
-
-            return total_calls, failed_calls
-        except sqlite3.Error as e:
-            print(f"Database error: {e}")
-            return 0, 0
-        finally:
-            if connection:
-                connection.close()
 
     def get_last_block(self) -> Optional[int]:
         """
@@ -559,7 +469,7 @@ class Database:
 
     def create_block(self, block: Block) -> bool:
         """
-        Creates a block in the database with its associated events and miner processes.
+        Creates a block in the database with its associated events.
 
         Parameters:
             block (Block): The block to be created in the database.
@@ -579,7 +489,7 @@ class Database:
                 # Insert block
                 cursor.execute('INSERT INTO block (id, proposer_ss58_address, proposer_signature) VALUES (?, ?, ?)', (block.block_number, block.proposer_ss58_address, block.proposer_signature))
 
-                # Insert events and associated miner processes
+                # Insert events
                 for event in block.events:
                     self._insert_event(cursor, event, block.block_number)
 
@@ -594,13 +504,13 @@ class Database:
             if connection:
                 connection.close()
 
-    def _insert_event(self, cursor, event: Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent], block_id: int):
+    def _insert_event(self, cursor, event: Union[StoreEvent, RemoveEvent], block_id: int):
         """
-        Inserts an event into the database with its associated miner processes.
+        Inserts an event into the database.
 
         Parameters:
             cursor (sqlite3.Cursor): The database cursor.
-            event Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]: The specific Event object (StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent).
+            event Union[StoreEvent, RemoveEvent]: The specific Event object (StoreEvent, RemoveEvent).
             block_id (int): The ID of the block to which the event belongs.
         """
         event_type = event.get_event_action().value
@@ -632,35 +542,9 @@ class Database:
         event.uuid, validator_ss58_address, event_type, file_uuid, file_created_at, file_expiration_ms,
         event_signed_params, user_ss58_address, file, input_signed_params, block_id))
 
-        # Insert miner processes if applicable
-        for miner_process in event.event_params.miners_processes:
-            self._insert_miner_process(cursor, miner_process, event.uuid)
-
-    def _insert_miner_process(self, cursor, miner_process: MinerProcess, event_uuid: str) -> bool:
-        """
-        Inserts a miner process into the database.
-
-        Parameters:
-            cursor (sqlite3.Cursor): The database cursor.
-            miner_process (MinerProcess): The miner process to be inserted.
-            event_uuid (str): The UUID of the event to which the miner process belongs.
-
-        Returns:
-            bool: True if the miner process is successfully inserted, False otherwise.
-        """
-        try:
-            cursor.execute('''
-                INSERT INTO miner_processes (chunk_uuid, miner_ss58_address, succeed, processing_time, event_uuid)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (miner_process.chunk_uuid, miner_process.miner_ss58_address, miner_process.succeed, miner_process.processing_time, event_uuid))
-            return True
-        except sqlite3.Error as e:
-            print(f"Database error: {e}")
-            return False
-
     def get_blocks(self, start: int, end: int) -> Optional[List[Block]]:
         """
-        Retrieve blocks and their associated events and miner processes from the database.
+        Retrieve blocks and their associated events from the database.
 
         Params:
             start (int): The starting block ID.
@@ -679,14 +563,12 @@ class Database:
                 SELECT 
                     b.id AS block_id, b.proposer_signature, b.proposer_ss58_address,
                     e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.file_created_at, e.file_expiration_ms, e.event_signed_params, e.user_ss58_address, e.file, e.input_signed_params,
-                    m.chunk_uuid, m.miner_ss58_address, m.succeed, m.processing_time,
-                    c.sub_chunk_start, c.sub_chunk_end, c.sub_chunk_encoded, c.chunk_index
+                    c.uuid AS chunk_uuid, c.miner_ss58_address, c.chunk_index
                 FROM block b
                 LEFT JOIN events e ON b.id = e.block_id
-                LEFT JOIN miner_processes m ON e.uuid = m.event_uuid
-                LEFT JOIN chunk c ON m.chunk_uuid = c.uuid
+                LEFT JOIN chunk c ON c.event_uuid = e.uuid
                 WHERE b.id BETWEEN ? AND ?
-                ORDER BY b.id, e.uuid, m.id
+                ORDER BY b.id, e.uuid, c.uuid
             '''
 
             cursor.execute(query, (start, end))
@@ -710,17 +592,11 @@ class Database:
                         events[event_uuid] = self._build_event_from_row(row)
                         blocks[block_id].events.append(events[event_uuid])
 
-                    miner_process = self._build_miner_process_from_row(row)
-                    if miner_process and miner_process not in events[event_uuid].event_params.miners_processes:
-                        events[event_uuid].event_params.miners_processes.append(miner_process)
-
-                    if isinstance(events[event_uuid].event_params, StoreParams) and row['sub_chunk_start'] is not None and row['sub_chunk_end'] is not None and row['sub_chunk_encoded'] is not None:
+                    if isinstance(events[event_uuid].event_params, StoreParams):
                         chunk = ChunkEvent(
-                            sub_chunk_start=row['sub_chunk_start'],
-                            sub_chunk_end=row['sub_chunk_end'],
-                            sub_chunk_encoded=row['sub_chunk_encoded'],
                             uuid=row['chunk_uuid'],
-                            chunk_index=row['chunk_index']
+                            chunk_index=row['chunk_index'],
+                            miner_ss58_address=row['miner_ss58_address']
                         )
                         events[event_uuid].event_params.chunks.append(chunk)
 
@@ -733,7 +609,99 @@ class Database:
             if connection:
                 connection.close()
 
-    def _build_event_from_row(self, row) -> Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]:
+    def insert_validation(self, chunk_events: list[ChunkEvent]) -> bool:
+        """
+        Insert a list of chunk events into the validation table.
+
+        This function takes a list of ChunkEvent objects and inserts each event's details into the validation table
+        within a single transaction. If any error occurs during the insertion, the transaction is rolled back.
+
+        Params:
+            chunk_events (list[ChunkEvent]): A list of ChunkEvent objects to be inserted into the validation table.
+
+        Returns:
+            bool: True if the insertion is successful, False otherwise.
+        """
+        connection = None
+        try:
+            connection = sqlite3.connect(self._database_file_path)
+            connection.row_factory = sqlite3.Row
+            with connection:
+                cursor = connection.cursor()
+                connection.execute('BEGIN TRANSACTION')
+
+                for chunk in chunk_events:
+                    cursor.execute('''
+                        INSERT INTO validation (chunk_uuid, miner_ss58_address, sub_chunk_start, sub_chunk_end, sub_chunk_encoded, file_uuid, expiration_ms, created_at, user_ss58_address)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (chunk.uuid, chunk.miner_ss58_address, chunk.sub_chunk_start, chunk.sub_chunk_end, chunk.sub_chunk_encoded, chunk.file_uuid, chunk.expiration_ms, chunk.created_at, chunk.user_owner_ss58_address))
+
+                connection.commit()
+            return True
+        except sqlite3.Error as e:
+            if connection:
+                connection.rollback()
+            print(f"Database error: {e}")
+            return False
+        finally:
+            if connection:
+                connection.close()
+
+    def get_validation_without_expiration(self, registered_miners: list[ModuleInfo]) -> list[ChunkEvent] | None:
+        """
+        Retrieves validation records for the given registered miners from the database.
+
+        Params:
+            registered_miners (list[ModuleInfo]): A list of registered miners.
+
+        Returns:
+            list[ChunkEvent] : A list of ChunkEvent from the validation table for the specified miners or None.
+        """
+        connection = None
+        try:
+            connection = sqlite3.connect(self._database_file_path)
+            connection.row_factory = sqlite3.Row
+            cursor = connection.cursor()
+
+            miner_addresses = [miner.ss58_address for miner in registered_miners]
+            chunk_events = []
+
+            for miner_address in miner_addresses:
+                query = '''
+                    SELECT chunk_uuid, miner_ss58_address, sub_chunk_start, sub_chunk_end, sub_chunk_encoded,
+                           expiration_ms, created_at, file_uuid, user_ss58_address
+                    FROM validation
+                    WHERE miner_ss58_address = ? AND expiration_ms IS NULL AND created_at IS NULL
+                    ORDER BY RANDOM()
+                    LIMIT 1
+                '''
+                cursor.execute(query, (miner_address,))
+                row = cursor.fetchone()
+                if row:
+                    chunk_events.append(
+                        ChunkEvent(
+                            uuid=row["chunk_uuid"],
+                            miner_ss58_address=row["miner_ss58_address"],
+                            sub_chunk_start=row["sub_chunk_start"],
+                            sub_chunk_end=row["sub_chunk_end"],
+                            sub_chunk_encoded=row["sub_chunk_encoded"],
+                            expiration_ms=row["expiration_ms"],
+                            created_at=row["created_at"],
+                            file_uuid=row["file_uuid"],
+                            user_owner_ss58_address=row["user_ss58_address"]
+                        )
+                    )
+
+            return chunk_events
+
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return None
+        finally:
+            if connection:
+                connection.close()
+
+    def _build_event_from_row(self, row) -> Union[StoreEvent, RemoveEvent]:
         """
         Build an Event object from a database row.
 
@@ -741,15 +709,14 @@ class Database:
             row (dict): A dictionary containing the row data from the database.
 
         Returns:
-            Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]: An instance of an Event subclass (StoreEvent, RemoveEvent, RetrieveEvent, or ValidateEvent).
+            Union[StoreEvent, RemoveEvent]: An instance of an Event subclass (StoreEvent, RemoveEvent).
 
         Raises:
             ValueError: If the event type is unknown.
         """
         event_type = row['event_type']
         event_params = {
-            "file_uuid": row['file_uuid'],
-            "miners_processes": []
+            "file_uuid": row['file_uuid']
         }
 
         if event_type == Action.STORE.value:
@@ -771,52 +738,16 @@ class Database:
             event = RemoveEvent(
                 uuid=row['event_uuid'],
                 validator_ss58_address=row['validator_ss58_address'],
-                event_params=RemoveParams(**event_params),
+                event_params=EventParams(**event_params),
                 event_signed_params=row['event_signed_params'],
                 user_ss58_address=row['user_ss58_address'],
                 input_params=RemoveInputParams(file_uuid=row['file_uuid']),
                 input_signed_params=row['input_signed_params']
             )
-        elif event_type == Action.RETRIEVE.value:
-            event = RetrieveEvent(
-                uuid=row['event_uuid'],
-                validator_ss58_address=row['validator_ss58_address'],
-                event_params=EventParams(**event_params),
-                event_signed_params=row['event_signed_params'],
-                user_ss58_address=row['user_ss58_address'],
-                input_params=RetrieveInputParams(file_uuid=row['file_uuid']),
-                input_signed_params=row['input_signed_params']
-            )
-        elif event_type == Action.VALIDATION.value:
-            event = ValidateEvent(
-                uuid=row['event_uuid'],
-                validator_ss58_address=row['validator_ss58_address'],
-                event_params=EventParams(**event_params),
-                event_signed_params=row['event_signed_params']
-            )
         else:
             raise ValueError(f"Unknown event type: {event_type}")
 
         return event
-
-    def _build_miner_process_from_row(self, row) -> Optional[MinerProcess]:
-        """
-        Build a MinerProcess object from a database row.
-
-        Params:
-            row (dict): A dictionary containing the row data from the database.
-
-        Returns:
-            MinerProcess: An instance of MinerProcess, or None if chunk_uuid is None.
-        """
-        if row['event_uuid'] is None:
-            return None
-        return MinerProcess(
-            chunk_uuid=row['chunk_uuid'],
-            miner_ss58_address=row['miner_ss58_address'],
-            succeed=row['succeed'],
-            processing_time=row['processing_time']
-        )
 
 
 def _create_table_if_not_exists(cursor: sqlite3.Cursor, table_name: str, create_statement: str) -> None:

@@ -19,6 +19,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 import asyncio
 import multiprocessing
 from typing import List, Union
@@ -27,7 +28,7 @@ from communex.compat.key import classic_load_key
 from substrateinterface import Keypair
 
 from smartdrive.models.block import Block, block_to_block_event
-from smartdrive.models.event import MessageEvent, StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent
+from smartdrive.models.event import MessageEvent, StoreEvent, RemoveEvent, ChunkEvent
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.node.connection_pool import ConnectionPool
@@ -87,21 +88,19 @@ class Node:
                 items.append(self._event_pool.pop(0))
         return items
 
-    def insert_pool_event(self, event: Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]):
+    def insert_pool_event(self, event: Union[StoreEvent, RemoveEvent]):
         with self._event_pool_lock:
             self._event_pool.append(event)
 
-    def insert_pool_events(self, events: List[Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]]):
+    def insert_pool_events(self, events: List[Union[StoreEvent, RemoveEvent]]):
         with self._event_pool_lock:
             self._event_pool.extend(events)
 
-    def send_event_to_validators(self, event: Union[StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent]):
+    def _send_message_to_validators(self, code: MessageCode, data: dict):
         connections = self.get_connections()
-
-        message_event = MessageEvent.from_json(event.dict(), event.get_event_action())
         body = {
-            "code": MessageCode.MESSAGE_CODE_EVENT.value,
-            "data": message_event.dict()
+            "code": code.value,
+            "data": data
         }
 
         body_sign = sign_data(body, self._keypair)
@@ -111,22 +110,19 @@ class Node:
             "public_key_hex": self._keypair.public_key.hex()
         }
 
-        self.insert_pool_event(event)
-
         for c in connections:
             try:
                 send_json(c[ConnectionPool.CONNECTION], message)
             except Exception as e:
                 print(e)
 
-    async def send_block_to_validators(self, block: Block):
-        connections = self.get_connections()
-        if connections:
-            block_event = block_to_block_event(block)
+    def send_chunk_event_to_validators(self, connections, event: list[list[ChunkEvent]]):
+        for index, c in enumerate(connections):
+            data_list = [chunk_event.dict() for chunk_event in event[index]]
 
             body = {
-                "code": MessageCode.MESSAGE_CODE_BLOCK.value,
-                "data": block_event.dict()
+                "code": MessageCode.MESSAGE_CODE_CHUNK_EVENT.value,
+                "data": data_list
             }
 
             body_sign = sign_data(body, self._keypair)
@@ -135,12 +131,19 @@ class Node:
                 "signature_hex": body_sign.hex(),
                 "public_key_hex": self._keypair.public_key.hex()
             }
+            try:
+                send_json(c, message)
+            except Exception as e:
+                print(f"Error send chunk event to validators {e}")
 
-            for c in connections:
-                try:
-                    send_json(c[ConnectionPool.CONNECTION], message)
-                except Exception as e:
-                    print(e)
+    def send_event_to_validators(self, event: Union[StoreEvent, RemoveEvent]):
+        message_event = MessageEvent.from_json(event.dict(), event.get_event_action())
+        self.insert_pool_event(event)
+        self._send_message_to_validators(MessageCode.MESSAGE_CODE_EVENT, message_event.dict())
+
+    async def send_block_to_validators(self, block: Block):
+        block_event = block_to_block_event(block)
+        self._send_message_to_validators(MessageCode.MESSAGE_CODE_BLOCK, block_event.dict())
 
     async def ping_validators(self):
         connections = self.get_connections()

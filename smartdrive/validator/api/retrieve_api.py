@@ -23,9 +23,7 @@
 import asyncio
 import io
 import random
-import time
-import uuid
-from typing import Optional, List
+from typing import Optional
 from fastapi import HTTPException, Request
 
 from communex.compat.key import classic_load_key
@@ -34,14 +32,12 @@ from substrateinterface import Keypair
 from communex.types import Ss58Address
 
 from smartdrive.commune.errors import CommuneNetworkUnreachable
-from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.api.utils import get_miner_info_with_chunk
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.commune.request import execute_miner_request, get_filtered_modules
 from smartdrive.commune.models import ConnectionInfo, ModuleInfo
-from smartdrive.models.event import RetrieveEvent, MinerProcess, EventParams, RetrieveInputParams
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.node.node import Node
 
@@ -75,7 +71,6 @@ class RetrieveAPI:
             HTTPException: If the file does not exist, no miner has the chunk, or no active miners are available.
         """
         user_public_key = request.headers.get("X-Key")
-        input_signed_params = request.headers.get("X-Signature")
         user_ss58_address = get_ss58_address_from_public_key(user_public_key)
 
         file = self._database.get_file(user_ss58_address, file_uuid)
@@ -111,12 +106,10 @@ class RetrieveAPI:
             random.shuffle(miner_chunks_by_index[chunk_index])
 
         # Create event
-        miners_processes: List[MinerProcess] = []
         chunks = []
 
-        async def retrieve_chunk_from_miners(user_ss58_address, miners_with_chunks, miner_processes):
+        async def retrieve_chunk_from_miners(user_ss58_address, miners_with_chunks):
             for miner_chunk in miners_with_chunks:
-                start_time = time.time()
                 connection = ConnectionInfo(miner_chunk["connection"]["ip"], miner_chunk["connection"]["port"])
                 miner_info = ModuleInfo(
                     miner_chunk["uid"],
@@ -124,23 +117,14 @@ class RetrieveAPI:
                     connection
                 )
                 chunk = await retrieve_request(self._key, user_ss58_address, miner_info, miner_chunk["chunk_uuid"])
-                final_time = time.time() - start_time
                 succeed = chunk is not None
-
-                miner_process = MinerProcess(
-                    chunk_uuid=miner_chunk["chunk_uuid"],
-                    miner_ss58_address=miner_chunk["ss58_address"],
-                    succeed=succeed,
-                    processing_time=final_time
-                )
-                miner_processes.append(miner_process)
 
                 if succeed:
                     return chunk
             return None
 
         async def fetch_chunk(chunk_index, miner_chunks_for_index):
-            chunk = await retrieve_chunk_from_miners(user_ss58_address, miner_chunks_for_index, miners_processes)
+            chunk = await retrieve_chunk_from_miners(user_ss58_address, miner_chunks_for_index)
             return (chunk_index, chunk)
 
         # Use asyncio.gather to fetch all chunks concurrently
@@ -160,26 +144,6 @@ class RetrieveAPI:
 
         # Combine all chunks into a single file
         final_file = b''.join(chunk for _, chunk in chunks)
-
-        event_params = EventParams(
-            file_uuid=file_uuid,
-            miners_processes=miners_processes,
-        )
-
-        signed_params = sign_data(event_params.dict(), self._key)
-
-        event = RetrieveEvent(
-            uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
-            validator_ss58_address=Ss58Address(self._key.ss58_address),
-            event_params=event_params,
-            event_signed_params=signed_params.hex(),
-            user_ss58_address=user_ss58_address,
-            input_params=RetrieveInputParams(file_uuid=file_uuid),
-            input_signed_params=input_signed_params
-        )
-
-        # Emit event
-        self._node.send_event_to_validators(event)
 
         if len(chunks) == file.total_chunks:
             return StreamingResponse(io.BytesIO(final_file), media_type='application/octet-stream')
