@@ -182,11 +182,7 @@ async def store_new_file(
             raise HTTPException(status_code=500, detail=f"Failed to store chunk {chunk_index} in the required minimum number of miners.")
 
     if validating:
-        random.shuffle(miners)
-        for miner in miners:
-            if await handle_store_request(miner, file_bytes, 0):
-                break
-
+        await asyncio.gather(*[handle_store_request(miner, file_bytes, 0) for miner in miners])
         if not stored_chunks:
             return None
     else:
