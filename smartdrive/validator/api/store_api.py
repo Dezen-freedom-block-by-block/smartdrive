@@ -23,6 +23,7 @@
 import asyncio
 import random
 import time
+import traceback
 import uuid
 from typing import Optional, Tuple, List
 
@@ -159,9 +160,6 @@ async def store_new_file(
             replication_count += sum(1 for result in results if result is True)
 
             tasks = [task for task, result in zip(tasks, results) if result is not True]
-
-        if replication_count < MIN_REPLICATION_FOR_FILE:
-            raise HTTPException(status_code=500, detail=f"Failed to store chunk {chunk_index} in the required minimum number of miners.")
 
     async def remove_stored_chunks():
         if stored_miners:
