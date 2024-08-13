@@ -22,7 +22,6 @@
 
 import asyncio
 import multiprocessing
-import random
 from typing import List
 
 from communex.compat.key import classic_load_key
@@ -40,7 +39,7 @@ from smartdrive.validator.node.util.authority import are_all_block_events_valid,
 from smartdrive.validator.node.util.exceptions import MessageException, ClientDisconnectedException, MessageFormatException, InvalidSignatureException
 from smartdrive.validator.node.util.message_code import MessageCode
 from smartdrive.validator.node.util.utils import send_json, prepare_body_tcp
-from smartdrive.validator.utils import process_events
+from smartdrive.validator.utils import process_events, prepare_sync_blocks
 
 
 class Client(multiprocessing.Process):
@@ -139,7 +138,7 @@ class Client(multiprocessing.Process):
                     #  the proposer and creates another block, in this case, the blocks will be repeated
                     local_block_number = self._database.get_last_block() or 0
                     if block.block_number - 1 != local_block_number:
-                        self._prepare_sync_blocks(local_block_number + 1, block.block_number, active_validators_manager)
+                        prepare_sync_blocks(start=local_block_number + 1, end=block.block_number, active_validators_manager=active_validators_manager, keypair=self._keypair)
                     else:
                         self._run_process_events(block.events)
                         self._remove_events(block.events, event_pool)
@@ -177,10 +176,10 @@ class Client(multiprocessing.Process):
 
                 elif body['code'] == MessageCode.MESSAGE_CODE_SYNC_BLOCK.value:
                     start = int(body['start'])
-                    end = int(body['end'])
+                    end = int(body['end']) if body.get("end") else (self._database.get_last_block() or 0)
                     segment_size = self.MAX_BLOCKS_SYNC
 
-                    if start < end:
+                    if start <= end:
                         for segment_start in range(start, end + 1, segment_size):
                             segment_end = min(segment_start + segment_size - 1, end)
                             blocks = self._database.get_blocks(segment_start, segment_end)
@@ -261,35 +260,6 @@ class Client(multiprocessing.Process):
             asyncio.create_task(run_process_events(processed_events))
         else:
             asyncio.run(run_process_events(processed_events))
-
-    def _prepare_sync_blocks(self, start, end, active_validators_manager):
-        async def prepare_sync_blocks():
-            connections = active_validators_manager.get_active_validators_connections()
-            if not connections:
-                return
-            await self.get_synced_blocks(start, end, connections)
-
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            asyncio.create_task(prepare_sync_blocks())
-        else:
-            asyncio.run(prepare_sync_blocks())
-
-    async def get_synced_blocks(self, start: int, end: int, connections):
-        async def _get_synced_blocks(c):
-            try:
-                body = {"code": MessageCode.MESSAGE_CODE_SYNC_BLOCK.value, "start": str(start), "end": str(end)}
-                message = prepare_body_tcp(body, self._keypair)
-                send_json(c, message)
-            except Exception as e:
-                print(f"Error getting synced blocks: {e}")
-
-        connection = random.choice(connections)
-        await _get_synced_blocks(connection)
 
     def _remove_events(self, events: List[Event], event_pool):
         uuids_to_remove = {event.uuid for event in events}

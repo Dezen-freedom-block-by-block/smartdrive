@@ -38,6 +38,8 @@ from smartdrive.models.event import Event, StoreEvent, RemoveEvent
 from smartdrive.validator.api.utils import get_miner_info_with_chunk, remove_chunk_request
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.models.models import Chunk, File, ModuleType
+from smartdrive.validator.node.util.message_code import MessageCode
+from smartdrive.validator.node.util.utils import prepare_body_tcp, send_json
 
 MAX_RETRIES = 3
 RETRY_DELAY = 5
@@ -164,7 +166,42 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
                     await remove_chunk_request(keypair, event.user_ss58_address, miner_info, miner["chunk_uuid"])
 
             database.remove_file(event.event_params.file_uuid)
-            
+
+def prepare_sync_blocks(start, keypair, end = None, active_validators_manager = None, active_connections = None):
+    async def _prepare_sync_blocks():
+        connections = None
+        if active_connections:
+            connections = active_connections
+        elif active_validators_manager:
+            connections = active_validators_manager.get_active_validators_connections()
+
+        if not connections:
+            return
+        await get_synced_blocks(start, connections, keypair, end)
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        asyncio.create_task(_prepare_sync_blocks())
+    else:
+        asyncio.run(_prepare_sync_blocks())
+
+async def get_synced_blocks(start: int, connections, keypair, end: int = None):
+    async def _get_synced_blocks(c):
+        try:
+            body = {"code": MessageCode.MESSAGE_CODE_SYNC_BLOCK.value, "start": str(start)}
+            if end:
+                body["end"] = str(end)
+            message = prepare_body_tcp(body, keypair)
+            send_json(c, message)
+        except Exception as e:
+            print(f"Error getting synced blocks: {e}")
+
+    connection = random.choice(connections)
+    await _get_synced_blocks(connection)
             
 def get_file_expiration() -> int:
     """
