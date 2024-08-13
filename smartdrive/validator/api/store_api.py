@@ -181,9 +181,6 @@ async def store_new_file(
             failed_tasks = [task for task, result in zip(tasks, results) if result is not True]
             tasks = failed_tasks
 
-        if replication_count < MIN_REPLICATION_FOR_FILE and not available_miners:
-            raise HTTPException(status_code=500, detail=f"Failed to store chunk {chunk_index} in the required minimum number of miners.")
-
     async def remove_stored_chunks():
         if stored_miners:
             remove_tasks = [
