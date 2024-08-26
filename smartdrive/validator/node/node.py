@@ -116,12 +116,12 @@ class Node:
             except Exception as e:
                 print(e)
 
-    def send_chunk_event_to_validators(self, connections, event: list[list[ChunkEvent]]):
+    def send_chunk_events_to_validators(self, connections, chunk_events_per_validator: list[list[ChunkEvent]]):
         for index, c in enumerate(connections):
-            data_list = [chunk_event.dict() for chunk_event in event[index]]
+            data_list = [chunk_events.dict() for chunk_events in chunk_events_per_validator[index]]
 
             body = {
-                "code": MessageCode.MESSAGE_CODE_CHUNK_EVENT.value,
+                "code": MessageCode.MESSAGE_CODE_CHUNK_EVENTS.value,
                 "data": data_list
             }
 

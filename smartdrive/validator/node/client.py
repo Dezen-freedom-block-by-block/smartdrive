@@ -229,7 +229,7 @@ class Client(multiprocessing.Process):
                             self._remove_events(block.events, event_pool)
                             self._database.create_block(block)
 
-                elif body['code'] == MessageCode.MESSAGE_CODE_CHUNK_EVENT.value:
+                elif body['code'] == MessageCode.MESSAGE_CODE_CHUNK_EVENTS.value:
                     chunk_events = [ChunkEvent(**chunk) for chunk in body['data']]
                     if chunk_events:
                         self._database.insert_validation(chunk_events=chunk_events)

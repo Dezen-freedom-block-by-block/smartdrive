@@ -92,7 +92,7 @@ class StoreAPI:
 
         active_validators = self._node.get_active_validators_connections()
         validators_len = len(active_validators) + 1  # To include myself
-        store_event, chunk_events = await store_new_file(
+        store_event, chunk_events_per_validator = await store_new_file(
             file_bytes=file_bytes,
             miners=miners,
             validator_keypair=self._key,
@@ -104,13 +104,14 @@ class StoreAPI:
         if not store_event:
             raise HTTPException(status_code=404, detail="No miner answered with a valid response")
 
-        if chunk_events:
-            self._database.insert_validation(chunk_events=chunk_events.pop(0))
-            self._node.send_chunk_event_to_validators(connections=active_validators, event=chunk_events)
+        if chunk_events_per_validator:
+            self._database.insert_validation(chunk_events=chunk_events_per_validator.pop(0))
+            self._node.send_chunk_events_to_validators(connections=active_validators, chunk_events_per_validator=chunk_events_per_validator)
 
         self._node.send_event_to_validators(store_event)
 
         return {"uuid": store_event.event_params.file_uuid}
+
 
 async def store_new_file(
         file_bytes: bytes,
@@ -124,28 +125,30 @@ async def store_new_file(
     if not validating and len(miners) < MIN_MINERS_FOR_FILE:
         raise HTTPException(status_code=400, detail=f"Not enough miners available to meet the minimum requirement of {MIN_MINERS_FOR_FILE} miners for file storage.")
 
-    chunk_event_store: List[ChunkEvent] = []
-    chunks_events: List[List[ChunkEvent]] = []
-    stored_chunks_result = []
-    stored_miners: List[Tuple[ModuleInfo, str]] = []
+    stored_chunks_results = []
+    stored_miner_with_chunk_uuid: List[Tuple[ModuleInfo, str]] = []
+
+    chunk_events_per_validator: List[List[ChunkEvent]] = []
+    chunk_events: List[ChunkEvent] = []
+
     created_at = int(time.time() * 1000) if validating else None
     expiration_ms = get_file_expiration() if validating else None
     file_uuid = f"{int(time.time())}_{str(uuid.uuid4())}"
 
-    async def handle_store_request(miner: ModuleInfo, chunk_data: bytes, chunk_index: int) -> bool:
+    async def handle_store_request(miner: ModuleInfo, chunk: bytes, chunk_index: int) -> bool:
         miner_answer = await _store_request(
             keypair=validator_keypair,
             miner=miner,
             user_ss58_address=user_ss58_address,
-            file_bytes=chunk_data
+            data=chunk
         )
         if miner_answer:
-            stored_chunks_result.append((miner_answer.chunk_uuid, chunk_index, miner.ss58_address, chunk_data))
-            stored_miners.append((miner, miner_answer.chunk_uuid))
+            stored_chunks_results.append((miner_answer.chunk_uuid, chunk_index, miner.ss58_address, chunk))
+            stored_miner_with_chunk_uuid.append((miner, miner_answer.chunk_uuid))
             return True
         return False
 
-    async def store_chunk_with_redundancy(chunk_data: bytes, chunk_index: int):
+    async def store_chunk_with_redundancy(chunk: bytes, chunk_index: int):
         available_miners = miners.copy()
         random.shuffle(available_miners)
         tasks = []
@@ -153,7 +156,7 @@ async def store_new_file(
 
         while replication_count < MIN_REPLICATION_FOR_FILE and available_miners:
             miner = available_miners.pop()
-            tasks.append(asyncio.create_task(handle_store_request(miner, chunk_data, chunk_index)))
+            tasks.append(asyncio.create_task(handle_store_request(miner, chunk, chunk_index)))
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
             replication_count += sum(1 for result in results if result is True)
@@ -161,7 +164,7 @@ async def store_new_file(
             tasks = [task for task, result in zip(tasks, results) if result is not True]
 
     async def remove_stored_chunks():
-        if stored_miners:
+        if stored_miner_with_chunk_uuid:
             remove_tasks = [
                 asyncio.create_task(
                     remove_chunk_request(
@@ -171,44 +174,46 @@ async def store_new_file(
                         chunk_uuid=chunk_uuid
                     )
                 )
-                for miner, chunk_uuid in stored_miners
+                for miner, chunk_uuid in stored_miner_with_chunk_uuid
             ]
             await asyncio.gather(*remove_tasks)
 
     try:
         if validating:
             await asyncio.gather(*[handle_store_request(miner, file_bytes, 0) for miner in miners])
-            if not stored_chunks_result:
+            if not stored_chunks_results:
                 return None, []
         else:
             num_chunks = min(len(miners), MAX_MINERS_FOR_FILE)
             chunk_size = max(1, len(file_bytes) // num_chunks)
             remainder = len(file_bytes) % num_chunks
-            chunks = [file_bytes[i * chunk_size:(i + 1) * chunk_size] for i in range(num_chunks)]
+            chunks_bytes = [file_bytes[i * chunk_size:(i + 1) * chunk_size] for i in range(num_chunks)]
 
             if remainder:
-                chunks[-1] += file_bytes[-remainder:]
+                chunks_bytes[-1] += file_bytes[-remainder:]
 
-            await asyncio.gather(*[store_chunk_with_redundancy(chunk, index) for index, chunk in enumerate(chunks)])
+            await asyncio.gather(*[store_chunk_with_redundancy(chunk_bytes, index) for index, chunk_bytes in enumerate(chunks_bytes)])
 
-            if len(stored_chunks_result) != len(chunks) * MIN_REPLICATION_FOR_FILE:
+            if len(stored_chunks_results) != len(chunks_bytes) * MIN_REPLICATION_FOR_FILE:
                 raise HTTPException(status_code=500, detail="Failed to store all chunks in the required number of miners.")
 
-        for chunk_uuid, chunk_index, miner_ss58_address, file in stored_chunks_result:
-            chunk_event_store.append(ChunkEvent(
+        for chunk_uuid, chunk_index, miner_ss58_address, file in stored_chunks_results:
+            chunk_events.append(ChunkEvent(
                 uuid=chunk_uuid,
                 chunk_index=chunk_index,
                 miner_ss58_address=miner_ss58_address
             ))
 
+        # TODO: A Validation object is generated for each miner by each validator
         for _ in range(validators_len):
-            chunk_event = []
-            for chunk_uuid, chunk_index, miner_ss58_address, file in stored_chunks_result:
+            validator_validations = []
+
+            for chunk_uuid, chunk_index, miner_ss58_address, file in stored_chunks_results:
                 sub_chunk_start = random.randint(0, max(0, len(file) - MAX_ENCODED_RANGE))
                 sub_chunk_end = min(sub_chunk_start + MAX_ENCODED_RANGE, len(file))
                 sub_chunk_encoded = file[sub_chunk_start:sub_chunk_end].hex()
 
-                chunk = ChunkEvent(
+                validation = ChunkEvent(
                     uuid=chunk_uuid,
                     chunk_index=chunk_index,
                     miner_ss58_address=miner_ss58_address,
@@ -220,24 +225,26 @@ async def store_new_file(
                 )
 
                 if validating:
-                    chunk.expiration_ms = expiration_ms
-                    chunk.created_at = created_at
+                    validation.expiration_ms = expiration_ms
+                    validation.created_at = created_at
 
-                chunk_event.append(chunk)
-            if chunk_event:
-                chunks_events.append(chunk_event)
+                validator_validations.append(validation)
 
-        chunk_event_store.sort(key=lambda c: c.uuid)
+            if validator_validations:
+                chunk_events_per_validator.append(validator_validations)
+
+        # TODO: Ask why it is necessary to order this way.
+        chunk_events.sort(key=lambda c: c.uuid)
         event_params = StoreParams(
             file_uuid=file_uuid,
             created_at=created_at,
             expiration_ms=expiration_ms,
-            chunks=chunk_event_store
+            chunks=chunk_events
         )
 
         signed_params = sign_data(event_params.dict(), validator_keypair)
 
-        return StoreEvent(
+        store_event = StoreEvent(
             uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
             validator_ss58_address=Ss58Address(validator_keypair.ss58_address),
             event_params=event_params,
@@ -245,13 +252,16 @@ async def store_new_file(
             user_ss58_address=user_ss58_address,
             input_params=StoreInputParams(file=calculate_hash(file_bytes)),
             input_signed_params=input_signed_params
-        ), chunks_events
+        )
+
+        return store_event, chunk_events_per_validator
 
     except Exception:
         await remove_stored_chunks()
         raise
 
-async def _store_request(keypair: Keypair, miner: ModuleInfo, user_ss58_address: Ss58Address, file_bytes: bytes) -> Optional[MinerWithChunk]:
+
+async def _store_request(keypair: Keypair, miner: ModuleInfo, user_ss58_address: Ss58Address, data: bytes) -> Optional[MinerWithChunk]:
     """
      Sends a request to a miner to store a file chunk.
 
@@ -263,7 +273,7 @@ async def _store_request(keypair: Keypair, miner: ModuleInfo, user_ss58_address:
          keypair (Keypair): The validator key used to authorize the request.
          miner (ModuleInfo): The miner's module information containing connection details and SS58 address.
          user_ss58_address (Ss58Address): The SS58 address of the user associated with the file chunk.
-         file_bytes (bytes): The chunk in bytes.
+         data (bytes): The data in bytes.
 
      Returns:
          Optional[MinerWithChunk]: An object containing a MinerWithChunk if the storage request is successful, otherwise None.
@@ -273,7 +283,7 @@ async def _store_request(keypair: Keypair, miner: ModuleInfo, user_ss58_address:
         keypair, miner.connection, miner.ss58_address, "store",
         file={
            'folder': user_ss58_address,
-           'chunk': file_bytes
+           'chunk': data
         }
     )
 

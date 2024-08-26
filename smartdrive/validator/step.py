@@ -70,11 +70,11 @@ async def validate_step(miners: list[ModuleInfo], database: Database, key: Keypa
     chunks_events_with_expiration = database.get_chunk_events_with_expiration()
 
     # Split chunks_events in expired or not expired
-    for chunk in chunks_events_with_expiration:
-        if current_timestamp > (chunk.created_at + chunk.expiration_ms):
-            expired_chunks.append(chunk)
+    for chunk_event in chunks_events_with_expiration:
+        if current_timestamp > (chunk_event.created_at + chunk_event.expiration_ms):
+            expired_chunks.append(chunk_event)
         else:
-            non_expired_chunks.append(chunk)
+            non_expired_chunks.append(chunk_event)
 
     existing_miners_non_expired_chunks = {chunk.miner_ss58_address: chunk for chunk in non_expired_chunks}
     non_expired_chunks.extend(
@@ -89,7 +89,7 @@ async def validate_step(miners: list[ModuleInfo], database: Database, key: Keypa
         input_params = {"file": calculate_hash(file_data)}
         input_signed_params = sign_data(input_params, key)
 
-        _, new_chunk_events = await store_new_file(
+        _, chunk_events_per_validator = await store_new_file(
             file_bytes=file_data,
             miners=miners_to_store,
             validator_keypair=key,
@@ -99,8 +99,8 @@ async def validate_step(miners: list[ModuleInfo], database: Database, key: Keypa
             validators_len=validators_len
         )
 
-        if new_chunk_events:
-            chunk_events.extend(new_chunk_events[0])
+        if chunk_events_per_validator:
+            chunk_events.extend(chunk_events_per_validator[0])
 
     # Get remove events
     if expired_chunks:
