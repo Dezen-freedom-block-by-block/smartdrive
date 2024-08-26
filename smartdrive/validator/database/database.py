@@ -64,7 +64,8 @@ class Database:
                     CREATE TABLE file (
                         uuid TEXT PRIMARY KEY,
                         user_ss58_address INTEGER,
-                        total_chunks INTEGER
+                        total_chunks INTEGER,
+                        removed INTEGER DEFAULT 0
                     )
                 '''
 
@@ -314,7 +315,7 @@ class Database:
             connection = sqlite3.connect(self._database_file_path)
             cursor = connection.cursor()
             cursor.execute(
-                "SELECT uuid, user_ss58_address, total_chunks FROM file WHERE file.uuid = ? AND file.user_ss58_address = ? ",
+                "SELECT uuid, user_ss58_address, total_chunks FROM file WHERE file.uuid = ? AND file.user_ss58_address = ? AND removed = 0 ",
                 (f'{file_uuid}', f'{user_ss58_address}')
             )
             row = cursor.fetchone()
@@ -344,7 +345,7 @@ class Database:
             SELECT c.miner_ss58_address, c.uuid, c.chunk_index
             FROM chunk c
             INNER JOIN file f ON c.file_uuid = f.uuid
-            WHERE f.uuid = ?;
+            WHERE f.uuid = ? AND f.removed = 0;
         """
         connection = None
         result: List[MinerWithChunk] = []
@@ -417,16 +418,16 @@ class Database:
 
     def remove_file(self, file_uuid: str) -> bool:
         """
-        Remove a file from the database.
+        Mark a file as removed in the database.
 
-        This function removes a file from the database identified by its UUID.
-        It ensures that foreign key constraints are enabled to handle cascading deletions properly.
+        This function mark a file as removed from the database identified by its UUID. It also removes the entries in the
+        validation table since it will not be validated in the future.
 
         Params:
-            file_uuid: The UUID of the file to be removed.
+            file_uuid: The UUID of the file to mark as removed.
 
         Returns:
-            bool: True if the file was successfully removed, False otherwise.
+            bool: True if the file was successfully marked as removed, False otherwise.
 
         Raises:
             None explicitly, but logs an error message if an SQLite error occurs.
@@ -436,7 +437,7 @@ class Database:
             with connection:
                 cursor = connection.cursor()
                 cursor.execute("PRAGMA foreign_keys = ON;")
-                cursor.execute("DELETE FROM file WHERE uuid = ?", (file_uuid,))
+                cursor.execute("UPDATE file SET removed = 1 WHERE uuid = ?", (file_uuid,))
                 cursor.execute("DELETE FROM validation WHERE file_uuid = ?", (file_uuid,))
                 connection.commit()
         except sqlite3.Error as e:

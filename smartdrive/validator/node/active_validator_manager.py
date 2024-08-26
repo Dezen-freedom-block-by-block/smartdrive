@@ -26,7 +26,7 @@ import time
 from smartdrive.validator.models.models import ActiveValidator
 from smartdrive.validator.node.connection_pool import ConnectionPool
 
-TIMEOUT_PING = 10
+INACTIVITY_TIMEOUT_SECONDS = 10
 
 
 class ActiveValidatorsManager:
@@ -46,8 +46,8 @@ class ActiveValidatorsManager:
     def remove_inactive_validators(self):
         with self.lock:
             current_time = time.time()
-            self.active_validators[:] = [v for v in self.active_validators if current_time - v.last_response_time <= TIMEOUT_PING]
-            to_remove = [v.active_validators[ConnectionPool.MODULEINFO].ss58_address for v in self.active_validators if current_time - v.last_response_time > TIMEOUT_PING]
+            self.active_validators[:] = [v for v in self.active_validators if current_time - v.last_response_time <= INACTIVITY_TIMEOUT_SECONDS]
+            to_remove = [v.active_validators[ConnectionPool.MODULEINFO].ss58_address for v in self.active_validators if current_time - v.last_response_time > INACTIVITY_TIMEOUT_SECONDS]
             return to_remove
 
     def get_active_validators(self):

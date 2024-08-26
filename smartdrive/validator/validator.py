@@ -41,6 +41,7 @@ from smartdrive.validator.api.api import API
 from smartdrive.validator.errors import InitialSyncError
 from smartdrive.validator.evaluation.evaluation import score_miners, set_weights
 from smartdrive.validator.models.models import ModuleType
+from smartdrive.validator.node.active_validator_manager import INACTIVITY_TIMEOUT_SECONDS
 from smartdrive.validator.node.node import Node
 from smartdrive.validator.step import validate_step
 from smartdrive.validator.utils import process_events, prepare_sync_blocks
@@ -110,8 +111,8 @@ class Validator(Module):
     async def create_blocks(self):
         last_validation_time = time.time()
 
-        # Initial sleep for load active validators
-        await asyncio.sleep(10)
+        # We wait the same number of seconds as indicated to mark a validator as inactive
+        await asyncio.sleep(INACTIVITY_TIMEOUT_SECONDS)
 
         while True:
             try:
@@ -125,6 +126,7 @@ class Validator(Module):
 
                 start_time = current_time
                 active_validators = self.node.get_active_validators()
+
                 block_number = self._database.get_last_block() or 0
                 truthful_validators = filter_truthful_validators(active_validators)
 

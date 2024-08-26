@@ -104,7 +104,6 @@ class StoreAPI:
         if not store_event:
             raise HTTPException(status_code=404, detail="No miner answered with a valid response")
 
-        # Emit events
         if chunk_events:
             self._database.insert_validation(chunk_events=chunk_events.pop(0))
             self._node.send_chunk_event_to_validators(connections=active_validators, event=chunk_events)
