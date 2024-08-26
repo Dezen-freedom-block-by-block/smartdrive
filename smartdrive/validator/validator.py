@@ -40,6 +40,7 @@ from smartdrive.validator.database.database import Database
 from smartdrive.validator.api.api import API
 from smartdrive.validator.errors import InitialSyncError
 from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
+from smartdrive.validator.node.active_validator_manager import INACTIVITY_TIMEOUT_SECONDS as VALIDATOR_INACTIVITY_TIMEOUT_SECONDS
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.node.node import Node
 from smartdrive.validator.step import validate_step
@@ -116,7 +117,7 @@ class Validator(Module):
         last_vote_time = time.time()
 
         # Initial sleep for load active validators
-        await asyncio.sleep(10)
+        await asyncio.sleep(VALIDATOR_INACTIVITY_TIMEOUT_SECONDS)
 
         while True:
             current_time = time.time()
