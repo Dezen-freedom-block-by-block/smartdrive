@@ -36,7 +36,7 @@ EXTENDED_PING_TIMEOUT = 60
 CALL_TIMEOUT = 10
 
 
-def get_filtered_modules(netuid: int, type: ModuleType = ModuleType.MINER) -> List[ModuleInfo]:
+def get_filtered_modules(netuid: int, module_type: ModuleType) -> List[ModuleInfo]:
     """
     Retrieve a list of miners or validators.
 
@@ -46,6 +46,7 @@ def get_filtered_modules(netuid: int, type: ModuleType = ModuleType.MINER) -> Li
 
     Params:
         netuid (int): Network identifier used for the queries.
+        module_type (ModuleType): ModuleType.MINER or ModuleType.VALIDATOR.
 
     Returns:
         List[ModuleInfo]: A list of `ModuleInfo` objects representing miners.
@@ -57,7 +58,7 @@ def get_filtered_modules(netuid: int, type: ModuleType = ModuleType.MINER) -> Li
     result = []
 
     for module in modules:
-        condition = module.incentives > module.dividends if type == ModuleType.MINER else module.incentives < module.dividends
+        condition = module.incentives > module.dividends if module_type == ModuleType.MINER else module.incentives < module.dividends
         if (module.incentives == module.dividends == 0) or condition:
             result.append(module)
 
