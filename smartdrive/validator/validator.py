@@ -193,7 +193,7 @@ class Validator(Module):
 
                 # Calculate sleep time to maintain block interval
                 elapsed = time.time() - start_time
-                sleep_time = max(0, self.BLOCK_INTERVAL_SECONDS - elapsed)
+                sleep_time = max(0.0, self.BLOCK_INTERVAL_SECONDS - elapsed)
                 print(f"Sleeping for {sleep_time:.2f} seconds before trying to create the next block.")
                 await asyncio.sleep(sleep_time)
 
