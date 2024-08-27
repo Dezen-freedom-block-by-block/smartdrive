@@ -207,7 +207,7 @@ def _determine_miners_to_store(validations_with_expiration: list[ValidationEvent
     Determines which miners should store new files.
 
     This method decides which miners should be assigned to store new files based on the
-    list of current ChunkEvent, expired ChunkEvent, and active miners. It ensures that active miners
+    list of current ValidationEvent, expired ValidationEvent, and active miners. It ensures that active miners
     that were previously storing expired files and active miners not currently storing any
     files are selected.
 
