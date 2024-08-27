@@ -129,7 +129,7 @@ async def store_new_file(
     stored_miner_with_chunk_uuid: List[Tuple[ModuleInfo, str]] = []
 
     validations_events_per_validator: List[List[ValidationEvent]] = []
-    chunk_params: List[ChunkParams] = []
+    chunks_params: List[ChunkParams] = []
 
     created_at = int(time.time() * 1000) if validating else None
     expiration_ms = get_file_expiration() if validating else None
@@ -199,7 +199,7 @@ async def store_new_file(
 
         # A ChunkParam object is generated per chunk stored
         for chunk_uuid, chunk_index, miner_ss58_address, file in stored_chunks_results:
-            chunk_params.append(ChunkParams(
+            chunks_params.append(ChunkParams(
                 uuid=chunk_uuid,
                 chunk_index=chunk_index,
                 miner_ss58_address=miner_ss58_address
@@ -237,13 +237,13 @@ async def store_new_file(
         # When converting the TCP StoreEvent message to its object, the chunk parameters are being sorted by their UUID.
         # To ensure the parameter signatures match, we sorted them beforehand.
         # TODO: Ideally, the sorting of chunk parameters should not be produced when converting the TCP StoreEvent message to its object.
-        chunk_params.sort(key=lambda c: c.uuid)
+        chunks_params.sort(key=lambda c: c.uuid)
 
         event_params = StoreParams(
             file_uuid=file_uuid,
             created_at=created_at,
             expiration_ms=expiration_ms,
-            chunk_params=chunk_params
+            chunks_params=chunks_params
         )
 
         signed_params = sign_data(event_params.dict(), validator_keypair)
