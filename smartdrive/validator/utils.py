@@ -111,7 +111,7 @@ async def fetch_with_retries(action: str, connection: ConnectionInfo, params, ti
     return None
 
 
-async def process_events(events: list[Event], is_proposer_validator: bool, keypair: Keypair, netuid: int, database: Database):
+async def process_events(events: list[Event], is_proposer_validator: bool, keypair: Keypair, netuid: int, database: Database, is_temporary_chunk: bool = False):
     """
     Process a list of events. Depending on the type of event, it either stores a file or removes it.
 
@@ -121,6 +121,7 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
         keypair (Keypair): The keypair used for signing data.
         netuid (int): The network UID.
         database (Database): The database instance for storing or removing files.
+        is_temporary_chunk (bool): Flag indicating if it is a temporary chunk.
 
     Raises:
         CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network. 
@@ -148,8 +149,8 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
             database.insert_file(file=file, event_uuid=event.uuid)
 
         elif isinstance(event, RemoveEvent):
-            if is_proposer_validator:
-                chunks = database.get_chunks(event.event_params.file_uuid)
+            if is_proposer_validator or is_temporary_chunk:
+                chunks = database.get_chunks(file_uuid=event.event_params.file_uuid, is_temporary_chunk=is_temporary_chunk)
 
                 # If it is the events being processed by the validator when it is creating a block it should raise the
                 # exception and cancel the block creation. This method can also be launched in clint.py but in that case

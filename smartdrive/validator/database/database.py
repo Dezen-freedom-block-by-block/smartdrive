@@ -234,37 +234,48 @@ class Database:
                 connection.close()
         return result
 
-    def get_chunks(self, file_uuid: str) -> List[MinerWithChunk]:
+    def get_chunks(self, file_uuid: str, is_temporary_chunk: bool = False) -> List[MinerWithChunk]:
         """
-        Retrieves the miners' addresses and chunk hashes associated with a given file name.
+        Retrieves the miners' addresses and chunk hashes associated with a given file UUID.
 
         Params:
-            file_uuid (str): The name of the file to search for.
+            file_uuid (str): The UUID of the file to search for.
+            is_temporary_chunk (bool): Flag indicating whether to search in the temporary file validation table.
+                                      Defaults to False.
 
         Returns:
-            List[MinerWithChunk]: A list of MinerChunk objects containing the miners' addresses and chunk hashes.
+            List[MinerWithChunk]: A list of MinerWithChunk objects containing the miners' addresses,
+                                  chunk UUIDs, and optionally chunk indices.
         """
         query = """
+            SELECT v.miner_ss58_address, v.chunk_uuid
+            FROM validation v
+            WHERE v.file_uuid = ?
+        """ if is_temporary_chunk else """
             SELECT c.miner_ss58_address, c.uuid, c.chunk_index
             FROM chunk c
-            INNER JOIN file f ON c.file_uuid = f.uuid
-            WHERE f.uuid = ? AND f.removed = 0;
+            WHERE c.file_uuid = ? AND c.removed = 0;
         """
         connection = None
-        result: List[MinerWithChunk] = []
         try:
             connection = sqlite3.connect(self._database_file_path)
             cursor = connection.cursor()
             cursor.execute(query, (file_uuid,))
             rows = cursor.fetchall()
-            result = [MinerWithChunk(ss58_address=row[0], chunk_uuid=row[1], chunk_index=row[2]) for row in rows]
+            return [
+                MinerWithChunk(
+                    ss58_address=row[0],
+                    chunk_uuid=row[1],
+                    chunk_index=None if is_temporary_chunk else row[2]
+                )
+                for row in rows
+            ]
         except sqlite3.Error as e:
             print(f"Database error: {e}")
+            return []
         finally:
             if connection:
                 connection.close()
-
-        return result
 
     def get_validation_events_with_expiration(self) -> List[ValidationEvent]:
         """

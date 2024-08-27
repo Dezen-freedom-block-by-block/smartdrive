@@ -209,10 +209,11 @@ class Validator(Module):
         if remove_events:
             await process_events(
                 events=remove_events,
-                is_proposer_validator=True,
+                is_proposer_validator=False,
                 keypair=self._key,
                 netuid=config_manager.config.netuid,
-                database=self._database
+                database=self._database,
+                is_temporary_chunk=True
             )
 
         if validation_events:
