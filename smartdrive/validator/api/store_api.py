@@ -39,7 +39,7 @@ from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_addre
 from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
-from smartdrive.models.event import StoreEvent, StoreParams, StoreInputParams, ChunkEvent
+from smartdrive.models.event import StoreEvent, StoreParams, StoreInputParams, ChunkParams, ValidationEvent
 from smartdrive.validator.models.models import MinerWithChunk, ModuleType
 from smartdrive.commune.request import execute_miner_request, get_filtered_modules
 from smartdrive.commune.models import ModuleInfo
@@ -92,7 +92,7 @@ class StoreAPI:
 
         active_validators = self._node.get_active_validators_connections()
         validators_len = len(active_validators) + 1  # To include myself
-        store_event, chunk_events_per_validator = await store_new_file(
+        store_event, validations_events_per_validator = await store_new_file(
             file_bytes=file_bytes,
             miners=miners,
             validator_keypair=self._key,
@@ -104,9 +104,9 @@ class StoreAPI:
         if not store_event:
             raise HTTPException(status_code=404, detail="No miner answered with a valid response")
 
-        if chunk_events_per_validator:
-            self._database.insert_validation(chunk_events=chunk_events_per_validator.pop(0))
-            self._node.send_chunk_events_to_validators(connections=active_validators, chunk_events_per_validator=chunk_events_per_validator)
+        if validations_events_per_validator:
+            self._database.insert_validation_events(validation_events=validations_events_per_validator.pop(0))
+            self._node.send_validation_events_to_validators(connections=active_validators, validations_events_per_validator=validations_events_per_validator)
 
         self._node.send_event_to_validators(store_event)
 
@@ -121,15 +121,15 @@ async def store_new_file(
         input_signed_params: str,
         validators_len: int,
         validating: bool = False,
-) -> Tuple[Optional[StoreEvent], List[List[ChunkEvent]]]:
+) -> Tuple[Optional[StoreEvent], List[List[ValidationEvent]]]:
     if not validating and len(miners) < MIN_MINERS_FOR_FILE:
         raise HTTPException(status_code=400, detail=f"Not enough miners available to meet the minimum requirement of {MIN_MINERS_FOR_FILE} miners for file storage.")
 
     stored_chunks_results = []
     stored_miner_with_chunk_uuid: List[Tuple[ModuleInfo, str]] = []
 
-    chunk_events_per_validator: List[List[ChunkEvent]] = []
-    chunk_events: List[ChunkEvent] = []
+    validations_events_per_validator: List[List[ValidationEvent]] = []
+    chunk_params: List[ChunkParams] = []
 
     created_at = int(time.time() * 1000) if validating else None
     expiration_ms = get_file_expiration() if validating else None
@@ -197,23 +197,24 @@ async def store_new_file(
             if len(stored_chunks_results) != len(chunks_bytes) * MIN_REPLICATION_FOR_FILE:
                 raise HTTPException(status_code=500, detail="Failed to store all chunks in the required number of miners.")
 
+        # A ChunkParam object is generated per chunk stored
         for chunk_uuid, chunk_index, miner_ss58_address, file in stored_chunks_results:
-            chunk_events.append(ChunkEvent(
+            chunk_params.append(ChunkParams(
                 uuid=chunk_uuid,
                 chunk_index=chunk_index,
                 miner_ss58_address=miner_ss58_address
             ))
 
-        # TODO: A Validation object is generated for each miner by each validator
+        # A ValidationEvent object is generated for each chunk stored * each validator
         for _ in range(validators_len):
-            validator_validations = []
+            validator_events_validations = []
 
             for chunk_uuid, chunk_index, miner_ss58_address, file in stored_chunks_results:
                 sub_chunk_start = random.randint(0, max(0, len(file) - MAX_ENCODED_RANGE))
                 sub_chunk_end = min(sub_chunk_start + MAX_ENCODED_RANGE, len(file))
                 sub_chunk_encoded = file[sub_chunk_start:sub_chunk_end].hex()
 
-                validation = ChunkEvent(
+                validation_event = ValidationEvent(
                     uuid=chunk_uuid,
                     chunk_index=chunk_index,
                     miner_ss58_address=miner_ss58_address,
@@ -225,21 +226,24 @@ async def store_new_file(
                 )
 
                 if validating:
-                    validation.expiration_ms = expiration_ms
-                    validation.created_at = created_at
+                    validation_event.expiration_ms = expiration_ms
+                    validation_event.created_at = created_at
 
-                validator_validations.append(validation)
+                validator_events_validations.append(validation_event)
 
-            if validator_validations:
-                chunk_events_per_validator.append(validator_validations)
+            if validator_events_validations:
+                validations_events_per_validator.append(validator_events_validations)
 
-        # TODO: Ask why it is necessary to order this way.
-        chunk_events.sort(key=lambda c: c.uuid)
+        # When converting the TCP StoreEvent message to its object, the chunk parameters are being sorted by their UUID.
+        # To ensure the parameter signatures match, we sorted them beforehand.
+        # TODO: Ideally, the sorting of chunk parameters should not be produced when converting the TCP StoreEvent message to its object.
+        chunk_params.sort(key=lambda c: c.uuid)
+
         event_params = StoreParams(
             file_uuid=file_uuid,
             created_at=created_at,
             expiration_ms=expiration_ms,
-            chunks=chunk_events
+            chunk_params=chunk_params
         )
 
         signed_params = sign_data(event_params.dict(), validator_keypair)
@@ -254,7 +258,7 @@ async def store_new_file(
             input_signed_params=input_signed_params
         )
 
-        return store_event, chunk_events_per_validator
+        return store_event, validations_events_per_validator
 
     except Exception:
         await remove_stored_chunks()

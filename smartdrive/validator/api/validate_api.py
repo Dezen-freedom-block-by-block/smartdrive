@@ -25,10 +25,10 @@ from substrateinterface import Keypair
 
 from smartdrive.commune.request import execute_miner_request
 from smartdrive.commune.models import ModuleInfo
-from smartdrive.models.event import ChunkEvent
+from smartdrive.models.event import ValidationEvent
 
 
-async def validate_chunk_request(keypair: Keypair, user_owner_ss58_address: Ss58Address, miner_module_info: ModuleInfo, chunk_event: ChunkEvent) -> bool:
+async def validate_chunk_request(keypair: Keypair, user_owner_ss58_address: Ss58Address, miner_module_info: ModuleInfo, validation_event: ValidationEvent) -> bool:
     """
     Sends a request to a miner to validate a specific chunk.
 
@@ -50,10 +50,10 @@ async def validate_chunk_request(keypair: Keypair, user_owner_ss58_address: Ss58
         keypair, miner_module_info.connection, miner_module_info.ss58_address, "validation",
         {
             "folder": user_owner_ss58_address,
-            "chunk_uuid": chunk_event.uuid,
-            "start": chunk_event.sub_chunk_start,
-            "end": chunk_event.sub_chunk_end
+            "chunk_uuid": validation_event.uuid,
+            "start": validation_event.sub_chunk_start,
+            "end": validation_event.sub_chunk_end
         }
     )
 
-    return str(miner_answer) == chunk_event.sub_chunk_encoded if miner_answer else False
+    return str(miner_answer) == validation_event.sub_chunk_encoded if miner_answer else False

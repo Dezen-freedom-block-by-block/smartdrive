@@ -50,7 +50,13 @@ class StoreInputParams(InputParams):
     file: str
 
 
-class ChunkEvent(BaseModel):
+class ChunkParams(BaseModel):
+    uuid: Optional[str]
+    miner_ss58_address: Optional[str]
+    chunk_index: Optional[int] = None
+
+
+class ValidationEvent(BaseModel):
     uuid: Optional[str]
     miner_ss58_address: Optional[str]
     chunk_index: Optional[int] = None
@@ -71,7 +77,7 @@ class StoreParams(EventParams):
     file_uuid: str
     created_at: Optional[int]
     expiration_ms: Optional[int]
-    chunks: List[ChunkEvent]
+    chunks_params: List[ChunkParams]
 
 
 class Event(BaseModel):

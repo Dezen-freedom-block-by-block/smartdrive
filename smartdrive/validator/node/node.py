@@ -28,7 +28,7 @@ from communex.compat.key import classic_load_key
 from substrateinterface import Keypair
 
 from smartdrive.models.block import Block, block_to_block_event
-from smartdrive.models.event import MessageEvent, StoreEvent, RemoveEvent, ChunkEvent
+from smartdrive.models.event import MessageEvent, StoreEvent, RemoveEvent, ValidationEvent
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.node.connection_pool import ConnectionPool
@@ -116,12 +116,12 @@ class Node:
             except Exception as e:
                 print(e)
 
-    def send_chunk_events_to_validators(self, connections, chunk_events_per_validator: list[list[ChunkEvent]]):
+    def send_validation_events_to_validators(self, connections, validations_events_per_validator: list[list[ValidationEvent]]):
         for index, c in enumerate(connections):
-            data_list = [chunk_events.dict() for chunk_events in chunk_events_per_validator[index]]
+            data_list = [validations_events.dict() for validations_events in validations_events_per_validator[index]]
 
             body = {
-                "code": MessageCode.MESSAGE_CODE_CHUNK_EVENTS.value,
+                "code": MessageCode.MESSAGE_CODE_VALIDATION_EVENTS.value,
                 "data": data_list
             }
 

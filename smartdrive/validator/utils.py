@@ -129,7 +129,7 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
         if isinstance(event, StoreEvent):
             total_chunks_index = set()
             chunks = []
-            for chunk in event.event_params.chunks:
+            for chunk in event.event_params.chunks_params:
                 total_chunks_index.add(chunk.chunk_index)
                 chunks.append(
                     Chunk(

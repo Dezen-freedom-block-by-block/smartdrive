@@ -28,7 +28,8 @@ import zipfile
 from typing import List, Optional, Union
 
 from smartdrive.commune.models import ModuleInfo
-from smartdrive.models.event import StoreEvent, Action, StoreParams, StoreInputParams, RemoveEvent, RemoveInputParams, EventParams, UserEvent, ChunkEvent
+from smartdrive.models.event import StoreEvent, Action, StoreParams, StoreInputParams, RemoveEvent, RemoveInputParams, \
+    EventParams, UserEvent, ChunkParams, ValidationEvent
 from smartdrive.models.block import Block
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.models.models import MinerWithChunk, File, Chunk
@@ -363,20 +364,20 @@ class Database:
 
         return result
 
-    def get_chunk_events_with_expiration(self) -> List[ChunkEvent]:
+    def get_validation_events_with_expiration(self) -> List[ValidationEvent]:
         """
-        Retrieve a list of chunk events with expiration information.
+        Retrieve a list of validation events with expiration information.
 
-        This function queries the database to find files that have expiration information. It constructs a list of `ChunkEvent`
+        This function queries the database to find files that have expiration information. It constructs a list of `ValidationEvent`
          objects.
 
         Returns:
-            List[ChunkEvent]: A list of `ChunkEvent` objects.
+            List[ValidationEvent]: A list of `ValidationEvent` objects.
 
         Raises:
             sqlite3.Error: If there is an error accessing the database.
         """
-        chunk_events: list[ChunkEvent] = []
+        validation_events: list[ValidationEvent] = []
         connection = None
         try:
             connection = sqlite3.connect(self._database_file_path)
@@ -394,7 +395,7 @@ class Database:
             rows = cursor.fetchall()
 
             for row in rows:
-                chunk_event = ChunkEvent(
+                validation_event = ValidationEvent(
                     uuid=row["chunk_uuid"],
                     miner_ss58_address=row["miner_ss58_address"],
                     sub_chunk_start=row["sub_chunk_start"],
@@ -405,7 +406,7 @@ class Database:
                     file_uuid=row["file_uuid"],
                     user_owner_ss58_address=row["user_ss58_address"]
                 )
-                chunk_events.append(chunk_event)
+                validation_events.append(validation_event)
 
         except sqlite3.Error as e:
             print(f"Database error: {e}")
@@ -414,7 +415,7 @@ class Database:
             if connection:
                 connection.close()
 
-        return chunk_events
+        return validation_events
 
     def remove_file(self, file_uuid: str) -> bool:
         """
@@ -594,12 +595,12 @@ class Database:
                         blocks[block_id].events.append(events[event_uuid])
 
                     if isinstance(events[event_uuid].event_params, StoreParams):
-                        chunk = ChunkEvent(
+                        chunk = ChunkParams(
                             uuid=row['chunk_uuid'],
                             chunk_index=row['chunk_index'],
                             miner_ss58_address=row['miner_ss58_address']
                         )
-                        events[event_uuid].event_params.chunks.append(chunk)
+                        events[event_uuid].event_params.chunks_params.append(chunk)
 
             return list(blocks.values())
 
@@ -610,15 +611,15 @@ class Database:
             if connection:
                 connection.close()
 
-    def insert_validation(self, chunk_events: list[ChunkEvent]) -> bool:
+    def insert_validation_events(self, validation_events: list[ValidationEvent]) -> bool:
         """
-        Insert a list of chunk events into the validation table.
+        Insert a list of validation events into the validation table.
 
-        This function takes a list of ChunkEvent objects and inserts each event's details into the validation table
+        This function takes a list of ValidationEvent objects and inserts each event's details into the validation table
         within a single transaction. If any error occurs during the insertion, the transaction is rolled back.
 
         Params:
-            chunk_events (list[ChunkEvent]): A list of ChunkEvent objects to be inserted into the validation table.
+            validation_events (list[ValidationEvent]): A list of ValidationEvent objects to be inserted into the validation table.
 
         Returns:
             bool: True if the insertion is successful, False otherwise.
@@ -631,11 +632,11 @@ class Database:
                 cursor = connection.cursor()
                 connection.execute('BEGIN TRANSACTION')
 
-                for chunk in chunk_events:
+                for validation_event in validation_events:
                     cursor.execute('''
                         INSERT INTO validation (chunk_uuid, miner_ss58_address, sub_chunk_start, sub_chunk_end, sub_chunk_encoded, file_uuid, expiration_ms, created_at, user_ss58_address)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (chunk.uuid, chunk.miner_ss58_address, chunk.sub_chunk_start, chunk.sub_chunk_end, chunk.sub_chunk_encoded, chunk.file_uuid, chunk.expiration_ms, chunk.created_at, chunk.user_owner_ss58_address))
+                    ''', (validation_event.uuid, validation_event.miner_ss58_address, validation_event.sub_chunk_start, validation_event.sub_chunk_end, validation_event.sub_chunk_encoded, validation_event.file_uuid, validation_event.expiration_ms, validation_event.created_at, validation_event.user_owner_ss58_address))
 
                 connection.commit()
             return True
@@ -648,15 +649,15 @@ class Database:
             if connection:
                 connection.close()
 
-    def get_validation_without_expiration(self, registered_miners: list[ModuleInfo]) -> list[ChunkEvent] | None:
+    def get_validation_events_without_expiration(self, registered_miners: list[ModuleInfo]) -> list[ValidationEvent] | None:
         """
-        Retrieves validation records for the given registered miners from the database.
+        Retrieves validation events records for the given registered miners from the database.
 
         Params:
             registered_miners (list[ModuleInfo]): A list of registered miners.
 
         Returns:
-            list[ChunkEvent] : A list of ChunkEvent from the validation table for the specified miners or None.
+            list[ChunkParams] : A list of ChunkEvent from the validation table for the specified miners or None.
         """
         connection = None
         try:
@@ -665,7 +666,7 @@ class Database:
             cursor = connection.cursor()
 
             miner_addresses = [miner.ss58_address for miner in registered_miners]
-            chunk_events = []
+            validation_events = []
 
             for miner_address in miner_addresses:
                 query = '''
@@ -679,8 +680,8 @@ class Database:
                 cursor.execute(query, (miner_address,))
                 row = cursor.fetchone()
                 if row:
-                    chunk_events.append(
-                        ChunkEvent(
+                    validation_events.append(
+                        ValidationEvent(
                             uuid=row["chunk_uuid"],
                             miner_ss58_address=row["miner_ss58_address"],
                             sub_chunk_start=row["sub_chunk_start"],
@@ -693,7 +694,7 @@ class Database:
                         )
                     )
 
-            return chunk_events
+            return validation_events
 
         except sqlite3.Error as e:
             print(f"Database error: {e}")
@@ -724,7 +725,7 @@ class Database:
             event_params.update({
                 "created_at": row['file_created_at'],
                 "expiration_ms": row['file_expiration_ms'],
-                "chunks": []
+                "chunks_params": []
             })
             event = StoreEvent(
                 uuid=row['event_uuid'],

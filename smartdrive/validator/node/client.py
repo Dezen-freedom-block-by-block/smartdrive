@@ -27,7 +27,7 @@ from typing import List
 from communex.compat.key import classic_load_key
 
 import smartdrive
-from smartdrive.models.event import parse_event, MessageEvent, Action, Event, ChunkEvent
+from smartdrive.models.event import parse_event, MessageEvent, Action, Event, ValidationEvent
 from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.config import config_manager
@@ -229,10 +229,10 @@ class Client(multiprocessing.Process):
                             self._remove_events(block.events, event_pool)
                             self._database.create_block(block)
 
-                elif body['code'] == MessageCode.MESSAGE_CODE_CHUNK_EVENTS.value:
-                    chunk_events = [ChunkEvent(**chunk) for chunk in body['data']]
-                    if chunk_events:
-                        self._database.insert_validation(chunk_events=chunk_events)
+                elif body['code'] == MessageCode.MESSAGE_CODE_VALIDATION_EVENTS.value:
+                    validation_events = [ValidationEvent(**validation_event) for validation_event in body['data']]
+                    if validation_events:
+                        self._database.insert_validation_events(validation_events=validation_events)
 
         except InvalidSignatureException as e:
             raise e

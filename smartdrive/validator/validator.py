@@ -199,7 +199,7 @@ class Validator(Module):
             if miner.ss58_address != self._key.ss58_address
         ]
 
-        remove_events, chunks_events, result_miners = await validate_step(
+        remove_events, validation_events, result_miners = await validate_step(
                 miners=miners,
                 database=self._database,
                 key=self._key,
@@ -215,8 +215,8 @@ class Validator(Module):
                 database=self._database
             )
 
-        if chunks_events:
-            self._database.insert_validation(chunk_events=chunks_events)
+        if validation_events:
+            self._database.insert_validation_events(validation_events=validation_events)
 
         if result_miners:
             # Voting
