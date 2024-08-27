@@ -254,7 +254,7 @@ class Database:
         """ if is_temporary_chunk else """
             SELECT c.miner_ss58_address, c.uuid, c.chunk_index
             FROM chunk c
-            INNER JOIN file f
+            INNER JOIN file f ON c.file_uuid = f.uuid
             WHERE f.uuid = ? AND f.removed = 0;
         """
         connection = None
