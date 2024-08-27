@@ -339,7 +339,6 @@ class Database:
             connection = sqlite3.connect(self._database_file_path)
             with connection:
                 cursor = connection.cursor()
-                cursor.execute("PRAGMA foreign_keys = ON;")
                 cursor.execute("UPDATE file SET removed = 1 WHERE uuid = ?", (file_uuid,))
                 cursor.execute("DELETE FROM validation WHERE file_uuid = ?", (file_uuid,))
                 connection.commit()
