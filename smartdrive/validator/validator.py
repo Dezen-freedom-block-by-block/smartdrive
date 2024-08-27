@@ -25,11 +25,10 @@ import argparse
 import time
 import asyncio
 
-from substrateinterface import Keypair
-
 from communex.module.module import Module
 from communex.compat.key import classic_load_key
 from communex.types import Ss58Address
+from substrateinterface import Keypair
 
 import smartdrive
 from smartdrive.commune.connection_pool import initialize_commune_connection_pool
@@ -38,7 +37,6 @@ from smartdrive.validator.config import Config, config_manager
 from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.api.api import API
-from smartdrive.validator.errors import InitialSyncError
 from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
 from smartdrive.validator.node.active_validator_manager import INACTIVITY_TIMEOUT_SECONDS as VALIDATOR_INACTIVITY_TIMEOUT_SECONDS
 from smartdrive.validator.models.models import ModuleType
@@ -108,21 +106,19 @@ class Validator(Module):
 
     def __init__(self):
         super().__init__()
-        self.node = Node()
         self._key = classic_load_key(config_manager.config.key)
         self._database = Database()
+        self.node = Node()
+        self.api = API(self.node)
 
     async def create_blocks(self):
         last_validation_time = time.time()
         last_vote_time = time.time()
 
-        # Initial sleep for load active validators
-        await asyncio.sleep(VALIDATOR_INACTIVITY_TIMEOUT_SECONDS)
-
         while True:
             current_time = time.time()
             try:
-                if _validator.node.initial_sync_completed.value and time.time() - last_vote_time >= self.VOTE_INTERVAL_SECONDS:
+                if time.time() - last_vote_time >= self.VOTE_INTERVAL_SECONDS:
                     asyncio.create_task(self.vote_miners())
                     last_vote_time = time.time()
             except Exception as e:
@@ -183,9 +179,6 @@ class Validator(Module):
                     self._database.create_block(block=block)
 
                     asyncio.create_task(self.node.send_block_to_validators(block=block))
-
-                    if not _validator.node.initial_sync_completed.value:
-                        _validator.node.initial_sync_completed.value = True
 
                     if current_time - last_validation_time >= self.VALIDATION_INTERVAL_SECONDS:
                         print("Starting validation task")
@@ -260,7 +253,6 @@ if __name__ == "__main__":
 
     key = classic_load_key(config_manager.config.key)
     registered_modules = get_modules(config_manager.config.netuid)
-
     if key.ss58_address not in [module.ss58_address for module in registered_modules]:
         raise Exception(f"Your key: {key.ss58_address} is not registered.")
 
@@ -268,14 +260,14 @@ if __name__ == "__main__":
     _validator = Validator()
 
     async def run_tasks():
-        try:
-            asyncio.create_task(_validator.periodically_ping_validators())
-            _validator.api = API(_validator.node)
-            await asyncio.gather(
-                _validator.api.run_server(),
-                _validator.create_blocks()
-            )
-        except InitialSyncError as e:
-            print(f"Error - {e}")
+        asyncio.create_task(_validator.periodically_ping_validators())
+
+        # Initial delay to allow active validators to load before request them
+        await asyncio.sleep(VALIDATOR_INACTIVITY_TIMEOUT_SECONDS)
+
+        await asyncio.gather(
+            _validator.api.run_server(),
+            _validator.create_blocks()
+        )
 
     asyncio.run(run_tasks())

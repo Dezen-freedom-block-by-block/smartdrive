@@ -19,6 +19,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 import asyncio
 import multiprocessing
 import socket
@@ -26,7 +27,6 @@ import select
 import time
 import traceback
 
-from communex.client import CommuneClient
 from communex.compat.key import classic_load_key
 
 from smartdrive.commune.request import get_filtered_modules
@@ -49,18 +49,16 @@ class Server(multiprocessing.Process):
 
     _event_pool = None
     _active_validators_manager = None
-    _initial_sync_completed = None
     _connection_pool = None
     _keypair = None
 
-    def __init__(self, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed, connection_pool: ConnectionPool):
+    def __init__(self, event_pool, event_pool_lock, active_validators_manager, connection_pool: ConnectionPool):
         multiprocessing.Process.__init__(self)
         self._event_pool = event_pool
         self._event_pool_lock = event_pool_lock
         self._active_validators_manager = active_validators_manager
         self._connection_pool = connection_pool
         self._keypair = classic_load_key(config_manager.config.key)
-        self._initial_sync_completed = initial_sync_completed
 
     def run(self):
         server_socket = None
@@ -74,7 +72,9 @@ class Server(multiprocessing.Process):
 
             while True:
                 client_socket, address = server_socket.accept()
-                process = multiprocessing.Process(target=self._handle_connection, args=(self._connection_pool, self._event_pool, self._event_pool_lock, self._active_validators_manager, self._initial_sync_completed, client_socket, address,))
+                process = multiprocessing.Process(target=self._handle_connection, args=(
+                self._connection_pool, self._event_pool, self._event_pool_lock, self._active_validators_manager,
+                client_socket, address,))
                 process.start()
                 client_socket.close()  # Close the socket in the parent process
 
@@ -87,23 +87,29 @@ class Server(multiprocessing.Process):
     def _start_check_connections_process(self):
         # Although these variables are managed by multiprocessing.Manager(),
         # we explicitly pass them as parameters to make it clear that they are dependencies of the server process.
-        process = multiprocessing.Process(target=self._check_connections_process, args=(self._connection_pool, self._event_pool, self._event_pool_lock, self._active_validators_manager, self._initial_sync_completed,))
+        process = multiprocessing.Process(target=self._check_connections_process, args=(
+        self._connection_pool, self._event_pool, self._event_pool_lock, self._active_validators_manager,))
         process.start()
 
-    def _check_connections_process(self, connection_pool: ConnectionPool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed):
+    def _check_connections_process(self, connection_pool: ConnectionPool, event_pool, event_pool_lock,
+                                   active_validators_manager):
         while True:
             try:
                 validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
 
                 active_ss58_addresses = {validator.ss58_address for validator in validators}
-                to_remove = [ss58_address for ss58_address in connection_pool.get_identifiers() if ss58_address not in active_ss58_addresses]
+                to_remove = [ss58_address for ss58_address in connection_pool.get_identifiers() if
+                             ss58_address not in active_ss58_addresses]
                 for ss58_address in to_remove:
                     removed_connection = connection_pool.remove_connection(ss58_address)
                     if removed_connection:
                         removed_connection.close()
                 identifiers = connection_pool.get_identifiers()
-                new_validators = [validator for validator in validators if validator.ss58_address not in identifiers and validator.ss58_address != self._keypair.ss58_address]
-                asyncio.run(self._initialize_validators(connection_pool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed, new_validators))
+                new_validators = [validator for validator in validators if
+                                  validator.ss58_address not in identifiers and validator.ss58_address != self._keypair.ss58_address]
+                asyncio.run(
+                    self._initialize_validators(connection_pool, event_pool, event_pool_lock, active_validators_manager,
+                                                new_validators))
 
             except Exception as e:
                 print(f"Error check connections process - {e}")
@@ -111,10 +117,12 @@ class Server(multiprocessing.Process):
             finally:
                 time.sleep(self.CONNECTION_PROCESS_TIMEOUT_SECONDS)
 
-    async def _connect_to_validator(self, validator, keypair, connection_pool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed):
+    async def _connect_to_validator(self, validator, keypair, connection_pool, event_pool, event_pool_lock,
+                                    active_validators_manager):
         validator_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            await asyncio.get_event_loop().sock_connect(validator_socket, (validator.connection.ip, validator.connection.port + 1))
+            await asyncio.get_event_loop().sock_connect(validator_socket,
+                                                        (validator.connection.ip, validator.connection.port + 1))
             body = {
                 "code": MessageCode.MESSAGE_CODE_IDENTIFIER.value,
                 "data": {"ss58_address": keypair.ss58_address}
@@ -127,7 +135,8 @@ class Server(multiprocessing.Process):
             }
             send_json(validator_socket, message)
             connection_pool.add_connection(validator.ss58_address, validator, validator_socket)
-            client_receiver = Client(validator_socket, validator.ss58_address, connection_pool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed)
+            client_receiver = Client(validator_socket, validator.ss58_address, connection_pool, event_pool,
+                                     event_pool_lock, active_validators_manager)
             client_receiver.start()
             active_validators_manager.update_validator(validator, validator_socket)
             print(f"Validator {validator.ss58_address} connected and added to the pool.")
@@ -136,7 +145,8 @@ class Server(multiprocessing.Process):
             validator_socket.close()
             print(f"Error connecting to validator {validator.ss58_address}: {e}")
 
-    async def _initialize_validators(self, connection_pool: ConnectionPool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed, validators):
+    async def _initialize_validators(self, connection_pool: ConnectionPool, event_pool, event_pool_lock,
+                                     active_validators_manager, validators):
         try:
             if validators is None:
                 validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
@@ -150,8 +160,7 @@ class Server(multiprocessing.Process):
                     connection_pool,
                     event_pool,
                     event_pool_lock,
-                    active_validators_manager,
-                    initial_sync_completed
+                    active_validators_manager
                 )
                 for validator in validators
             ]
@@ -160,7 +169,8 @@ class Server(multiprocessing.Process):
         except Exception as e:
             print(f"Error initializing validators: {e}")
 
-    def _handle_connection(self, connection_pool: ConnectionPool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed, client_socket, address):
+    def _handle_connection(self, connection_pool: ConnectionPool, event_pool, event_pool_lock,
+                           active_validators_manager, client_socket, address):
         try:
             # Wait self.IDENTIFIER_TIMEOUT_SECONDS as maximum time to get the identifier message
             ready = select.select([client_socket], [], [], self.IDENTIFIER_TIMEOUT_SECONDS)
@@ -172,7 +182,8 @@ class Server(multiprocessing.Process):
                 public_key_hex = identification_message["public_key_hex"]
                 ss58_address = get_ss58_address_from_public_key(public_key_hex)
 
-                is_verified_signature = verify_data_signature(identification_message["body"], signature_hex, ss58_address)
+                is_verified_signature = verify_data_signature(identification_message["body"], signature_hex,
+                                                              ss58_address)
 
                 if not is_verified_signature:
                     print(f"Connection signature is not valid.")
@@ -196,13 +207,17 @@ class Server(multiprocessing.Process):
                 validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
 
                 if validators:
-                    validator_connection = next((validator for validator in validators if validator.ss58_address == connection_identifier), None)
+                    validator_connection = next(
+                        (validator for validator in validators if validator.ss58_address == connection_identifier),
+                        None)
 
                     if validator_connection:
                         if connection_pool.get_remaining_capacity() > 0:
-                            connection_pool.add_connection(validator_connection.ss58_address, validator_connection, client_socket)
+                            connection_pool.add_connection(validator_connection.ss58_address, validator_connection,
+                                                           client_socket)
                             print(f"Connection added {validator_connection}")
-                            client_receiver = Client(client_socket, connection_identifier, connection_pool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed)
+                            client_receiver = Client(client_socket, connection_identifier, connection_pool, event_pool,
+                                                     event_pool_lock, active_validators_manager)
                             client_receiver.start()
                             active_validators_manager.update_validator(validator_connection, client_socket)
                         else:

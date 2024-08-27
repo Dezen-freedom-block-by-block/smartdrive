@@ -1,13 +1,12 @@
 import asyncio
 import multiprocessing
-import random
 from typing import List
 
 from communex.compat.key import classic_load_key
 
 import smartdrive
 from smartdrive.models.event import parse_event, MessageEvent, Action, Event
-from smartdrive.validator.api.middleware.sign import verify_data_signature, sign_data
+from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
@@ -31,10 +30,9 @@ class Client(multiprocessing.Process):
     _keypair = None
     _database = None
     _active_validators_manager = None
-    _initial_sync_completed = None
     _synced_blocks = None
 
-    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed):
+    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, event_pool, event_pool_lock, active_validators_manager):
         multiprocessing.Process.__init__(self)
         self._client_socket = client_socket
         self._identifier = identifier
@@ -42,7 +40,6 @@ class Client(multiprocessing.Process):
         self._event_pool = event_pool
         self._event_pool_lock = event_pool_lock
         self._active_validators_manager = active_validators_manager
-        self._initial_sync_completed = initial_sync_completed
         self._keypair = classic_load_key(config_manager.config.key)
         self._database = Database()
         self._synced_blocks = []
@@ -121,9 +118,6 @@ class Client(multiprocessing.Process):
                         self._run_process_events(block.events)
                         self._remove_events(block.events, event_pool)
                         self._database.create_block(block)
-
-                        if not self._initial_sync_completed.value:
-                            self._initial_sync_completed.value = True
 
                 elif body['code'] == MessageCode.MESSAGE_CODE_EVENT.value:
                     message_event = MessageEvent.from_json(body["data"]["event"], Action(body["data"]["event_action"]))

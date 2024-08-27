@@ -19,6 +19,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 import asyncio
 import multiprocessing
 from typing import List, Union
@@ -44,7 +45,6 @@ class Node:
     _connection_pool = None
     _event_pool_lock = None
     _active_validator_manager = None
-    initial_sync_completed = None
 
     def __init__(self):
         self._keypair = classic_load_key(config_manager.config.key)
@@ -53,21 +53,19 @@ class Node:
         self._event_pool = manager.list()
         self._event_pool_lock = manager.Lock()
         self._active_validators_manager = ActiveValidatorsManager()
-        self.initial_sync_completed = multiprocessing.Value('b', False)
         self._connection_pool = ConnectionPool(cache_size=Server.MAX_N_CONNECTIONS)
 
         # Although these variables are managed by multiprocessing.Manager(),
         # we explicitly pass them as parameters to make it clear that they are dependencies of the server process.
-        self._server_process = multiprocessing.Process(target=self.run_server, args=(self._event_pool, self._event_pool_lock, self._active_validators_manager, self.initial_sync_completed, self._connection_pool,))
+        self._server_process = multiprocessing.Process(target=self.run_server, args=(self._event_pool, self._event_pool_lock, self._active_validators_manager, self._connection_pool,))
         self._server_process.start()
 
-    def run_server(self, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed, connection_pool: ConnectionPool):
+    def run_server(self, event_pool, event_pool_lock, active_validators_manager, connection_pool: ConnectionPool):
         server = Server(
             event_pool=event_pool,
             event_pool_lock=event_pool_lock,
             connection_pool=connection_pool,
-            active_validators_manager=active_validators_manager,
-            initial_sync_completed=initial_sync_completed
+            active_validators_manager=active_validators_manager
         )
         server.run()
 

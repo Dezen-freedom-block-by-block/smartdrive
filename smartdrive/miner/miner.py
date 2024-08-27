@@ -25,10 +25,8 @@ import io
 import time
 import uuid
 import shutil
-
 import argparse
 from argparse import Namespace
-
 import os
 
 import uvicorn
@@ -130,27 +128,10 @@ class Miner(Module):
         app.add_api_route("/method/retrieve", self.retrieve, methods=["POST"])
         app.add_api_route("/method/remove", self.remove, methods=["POST"])
         app.add_api_route("/method/validation", self.validation, methods=["POST"])
-        app.add_api_route("/method/ping", self.ping, methods=["POST"])
 
         configuration = uvicorn.Config(app, workers=8, host="0.0.0.0", port=config.port, ssl_keyfile=f"{dir}/cert/key.pem", ssl_certfile=f"{dir}/cert/cert.pem", log_level="info")
         server = uvicorn.Server(configuration)
         await server.serve()
-
-    def ping(self) -> dict:
-        """
-        Ping the miner to check its status.
-
-        This function returns the status of the miner, including its type, version, and maximum storage size.
-
-        Returns:
-            dict: A dictionary containing the type of the network, the version of the software, and the maximum storage size.
-
-        Raises:
-            None
-        """
-        smartdrive.check_version()
-
-        return {"type": "miner", "version": smartdrive.__version__, "max_size": self.config.max_size}
 
     async def store(self, request: Request) -> dict:
         """
