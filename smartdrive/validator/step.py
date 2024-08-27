@@ -42,8 +42,8 @@ async def validate_step(miners: list[ModuleInfo], database: Database, key: Keypa
     """
     Performs a validation step in the process.
 
-    This function retrieves potentially expired files, deletes them if necessary, and creates new files to replace
-    the deleted ones. It also validates files that have not expired.
+    This function retrieves expired validations, deletes them if necessary, and creates new validations along with their
+     respective files to replace the deleted ones. It also validates files that have not expired.
 
     Params:
         miners (list[ModuleInfo]): List of miners objects.
