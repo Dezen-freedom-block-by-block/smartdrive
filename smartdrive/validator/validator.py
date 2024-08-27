@@ -89,9 +89,7 @@ class Validator(Module):
     MAX_EVENTS_PER_BLOCK = 100
     BLOCK_INTERVAL_SECONDS = 30
     PING_INTERVAL_SECONDS = 5
-    MAX_RETRIES = 2
     RETRY_DELAY_INITIAL_SYNC = 10
-    RETRY_DELAY_CREATION_BLOCK = 5
     VALIDATION_INTERVAL_SECONDS = 3 * 60
     VOTE_INTERVAL_SECONDS = 60
     # TODO: CHECK INTERVAL DAYS FOR SCORE MINER
@@ -116,7 +114,8 @@ class Validator(Module):
         last_vote_time = time.time()
 
         while True:
-            current_time = time.time()
+            start_time = time.time()
+
             try:
                 if time.time() - last_vote_time >= self.VOTE_INTERVAL_SECONDS:
                     asyncio.create_task(self.vote_miners())
@@ -125,42 +124,47 @@ class Validator(Module):
                 print(f"Error voting - {e}")
 
             try:
-                start_time = current_time
-                active_validators = self.node.get_active_validators()
-                block_number = self._database.get_last_block() or 0
+                # Retrieving all active validators is crucial, so we attempt it an optimal number of times.
+                # Between each attempt, we wait VALIDATOR_INACTIVITY_TIMEOUT_SECONDS / 2,
+                # as new validators might be activated in the background.
+                active_validators = []
+                for _ in range(4):
+                    active_validators = self.node.get_active_validators()
+                    if active_validators:
+                        break
+                    await asyncio.sleep(VALIDATOR_INACTIVITY_TIMEOUT_SECONDS / 2)
+                    active_validators = self.node.get_active_validators()
+
                 truthful_validators = filter_truthful_validators(active_validators)
 
-                # Retry mechanism to get truthful validators
-                for _ in range(self.MAX_RETRIES):
-                    if truthful_validators:
-                        break
-                    await asyncio.sleep(self.RETRY_DELAY_CREATION_BLOCK)
-                    active_validators = self.node.get_active_validators()
-                    truthful_validators = filter_truthful_validators(active_validators)
-
-                # Get all validators and find self
+                # Since the list of active validators never includes the current validator, we need to locate our own validator within the complete list.
                 all_validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
                 own_validator = next((v for v in all_validators if v.ss58_address == self._key.ss58_address), None)
 
-                # Add self to truthful validators if criteria are met
-                if own_validator and own_validator.stake >= TRUTHFUL_STAKE_AMOUNT:
+                is_own_validator_truthful = own_validator and own_validator.stake >= TRUTHFUL_STAKE_AMOUNT
+                if is_own_validator_truthful:
                     truthful_validators.append(own_validator)
 
-                # Determine proposer validator
                 proposer_validator = max(truthful_validators or all_validators, key=lambda v: v.stake or 0)
 
-                if proposer_validator.ss58_address == self._key.ss58_address:
-                    if not self._initial_sync_block:
-                        self._initial_sync_block = True
+                is_current_validator_proposer = proposer_validator.ss58_address == self._key.ss58_address
+                if is_current_validator_proposer:
+                    new_block_number = (self._database.get_last_block_number() or 0) + 1
+
+                    # Trigger the initial sync and reiterate after BLOCK_INTERVAL_SECONDS to verify if initial_sync_completed has been set to True.
+                    # TODO: Improve initial sync
+                    if not _validator.node.initial_sync_completed.value:
                         if active_validators:
                             prepare_sync_blocks(
-                                start=block_number + 1,
+                                start=new_block_number,
                                 active_connections=self.node.get_active_validators_connections(),
                                 keypair=self._key
                             )
                             await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS)
                             continue
-                    block_number += 1
+
+                        self.node.initial_sync_completed.value = True
+
                     block_events = self.node.consume_pool_events(count=self.MAX_EVENTS_PER_BLOCK)
                     await process_events(
                         events=block_events,
@@ -169,23 +173,23 @@ class Validator(Module):
                         netuid=config_manager.config.netuid,
                         database=self._database
                     )
-                    proposer_signature = sign_data({"block_number": block_number, "events": [event.dict() for event in block_events]}, self._key)
+
+                    signed_block = sign_data({"block_number": new_block_number, "events": [event.dict() for event in block_events]}, self._key)
                     block = Block(
-                        block_number=block_number,
+                        block_number=new_block_number,
                         events=block_events,
-                        proposer_signature=proposer_signature.hex(),
+                        signed_block=signed_block.hex(),
                         proposer_ss58_address=Ss58Address(self._key.ss58_address)
                     )
                     self._database.create_block(block=block)
 
                     asyncio.create_task(self.node.send_block_to_validators(block=block))
 
-                    if current_time - last_validation_time >= self.VALIDATION_INTERVAL_SECONDS:
+                    if start_time - last_validation_time >= self.VALIDATION_INTERVAL_SECONDS:
                         print("Starting validation task")
                         asyncio.create_task(self.validation_task())
-                        last_validation_time = current_time
+                        last_validation_time = start_time
 
-                # Calculate sleep time to maintain block interval
                 elapsed = time.time() - start_time
                 sleep_time = max(0.0, self.BLOCK_INTERVAL_SECONDS - elapsed)
                 print(f"Sleeping for {sleep_time:.2f} seconds before trying to create the next block.")

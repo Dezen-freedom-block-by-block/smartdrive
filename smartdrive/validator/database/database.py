@@ -99,7 +99,7 @@ class Database:
                     CREATE TABLE block (
                         id BIGINT PRIMARY KEY,
                         proposer_ss58_address TEXT,
-                        proposer_signature TEXT
+                        signed_block TEXT
                     )
                 '''
 
@@ -439,12 +439,12 @@ class Database:
             if connection:
                 connection.close()
 
-    def get_last_block(self) -> Optional[int]:
+    def get_last_block_number(self) -> Optional[int]:
         """
-        Retrieves the latest database block, if exists.
+        Retrieves the latest database block number, if exists.
 
         Returns:
-            Optional[int]: The latest database block as an integer if successful, or None if
+            Optional[int]: The latest database block number as an integer if successful, or None if
             an error occurs or if the 'block' table is empty.
         """
         connection = None
@@ -481,7 +481,7 @@ class Database:
                 connection.execute('BEGIN TRANSACTION')
 
                 # Insert block
-                cursor.execute('INSERT INTO block (id, proposer_ss58_address, proposer_signature) VALUES (?, ?, ?)', (block.block_number, block.proposer_ss58_address, block.proposer_signature))
+                cursor.execute('INSERT INTO block (id, proposer_ss58_address, signed_block) VALUES (?, ?, ?)', (block.block_number, block.proposer_ss58_address, block.signed_block))
 
                 # Insert events and associated miner processes
                 for event in block.events:
@@ -581,7 +581,7 @@ class Database:
 
             query = '''
                 SELECT 
-                    b.id AS block_id, b.proposer_signature, b.proposer_ss58_address,
+                    b.id AS block_id, b.signed_block, b.proposer_ss58_address,
                     e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.file_created_at, e.file_expiration_ms, e.event_signed_params, e.user_ss58_address, e.file, e.input_signed_params,
                     m.chunk_uuid, m.miner_ss58_address, m.succeed, m.processing_time,
                     c.sub_chunk_start, c.sub_chunk_end, c.sub_chunk_encoded, c.chunk_index
@@ -604,7 +604,7 @@ class Database:
                     blocks[block_id] = Block(
                         block_number=block_id,
                         events=[],
-                        proposer_signature=row["proposer_signature"],
+                        signed_block=row["signed_block"],
                         proposer_ss58_address=Ss58Address(row["proposer_ss58_address"]),
                     )
 

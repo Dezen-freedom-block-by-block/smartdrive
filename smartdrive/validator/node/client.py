@@ -30,9 +30,10 @@ class Client(multiprocessing.Process):
     _keypair = None
     _database = None
     _active_validators_manager = None
+    _initial_sync_completed = None
     _synced_blocks = None
 
-    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, event_pool, event_pool_lock, active_validators_manager):
+    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed):
         multiprocessing.Process.__init__(self)
         self._client_socket = client_socket
         self._identifier = identifier
@@ -40,6 +41,7 @@ class Client(multiprocessing.Process):
         self._event_pool = event_pool
         self._event_pool_lock = event_pool_lock
         self._active_validators_manager = active_validators_manager
+        self._initial_sync_completed = initial_sync_completed
         self._keypair = classic_load_key(config_manager.config.key)
         self._database = Database()
         self._synced_blocks = []
@@ -94,14 +96,14 @@ class Client(multiprocessing.Process):
                     block_event = BlockEvent(
                         block_number=body["data"]["block_number"],
                         events=list(map(lambda event: MessageEvent.from_json(event["event"], Action(event["event_action"])), body["data"]["events"])),
-                        proposer_signature=body["data"]["proposer_signature"],
+                        signed_block=body["data"]["signed_block"],
                         proposer_ss58_address=body["data"]["proposer_ss58_address"]
                     )
                     block = block_event_to_block(block_event)
 
                     if not verify_data_signature(
                             data={"block_number": block.block_number, "events": [event.dict() for event in block.events]},
-                            signature_hex=block.proposer_signature,
+                            signature_hex=block.signed_block,
                             ss58_address=block.proposer_ss58_address
                     ):
                         print(f"Block {block.block_number} not verified")
@@ -111,7 +113,7 @@ class Client(multiprocessing.Process):
 
                     # TODO: Check when a validator creates a block (it is not a proposer) and just enters to validate
                     #  the proposer and creates another block, in this case, the blocks will be repeated
-                    local_block_number = self._database.get_last_block() or 0
+                    local_block_number = self._database.get_last_block_number() or 0
                     if block.block_number - 1 != local_block_number:
                         prepare_sync_blocks(start=local_block_number + 1, end=block.block_number, active_validators_manager=active_validators_manager, keypair=self._keypair)
                     else:
@@ -148,7 +150,7 @@ class Client(multiprocessing.Process):
 
                 elif body['code'] == MessageCode.MESSAGE_CODE_SYNC_BLOCK.value:
                     start = int(body['start'])
-                    end = int(body['end']) if body.get("end") else (self._database.get_last_block() or 0)
+                    end = int(body['end']) if body.get("end") else (self._database.get_last_block_number() or 0)
                     segment_size = self.MAX_BLOCKS_SYNC
 
                     if start <= end:
@@ -200,6 +202,9 @@ class Client(multiprocessing.Process):
                             self._run_process_events(block.events)
                             self._remove_events(block.events, event_pool)
                             self._database.create_block(block)
+
+                        if not self._initial_sync_completed.value:
+                            self._initial_sync_completed.value = True
 
         except InvalidSignatureException as e:
             raise e
