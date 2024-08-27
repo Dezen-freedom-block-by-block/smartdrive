@@ -197,6 +197,9 @@ def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testn
                 archive.extractall(path=file_path)
                 filename = archive.getnames()
 
+            if not file_path.endswith('/'):
+                file_path += '/'
+
             spinner.stop_with_message("¡Done!")
             print(f"Data downloaded successfully in {file_path}{filename[0]}")
 

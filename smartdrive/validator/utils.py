@@ -143,9 +143,7 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
                 user_owner_ss58address=event.user_ss58_address,
                 total_chunks=len(total_chunks_index),
                 file_uuid=event.event_params.file_uuid,
-                chunks=chunks,
-                created_at=event.event_params.created_at,
-                expiration_ms=event.event_params.expiration_ms
+                chunks=chunks
             )
             database.insert_file(file=file, event_uuid=event.uuid)
 

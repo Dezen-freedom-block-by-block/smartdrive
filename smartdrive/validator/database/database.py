@@ -96,8 +96,6 @@ class Database:
                         validator_ss58_address TEXT NOT NULL,
                         event_type INTEGER NOT NULL,
                         file_uuid TEXT NOT NULL,
-                        file_created_at INTEGER,
-                        file_expiration_ms INTEGER,
                         event_signed_params TEXT NOT NULL,
                         user_ss58_address TEXT,
                         file TEXT,
@@ -225,7 +223,7 @@ class Database:
             )
             row = cursor.fetchone()
             if row is not None:
-                result = File(user_owner_ss58address=row[1], total_chunks=row[2], file_uuid=row[0], chunks=[], created_at=None, expiration_ms=None)
+                result = File(user_owner_ss58address=row[1], total_chunks=row[2], file_uuid=row[0], chunks=[])
             else:
                 result = None
         except sqlite3.Error as e:
@@ -425,8 +423,6 @@ class Database:
 
         # Initialize common fields
         file_uuid = event.event_params.file_uuid
-        file_created_at = None
-        file_expiration_ms = None
         user_ss58_address = None
         input_signed_params = None
         file = None
@@ -437,16 +433,14 @@ class Database:
 
         # Populate specific fields based on event type
         if isinstance(event, StoreEvent):
-            file_created_at = event.event_params.created_at
-            file_expiration_ms = event.event_params.expiration_ms
             file = event.input_params.file
 
         cursor.execute('''
-            INSERT INTO events (uuid, validator_ss58_address, event_type, file_uuid, file_created_at, file_expiration_ms, event_signed_params, user_ss58_address, file, input_signed_params, block_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO events (uuid, validator_ss58_address, event_type, file_uuid, event_signed_params, user_ss58_address, file, input_signed_params, block_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-        event.uuid, validator_ss58_address, event_type, file_uuid, file_created_at, file_expiration_ms,
-        event_signed_params, user_ss58_address, file, input_signed_params, block_id))
+        event.uuid, validator_ss58_address, event_type, file_uuid, event_signed_params, user_ss58_address, file,
+        input_signed_params, block_id))
 
     def get_blocks(self, start: int, end: int) -> Optional[List[Block]]:
         """
@@ -468,7 +462,7 @@ class Database:
             query = '''
                 SELECT 
                     b.id AS block_id, b.proposer_signature, b.proposer_ss58_address,
-                    e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.file_created_at, e.file_expiration_ms, e.event_signed_params, e.user_ss58_address, e.file, e.input_signed_params,
+                    e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.event_signed_params, e.user_ss58_address, e.file, e.input_signed_params,
                     c.uuid AS chunk_uuid, c.miner_ss58_address, c.chunk_index
                 FROM block b
                 LEFT JOIN events e ON b.id = e.block_id
@@ -622,15 +616,13 @@ class Database:
         """
         event_type = row['event_type']
         event_params = {
-            "file_uuid": row['file_uuid']
+            "file_uuid": row['file_uuid'],
+            "chunks_params": [],
+            "created_at": None,
+            "expiration_ms": None
         }
 
         if event_type == Action.STORE.value:
-            event_params.update({
-                "created_at": row['file_created_at'],
-                "expiration_ms": row['file_expiration_ms'],
-                "chunks_params": []
-            })
             event = StoreEvent(
                 uuid=row['event_uuid'],
                 validator_ss58_address=row['validator_ss58_address'],

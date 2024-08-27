@@ -77,40 +77,15 @@ class File:
         user_owner_ss58address (Ss58Address): The SS58 address of the user who owns the file.
         file_uuid (Optional[str]): The UUID of the file.
         chunks (List[Chunk]): A list of chunks that make up the file.
-        created_at (int): The timestamp when the file was created, in milliseconds, only available if it is a temporal file.
-        expiration_ms (Optional[int]): The expiration time of the file in milliseconds, only available if it is a temporal file.
     """
-    def __init__(self, user_owner_ss58address: Ss58Address, total_chunks: int, file_uuid: Optional[str], chunks: List[Chunk], created_at: Optional[int], expiration_ms: Optional[int]):
+    def __init__(self, user_owner_ss58address: Ss58Address, total_chunks: int, file_uuid: Optional[str], chunks: List[Chunk]):
         self.user_owner_ss58address = user_owner_ss58address
         self.total_chunks = total_chunks
         self.file_uuid = file_uuid
         self.chunks = chunks
-        self.created_at = created_at or int(time.time() * 1000)
-        self.expiration_ms = expiration_ms
 
     def __repr__(self):
-        return f"File(file_uuid={self.file_uuid}, user_owner_ss58address={self.user_owner_ss58address}, chunks={self.chunks}, created_at={self.created_at}, expiration_ms={self.expiration_ms})"
-
-    def has_expiration(self) -> bool:
-        """
-        Check if the current instance has an expiration time set.
-
-        Returns:
-            bool: True if the instance has a positive expiration time, False otherwise.
-        """
-        return self.expiration_ms or 0 > 0
-
-    def has_expired(self, current_timestamp) -> bool:
-        """
-        Check if the current instance has expired based on the current timestamp.
-
-        Params:
-            current_timestamp (int): The current timestamp in milliseconds.
-
-        Returns:
-            bool: True if the current instance has expired, False otherwise.
-        """
-        return current_timestamp > (self.created_at + self.expiration_ms)
+        return f"File(file_uuid={self.file_uuid}, user_owner_ss58address={self.user_owner_ss58address}, chunks={self.chunks})"
 
 
 class ActiveValidator:
