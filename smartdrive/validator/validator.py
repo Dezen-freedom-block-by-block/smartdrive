@@ -232,13 +232,13 @@ class Validator(Module):
 
     async def vote_miners(self):
         """
-        Calculates the weights of the miners and sets them in the network.
+            Calculates the weights of the miners and sets them in the network.
 
-        Collects performance data of miners, calculates a score based on their successful and failed calls,
-        and then sets these weights in the network.
+            Collects performance data of miners, calculates a score based on their successful and failed calls,
+            and then sets these weights in the network.
 
-        Raises:
-            CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
+            Raises:
+                CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
         """
         score_dict = {}
         for miner in get_filtered_modules(config_manager.config.netuid, ModuleType.MINER):
