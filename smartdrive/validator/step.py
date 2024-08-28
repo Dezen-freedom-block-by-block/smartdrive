@@ -184,14 +184,14 @@ async def _validate_miners(files: list[File], keypair: Keypair, netuid: int) -> 
         return events
 
     async def handle_validation_request(miner_info: ModuleInfo, user_owner_ss58_address: Ss58Address, chunk: Chunk):
-        start_time = time.time()
+        start_time = time.monotonic()
         validate_request_succeed = await validate_chunk_request(
             keypair=keypair,
             user_owner_ss58_address=user_owner_ss58_address,
             miner_module_info=miner_info,
             chunk=chunk
         )
-        final_time = time.time() - start_time
+        final_time = time.monotonic() - start_time
 
         miner_process = MinerProcess(
             chunk_uuid=chunk.chunk_uuid,

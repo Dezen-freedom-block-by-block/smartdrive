@@ -116,7 +116,7 @@ class RetrieveAPI:
 
         async def retrieve_chunk_from_miners(user_ss58_address, miners_with_chunks, miner_processes):
             for miner_chunk in miners_with_chunks:
-                start_time = time.time()
+                start_time = time.monotonic()
                 connection = ConnectionInfo(miner_chunk["connection"]["ip"], miner_chunk["connection"]["port"])
                 miner_info = ModuleInfo(
                     miner_chunk["uid"],
@@ -124,7 +124,7 @@ class RetrieveAPI:
                     connection
                 )
                 chunk = await retrieve_request(self._key, user_ss58_address, miner_info, miner_chunk["chunk_uuid"])
-                final_time = time.time() - start_time
+                final_time = time.monotonic() - start_time
                 succeed = chunk is not None
 
                 miner_process = MinerProcess(

@@ -110,16 +110,16 @@ class Validator(Module):
         self.api = API(self.node)
 
     async def create_blocks(self):
-        last_validation_time = time.time()
-        last_vote_time = time.time()
+        last_validation_time = time.monotonic()
+        last_vote_time = time.monotonic()
 
         while True:
-            start_time = time.time()
+            start_time = time.monotonic()
 
             try:
-                if time.time() - last_vote_time >= self.VOTE_INTERVAL_SECONDS:
+                if time.monotonic() - last_vote_time >= self.VOTE_INTERVAL_SECONDS:
                     asyncio.create_task(self.vote_miners())
-                    last_vote_time = time.time()
+                    last_vote_time = time.monotonic()
             except Exception as e:
                 print(f"Error voting - {e}")
 
@@ -190,7 +190,7 @@ class Validator(Module):
                         asyncio.create_task(self.validation_task())
                         last_validation_time = start_time
 
-                elapsed = time.time() - start_time
+                elapsed = time.monotonic() - start_time
                 sleep_time = max(0.0, self.BLOCK_INTERVAL_SECONDS - elapsed)
                 print(f"Sleeping for {sleep_time:.2f} seconds before trying to create the next block.")
                 await asyncio.sleep(sleep_time)

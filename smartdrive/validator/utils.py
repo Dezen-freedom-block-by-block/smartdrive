@@ -174,13 +174,13 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
                 miner_processes = []
 
                 for miner in miner_with_chunks:
-                    start_time = time.time()
+                    start_time = time.monotonic()
 
                     connection = ConnectionInfo(miner["connection"]["ip"], miner["connection"]["port"])
                     miner_info = ModuleInfo(miner["uid"], miner["ss58_address"], connection)
                     result = await remove_chunk_request(keypair, event.user_ss58_address, miner_info, miner["chunk_uuid"])
 
-                    final_time = time.time() - start_time
+                    final_time = time.monotonic() - start_time
                     miner_process = MinerProcess(chunk_uuid=miner["chunk_uuid"], miner_ss58_address=miner["ss58_address"],
                                                  succeed=True if result else False, processing_time=final_time)
                     miner_processes.append(miner_process)

@@ -140,14 +140,14 @@ async def store_new_file(
     stored_miners: List[Tuple[ModuleInfo, str]] = []
 
     async def handle_store_request(miner: ModuleInfo, chunk_data: bytes, chunk_index: int) -> bool:
-        start_time = time.time()
+        start_time = time.monotonic()
         miner_answer = await _store_request(
             keypair=validator_keypair,
             miner=miner,
             user_ss58_address=user_ss58_address,
             file_bytes=chunk_data
         )
-        final_time = time.time() - start_time
+        final_time = time.monotonic() - start_time
         succeed = miner_answer is not None
 
         chunk_uuid = miner_answer.chunk_uuid if succeed else None
