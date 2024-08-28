@@ -1,3 +1,25 @@
+# MIT License
+#
+# Copyright (c) 2024 Dezen | freedom block by block
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 import asyncio
 import multiprocessing
 from typing import List
@@ -5,7 +27,7 @@ from typing import List
 from communex.compat.key import classic_load_key
 
 import smartdrive
-from smartdrive.models.event import parse_event, MessageEvent, Action, Event
+from smartdrive.models.event import parse_event, MessageEvent, Action, Event, ValidationEvent
 from smartdrive.validator.api.middleware.sign import verify_data_signature
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.config import config_manager
@@ -22,6 +44,7 @@ from smartdrive.validator.utils import process_events, prepare_sync_blocks
 
 class Client(multiprocessing.Process):
     MAX_BLOCKS_SYNC = 500
+    MAX_VALIDATION_SYNC = 500
 
     _client_socket = None
     _identifier: str = None
@@ -121,6 +144,9 @@ class Client(multiprocessing.Process):
                         self._remove_events(block.events, event_pool)
                         self._database.create_block(block)
 
+                        if not self._initial_sync_completed.value:
+                            self._initial_sync_completed.value = True
+
                 elif body['code'] == MessageCode.MESSAGE_CODE_EVENT.value:
                     message_event = MessageEvent.from_json(body["data"]["event"], Action(body["data"]["event_action"]))
                     event = parse_event(message_event)
@@ -203,8 +229,10 @@ class Client(multiprocessing.Process):
                             self._remove_events(block.events, event_pool)
                             self._database.create_block(block)
 
-                        if not self._initial_sync_completed.value:
-                            self._initial_sync_completed.value = True
+                elif body['code'] == MessageCode.MESSAGE_CODE_VALIDATION_EVENTS.value:
+                    validation_events = [ValidationEvent(**validation_event) for validation_event in body['data']]
+                    if validation_events:
+                        self._database.insert_validation_events(validation_events=validation_events)
 
         except InvalidSignatureException as e:
             raise e

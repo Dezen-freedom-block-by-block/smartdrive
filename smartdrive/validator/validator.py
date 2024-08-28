@@ -37,7 +37,7 @@ from smartdrive.validator.config import Config, config_manager
 from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.api.api import API
-from smartdrive.validator.evaluation.evaluation import score_miner, set_weights
+from smartdrive.validator.evaluation.evaluation import score_miners, set_weights
 from smartdrive.validator.node.active_validator_manager import INACTIVITY_TIMEOUT_SECONDS as VALIDATOR_INACTIVITY_TIMEOUT_SECONDS
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.node.node import Node
@@ -87,8 +87,7 @@ def get_config() -> Config:
 class Validator(Module):
     # TODO: REPLACE THIS WITH bytes
     BLOCK_INTERVAL_SECONDS = 30
-    VALIDATION_INTERVAL_SECONDS = 3 * 60
-    VOTE_INTERVAL_SECONDS = 60
+    VALIDATION_VOTE_INTERVAL_SECONDS = 2 * 60
 
     _config = None
     _key: Keypair = None
@@ -106,25 +105,25 @@ class Validator(Module):
 
     async def create_blocks(self):
         """
-            Periodically attempts to create new blocks by proposing them to the network if the current node is the
-            proposer.
+        Periodically attempts to create new blocks by proposing them to the network if the current node is the
+        proposer.
 
-            This method operates in an infinite loop, regularly checking whether it's time to vote, validate, or create
-            a new block. The process includes validating the current validator's status, handling the initial sync,
-            processing events, and ensuring that the block creation and validation intervals are respected.
+        This method operates in an infinite loop, regularly checking whether it's time to vote, validate, or create
+        a new block. The process includes validating the current validator's status, handling the initial sync,
+        processing events, and ensuring that the block creation and validation intervals are respected.
         """
         last_validation_time = time.monotonic()
-        last_vote_time = time.monotonic()
 
         while True:
             start_time = time.monotonic()
 
             try:
-                if time.monotonic() - last_vote_time >= self.VOTE_INTERVAL_SECONDS:
-                    asyncio.create_task(self.vote_miners())
-                    last_vote_time = time.monotonic()
+                if start_time - last_validation_time >= self.VALIDATION_VOTE_INTERVAL_SECONDS:
+                    print("Starting validation and voting task")
+                    asyncio.create_task(self.validation_task())
+                    last_validation_time = start_time
             except Exception as e:
-                print(f"Error voting - {e}")
+                print(f"Error validating - {e}")
 
             try:
                 # Retrieving all active validators is crucial, so we attempt it an optimal number of times.
@@ -136,7 +135,6 @@ class Validator(Module):
                     if active_validators:
                         break
                     await asyncio.sleep(VALIDATOR_INACTIVITY_TIMEOUT_SECONDS / 2)
-                    active_validators = self.node.get_active_validators()
 
                 truthful_validators = filter_truthful_validators(active_validators)
 
@@ -160,6 +158,7 @@ class Validator(Module):
                     # prepare_sync_blocks will be in the background via TCP.
                     # TODO: Improve initial sync
                     if not _validator.node.initial_sync_completed.value:
+                        _validator.node.initial_sync_completed.value = True
                         if active_validators:
                             prepare_sync_blocks(
                                 start=new_block_number,
@@ -168,8 +167,6 @@ class Validator(Module):
                             )
                             await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS)
                             continue
-
-                        self.node.initial_sync_completed.value = True
 
                     block_events = self.node.consume_pool_events(count=MAX_EVENTS_PER_BLOCK)
                     await process_events(
@@ -191,11 +188,6 @@ class Validator(Module):
 
                     asyncio.create_task(self.node.send_block_to_validators(block=block))
 
-                    if start_time - last_validation_time >= self.VALIDATION_INTERVAL_SECONDS:
-                        print("Starting validation task")
-                        asyncio.create_task(self.validation_task())
-                        last_validation_time = start_time
-
                 elapsed = time.monotonic() - start_time
                 sleep_time = max(0.0, self.BLOCK_INTERVAL_SECONDS - elapsed)
                 print(f"Sleeping for {sleep_time:.2f} seconds before trying to create the next block.")
@@ -207,58 +199,47 @@ class Validator(Module):
 
     async def validation_task(self):
         """
-            Handles the validation of events and updates the node's event pool accordingly.
+        Handles the validation of events and updates the node's event pool accordingly.
 
-            This method asynchronously processes events by validating them and then managing
-            the resulting actions, such as removal, validation, or storage of events.
+        This method asynchronously processes events by validating them and then managing
+        the resulting actions, such as removal, validation, or storage of events.
         """
-        result = await validate_step(
+        miners = [
+            miner for miner in get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
+            if miner.ss58_address != self._key.ss58_address
+        ]
+
+        remove_events, validation_events, result_miners = await validate_step(
+            miners=miners,
             database=self._database,
             key=self._key,
-            netuid=config_manager.config.netuid
+            validators_len=len(self.node.get_active_validators_connections()) + 1  # To include myself
         )
 
-        if result is not None:
-            remove_events, validate_events, store_event = result
+        if result_miners:
+            score_dict = score_miners(result_miners=result_miners)
+            if _validator.node.initial_sync_completed.value and score_dict:
+                await set_weights(score_dict, config_manager.config.netuid, self._key)
 
-            if remove_events:
-                self.node.insert_pool_events(remove_events)
-
-            if validate_events:
-                self.node.insert_pool_events(validate_events)
-
-            if store_event:
-                self.node.insert_pool_event(store_event)
-
-    async def vote_miners(self):
-        """
-            Calculates the weights of the miners and sets them in the network.
-
-            Collects performance data of miners, calculates a score based on their successful and failed calls,
-            and then sets these weights in the network.
-
-            Raises:
-                CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
-        """
-        score_dict = {}
-        for miner in get_filtered_modules(config_manager.config.netuid, ModuleType.MINER):
-            if miner.ss58_address == self._key.ss58_address:
-                continue
-            total_calls, failed_calls = self._database.get_miner_processes(
-                miner_ss58_address=miner.ss58_address,
-                days_interval=14
+        if remove_events:
+            await process_events(
+                events=remove_events,
+                is_proposer_validator=False,
+                keypair=self._key,
+                netuid=config_manager.config.netuid,
+                database=self._database,
+                is_temporary_chunk=True
             )
-            score_dict[int(miner.uid)] = score_miner(total_calls=total_calls, failed_calls=failed_calls)
 
-        if score_dict:
-            await set_weights(score_dict, config_manager.config.netuid, self._key)
+        if validation_events:
+            self._database.insert_validation_events(validation_events=validation_events)
 
     async def periodically_ping_validators(self):
         """
-            Periodically pings validators at regular intervals.
+        Periodically pings validators at regular intervals.
 
-            This method runs an infinite loop that pings the node's validators
-            every 5 seconds.
+        This method runs an infinite loop that pings the node's validators
+        every 5 seconds.
         """
         while True:
             await self.node.ping_validators()
