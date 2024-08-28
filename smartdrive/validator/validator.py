@@ -85,7 +85,6 @@ def get_config() -> Config:
 
 
 class Validator(Module):
-    # TODO: REPLACE THIS WITH bytes
     BLOCK_INTERVAL_SECONDS = 30
     VALIDATION_VOTE_INTERVAL_SECONDS = 2 * 60
 

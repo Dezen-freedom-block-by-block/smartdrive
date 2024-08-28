@@ -27,6 +27,7 @@ from communex.types import Ss58Address
 
 from smartdrive.models.event import MessageEvent, parse_event, StoreEvent, RemoveEvent
 
+# TODO: REPLACE THIS WITH bytes
 MAX_EVENTS_PER_BLOCK = 100
 
 
