@@ -21,7 +21,6 @@
 # SOFTWARE.
 
 import asyncio
-import io
 import time
 import uuid
 import shutil
@@ -229,7 +228,7 @@ class Miner(Module):
             print(e)
             raise HTTPException(status_code=409, detail=f"Error: f{str(e)}")
 
-    async def validation(self, request: Request) -> StreamingResponse:
+    async def validation(self, request: Request) -> dict:
         """
         Validate a specific portion of a chunk from the filesystem.
 
@@ -240,7 +239,7 @@ class Miner(Module):
             request: The request.
 
         Returns:
-            StreamingResponse: A StreamingResponse containing the requested portion of the chunk content in binary format.
+            dict: A dictionary containing the requested portion of the chunk content in hexadecimal format.
 
         Raises:
             HTTPException: If the chunk is not found or if another error occurs.
@@ -256,7 +255,7 @@ class Miner(Module):
                 chunk_file.seek(start)
                 chunk = chunk_file.read(end - start)
 
-            return StreamingResponse(io.BytesIO(chunk), media_type='application/octet-stream')
+            return {"chunk": chunk.hex()}
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="Chunk not found")
         except Exception as e:

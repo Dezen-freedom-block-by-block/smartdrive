@@ -55,5 +55,4 @@ async def validate_chunk_request(keypair: Keypair, user_owner_ss58_address: Ss58
             "end": validation_event.sub_chunk_end
         }
     )
-
-    return str(miner_answer) == validation_event.sub_chunk_encoded if miner_answer else False
+    return miner_answer["chunk"] == validation_event.sub_chunk_encoded if miner_answer else False
