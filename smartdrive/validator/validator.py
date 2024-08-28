@@ -93,7 +93,6 @@ class Validator(Module):
     _database: Database = None
     api: API = None
     node: Node = None
-    _initial_sync_block = False
 
     def __init__(self):
         super().__init__()
