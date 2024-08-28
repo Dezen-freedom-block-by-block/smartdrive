@@ -19,12 +19,15 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
-from typing import Union
 
-from communex.types import Ss58Address
+from typing import Union
 from pydantic import BaseModel
 
+from communex.types import Ss58Address
+
 from smartdrive.models.event import MessageEvent, parse_event, StoreEvent, RemoveEvent, RetrieveEvent, ValidateEvent
+
+MAX_EVENTS_PER_BLOCK = 100
 
 
 class Block(BaseModel):
