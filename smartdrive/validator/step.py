@@ -38,7 +38,7 @@ from smartdrive.models.event import RemoveEvent, EventParams, RemoveInputParams,
 from smartdrive.commune.utils import calculate_hash
 
 
-async def validate_step(miners: list[ModuleInfo], database: Database, key: Keypair, validators_len: int) -> Optional[Tuple[List[RemoveEvent], List[ValidationEvent], dict[int, bool]]]:
+async def validate_step(miners: list[ModuleInfo], database: Database, key: Keypair, validators_len: int) -> Optional[Tuple[List[RemoveEvent], dict[int, bool]]]:
     """
     Performs a validation step in the process.
 
@@ -53,7 +53,7 @@ async def validate_step(miners: list[ModuleInfo], database: Database, key: Keypa
         validators_len (int): Validators len.
 
     Returns:
-        Optional[Tuple[List[RemoveEvent], List[ValidationEvent], dict[int, bool]]: An optional tuple containing a list of
+        Optional[Tuple[List[RemoveEvent], dict[int, bool]]: An optional tuple containing a list of
         Events objects and miners and his result.
 
     Raises:
@@ -102,6 +102,9 @@ async def validate_step(miners: list[ModuleInfo], database: Database, key: Keypa
         if validations_events_per_validator:
             validation_events.extend(validations_events_per_validator[0])
 
+    if validation_events:
+        database.insert_validation_events(validation_events=validation_events)
+
     # Get remove events
     if expired_validations:
         remove_events = _remove_files(
@@ -110,14 +113,22 @@ async def validate_step(miners: list[ModuleInfo], database: Database, key: Keypa
         )
 
     # Validate non expired files
-    if non_expired_validations:
+    if non_expired_validations or (not expired_validations and not non_expired_validations and miners_to_store):
+        if not non_expired_validations:
+            # If no non-expired validations exist, refresh them
+            validation_events_with_expiration = database.get_validation_events_with_expiration()
+            non_expired_validations = [
+                validation_event for validation_event in validation_events_with_expiration
+                if current_timestamp <= (validation_event.created_at + validation_event.expiration_ms)
+            ]
+
         result_miners = await _validate_miners(
             miners=miners,
             validation_events=non_expired_validations,
-            keypair=key,
+            keypair=key
         )
 
-    return remove_events, validation_events, result_miners
+    return remove_events, result_miners
 
 
 def _remove_files(validation_events: List[ValidationEvent], keypair: Keypair) -> List[RemoveEvent]:
