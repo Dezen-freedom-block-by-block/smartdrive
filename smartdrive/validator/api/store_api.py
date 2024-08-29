@@ -123,7 +123,7 @@ async def store_new_file(
         validating: bool = False,
 ) -> Tuple[Optional[StoreEvent], List[List[ValidationEvent]]]:
     if not validating and len(miners) < MIN_MINERS_FOR_FILE:
-        raise HTTPException(status_code=400, detail=f"Not enough miners available to meet the minimum requirement of {MIN_MINERS_FOR_FILE} miners for file storage.")
+        raise HTTPException(status_code=409, detail="Currently, redundancy in the network is not guaranteed")
 
     stored_chunks_results = []
     stored_miner_with_chunk_uuid: List[Tuple[ModuleInfo, str]] = []
@@ -193,7 +193,7 @@ async def store_new_file(
             await asyncio.gather(*[store_chunk_with_redundancy(chunk_bytes, index) for index, chunk_bytes in enumerate(chunks_bytes)])
 
             if len(stored_chunks_results) != len(chunks_bytes) * MIN_REPLICATION_FOR_FILE:
-                raise HTTPException(status_code=500, detail="Failed to store all chunks in the required number of miners.")
+                raise HTTPException(status_code=409, detail="Currently, redundancy in the network is not guaranteed")
 
         # A ChunkParam object is generated per chunk stored
         for chunk_uuid, chunk_index, miner_ss58_address, file in stored_chunks_results:
