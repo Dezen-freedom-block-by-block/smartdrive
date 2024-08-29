@@ -80,7 +80,6 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
         print(f"ERROR: File {file_path} does not exist or is a directory.")
         return
 
-    total_size = os.path.getsize(file_path)
     key = _get_key(key_name)
 
     # Step 1: Compress the file

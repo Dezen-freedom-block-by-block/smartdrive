@@ -49,7 +49,7 @@ from smartdrive.commune.utils import calculate_hash
 
 # TODO: CHANGE VALUES IN PRODUCTION IF IT IS NECESSARY
 MIN_MINERS_FOR_FILE = 2
-MIN_REPLICATION_FOR_FILE = 2
+MIN_MINERS_REPLICATION_FOR_CHUNK = 2
 MAX_MINERS_FOR_FILE = 10
 MAX_ENCODED_RANGE = 50
 
@@ -152,7 +152,7 @@ async def store_new_file(
         tasks = []
         replication_count = 0
 
-        while replication_count < MIN_REPLICATION_FOR_FILE and available_miners:
+        while replication_count < MIN_MINERS_REPLICATION_FOR_CHUNK and available_miners:
             miner = available_miners.pop()
             tasks.append(asyncio.create_task(handle_store_request(miner, chunk, chunk_index)))
 
@@ -192,7 +192,7 @@ async def store_new_file(
 
             await asyncio.gather(*[store_chunk_with_redundancy(chunk_bytes, index) for index, chunk_bytes in enumerate(chunks_bytes)])
 
-            if len(stored_chunks_results) != len(chunks_bytes) * MIN_REPLICATION_FOR_FILE:
+            if len(stored_chunks_results) != len(chunks_bytes) * MIN_MINERS_REPLICATION_FOR_CHUNK:
                 raise HTTPException(status_code=500, detail="Failed to store all chunks in the required number of miners.")
 
         # A ChunkParam object is generated per chunk stored
