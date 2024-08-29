@@ -131,8 +131,6 @@ async def store_new_file(
     validations_events_per_validator: List[List[ValidationEvent]] = []
     chunks_params: List[ChunkParams] = []
 
-    created_at = int(time.time() * 1000) if validating else None
-    expiration_ms = get_file_expiration() if validating else None
     file_uuid = f"{int(time.time())}_{str(uuid.uuid4())}"
 
     async def handle_store_request(miner: ModuleInfo, chunk_bytes: bytes, chunk_index: int) -> bool:
@@ -226,8 +224,8 @@ async def store_new_file(
                 )
 
                 if validating:
-                    validation_event.expiration_ms = expiration_ms
-                    validation_event.created_at = created_at
+                    validation_event.expiration_ms = get_file_expiration()
+                    validation_event.created_at = int(time.time() * 1000)
 
                 validator_events_validations.append(validation_event)
 
@@ -241,8 +239,6 @@ async def store_new_file(
 
         event_params = StoreParams(
             file_uuid=file_uuid,
-            created_at=created_at,
-            expiration_ms=expiration_ms,
             chunks_params=chunks_params
         )
 

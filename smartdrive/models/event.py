@@ -75,8 +75,6 @@ class EventParams(BaseModel):
 
 class StoreParams(EventParams):
     file_uuid: str
-    created_at: Optional[int]
-    expiration_ms: Optional[int]
     chunks_params: List[ChunkParams]
 
 

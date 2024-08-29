@@ -20,11 +20,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import re
 import os
-import tempfile
 import sqlite3
-import zipfile
 from typing import List, Optional, Union
 
 from smartdrive.commune.models import ModuleInfo
@@ -32,7 +29,7 @@ from smartdrive.models.event import StoreEvent, Action, StoreParams, StoreInputP
     EventParams, UserEvent, ChunkParams, ValidationEvent
 from smartdrive.models.block import Block
 from smartdrive.validator.config import config_manager
-from smartdrive.validator.models.models import MinerWithChunk, File, Chunk
+from smartdrive.validator.models.models import MinerWithChunk, File
 
 from communex.types import Ss58Address
 
