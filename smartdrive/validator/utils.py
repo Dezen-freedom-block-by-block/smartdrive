@@ -207,8 +207,8 @@ def get_file_expiration() -> int:
     Generate a random expiration time in milliseconds within a range.
 
     Returns:
-        int: A random expiration time between 10 minutes (min_ms) and 1 hour (max_ms) in milliseconds.
+        int: A random expiration time between 30 minutes (min_ms) and 1 hour (max_ms) in milliseconds.
     """
-    min_ms = 10 * 60 * 1000  # 10 minutes
-    max_ms = 1 * 60 * 60 * 1000  # 1 hour
+    min_ms = 30 * 60 * 1000
+    max_ms = 1 * 60 * 60 * 1000
     return random.randint(min_ms, max_ms)
