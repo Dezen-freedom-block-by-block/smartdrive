@@ -50,7 +50,7 @@ class API:
         self._app.add_api_route("/method/ping", self._ping_endpoint, methods=["POST"])
         self._app.add_api_route("/store", self._store_api.store_endpoint, methods=["POST"])
         self._app.add_api_route("/retrieve", self._retrieve_api.retrieve_endpoint, methods=["GET"])
-        self._app.add_api_route("/remove", self._remove_api.remove_endpoint, methods=["POST"])
+        self._app.add_api_route("/remove", self._remove_api.remove_endpoint, methods=["DELETE"])
 
     async def run_server(self) -> None:
         """

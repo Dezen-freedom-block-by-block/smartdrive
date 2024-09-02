@@ -255,8 +255,8 @@ def remove_handler(file_uuid: str, key_name: str = None, testnet: bool = False):
 
         validator_url = _get_validator_url(key, testnet)
         input_params = RemoveInputParams(file_uuid=file_uuid)
-        headers = create_headers(sign_data(input_params.dict(), key), key, content_type="application/x-www-form-urlencoded")
-        response = requests.post(f"{validator_url}/remove", input_params.dict(), headers=headers, verify=False)
+        headers = create_headers(sign_data(input_params.dict(), key), key)
+        response = requests.delete(f"{validator_url}/remove", params=input_params.dict(), headers=headers, verify=False)
 
         response.raise_for_status()
         spinner.stop_with_message("¡Done!")

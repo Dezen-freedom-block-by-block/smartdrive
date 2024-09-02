@@ -80,8 +80,12 @@ class ModuleClient:
                         return await _get_body(response)
                 else:
                     serialized_data, headers = create_request_data(self.key, target_key, params)
-                    async with session.post(url, json=json.loads(serialized_data), headers=headers, timeout=timeout, ssl=False) as response:
-                        return await _get_body(response)
+                    if fn == "remove":
+                        async with session.delete(url, json=json.loads(serialized_data), headers=headers, timeout=timeout, ssl=False) as response:
+                            return await _get_body(response)
+                    else:
+                        async with session.post(url, json=json.loads(serialized_data), headers=headers, timeout=timeout, ssl=False) as response:
+                            return await _get_body(response)
 
         except asyncio.TimeoutError as e:
             raise Exception(f"The call took longer than the timeout of {timeout} second(s)").with_traceback(e.__traceback__)

@@ -125,7 +125,7 @@ class Miner(Module):
         app.add_middleware(MinerMiddleware, key=key, limiter=IpLimiterParams(), subnets_whitelist=[config.netuid], use_testnet=config.testnet)
         app.add_api_route("/method/store", self.store, methods=["POST"])
         app.add_api_route("/method/retrieve", self.retrieve, methods=["POST"])
-        app.add_api_route("/method/remove", self.remove, methods=["POST"])
+        app.add_api_route("/method/remove", self.remove, methods=["DELETE"])
         app.add_api_route("/method/validation", self.validation, methods=["POST"])
 
         configuration = uvicorn.Config(app, workers=8, host="0.0.0.0", port=config.port, ssl_keyfile=f"{dir}/cert/key.pem", ssl_certfile=f"{dir}/cert/cert.pem", log_level="info")

@@ -99,7 +99,7 @@ class SubnetMiddleware(BaseHTTPMiddleware):
 
         signature = request.headers.get('X-Signature')
 
-        if request.method == "GET":
+        if request.method == "GET" or request.method == "DELETE":
             body = dict(request.query_params)
         else:
             content_type = request.headers.get("Content-Type")
