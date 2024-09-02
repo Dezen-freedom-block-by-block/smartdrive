@@ -23,7 +23,6 @@
 import asyncio
 import random
 import time
-import traceback
 import uuid
 from typing import Optional, Tuple, List
 
@@ -34,6 +33,7 @@ from communex.compat.key import classic_load_key
 from communex.types import Ss58Address
 
 from smartdrive.commune.errors import CommuneNetworkUnreachable
+from smartdrive.utils import MAX_FILE_SIZE
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.api.utils import remove_chunk_request
@@ -81,6 +81,10 @@ class StoreAPI:
         input_signed_params = request.headers.get("X-Signature")
         user_ss58_address = get_ss58_address_from_public_key(user_public_key)
         file_bytes = await file.read()
+
+        # TODO: Change in the future
+        if len(file_bytes) > MAX_FILE_SIZE:
+            raise HTTPException(status_code=413, detail="File size exceeds the maximum limit of 500 MB")
 
         try:
             miners = get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
