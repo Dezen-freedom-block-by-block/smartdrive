@@ -111,14 +111,16 @@ class Validator(Module):
         processing events, and ensuring that the block creation and validation intervals are respected.
         """
         last_validation_time = time.monotonic()
+        first_validation_launched = False
 
         while True:
             start_time = time.monotonic()
 
             try:
-                if start_time - last_validation_time >= self.VALIDATION_VOTE_INTERVAL_SECONDS:
+                if not first_validation_launched or start_time - last_validation_time >= self.VALIDATION_VOTE_INTERVAL_SECONDS:
                     print("Starting validation and voting task")
                     asyncio.create_task(self.validate_task())
+                    first_validation_launched = True
                     last_validation_time = start_time
             except Exception as e:
                 print(f"Error validating - {e}")
@@ -215,7 +217,7 @@ class Validator(Module):
 
         if result_miners:
             score_dict = score_miners(result_miners=result_miners)
-            if _validator.node.initial_sync_completed.value and score_dict:
+            if score_dict:
                 await set_weights(score_dict, config_manager.config.netuid, self._key)
 
         if remove_events:

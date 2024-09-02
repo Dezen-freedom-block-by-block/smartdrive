@@ -46,7 +46,6 @@ class RemoveAPI:
         self._key = classic_load_key(config_manager.config.key)
         self._database: Database = Database()
 
-    # TODO: Check if file_uuid arguments needs to be a Form
     async def remove_endpoint(self, request: Request, file_uuid: str):
         """
         Send an event with the user's intention to remove a specific file from the SmartDrive network.
