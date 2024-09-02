@@ -555,9 +555,9 @@ class Database:
             if connection:
                 connection.close()
 
-    def get_validation_events_without_expiration(self, registered_miners: list[ModuleInfo]) -> list[ValidationEvent] | None:
+    def get_random_validation_events_without_expiration_per_miners(self, miners: list[ModuleInfo]) -> list[ValidationEvent] | None:
         """
-        Retrieves validation events records for the given registered miners from the database.
+        Retrieves only one random validation event per miner for the given registered miners from the database.
 
         Params:
             registered_miners (list[ModuleInfo]): A list of registered miners.
@@ -571,7 +571,7 @@ class Database:
             connection.row_factory = sqlite3.Row
             cursor = connection.cursor()
 
-            miner_addresses = [miner.ss58_address for miner in registered_miners]
+            miner_addresses = [miner.ss58_address for miner in miners]
             validation_events = []
 
             for miner_address in miner_addresses:

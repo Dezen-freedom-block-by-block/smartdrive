@@ -35,7 +35,8 @@ from substrateinterface import Keypair
 from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.commune.request import get_filtered_modules
 from smartdrive.models.event import Event, StoreEvent, RemoveEvent
-from smartdrive.validator.api.utils import get_miner_info_with_chunk, remove_chunk_request
+from smartdrive.validator.api.utils import remove_chunk_request
+from smartdrive.models.utils import compile_miners_info_and_chunks
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.models.models import Chunk, File, ModuleType
 from smartdrive.validator.node.util.message_code import MessageCode
@@ -157,14 +158,15 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
                 # is not a proposer validator.
                 miners = get_filtered_modules(netuid, ModuleType.MINER)
 
-                miner_with_chunks = get_miner_info_with_chunk(miners, chunks)
+                miners_info_with_chunk = compile_miners_info_and_chunks(miners, chunks)
 
-                for miner in miner_with_chunks:
+                for miner in miners_info_with_chunk:
                     connection = ConnectionInfo(miner["connection"]["ip"], miner["connection"]["port"])
                     miner_info = ModuleInfo(miner["uid"], miner["ss58_address"], connection)
                     await remove_chunk_request(keypair, event.user_ss58_address, miner_info, miner["chunk_uuid"])
 
             database.remove_file(event.event_params.file_uuid)
+
 
 def prepare_sync_blocks(start, keypair, end = None, active_validators_manager = None, active_connections = None):
     async def _prepare_sync_blocks():
@@ -188,6 +190,7 @@ def prepare_sync_blocks(start, keypair, end = None, active_validators_manager = 
     else:
         asyncio.run(_prepare_sync_blocks())
 
+
 async def get_synced_blocks(start: int, connections, keypair, end: int = None):
     async def _get_synced_blocks(c):
         try:
@@ -201,7 +204,8 @@ async def get_synced_blocks(start: int, connections, keypair, end: int = None):
 
     connection = random.choice(connections)
     await _get_synced_blocks(connection)
-            
+
+
 def get_file_expiration() -> int:
     """
     Generate a random expiration time in milliseconds within a range.

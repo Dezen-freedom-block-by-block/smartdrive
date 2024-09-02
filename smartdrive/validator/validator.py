@@ -41,7 +41,7 @@ from smartdrive.validator.evaluation.evaluation import score_miners, set_weights
 from smartdrive.validator.node.active_validator_manager import INACTIVITY_TIMEOUT_SECONDS as VALIDATOR_INACTIVITY_TIMEOUT_SECONDS
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.node.node import Node
-from smartdrive.validator.step import validate_step
+from smartdrive.validator.validation import validate
 from smartdrive.validator.utils import process_events, prepare_sync_blocks
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.commune.request import get_filtered_modules, get_modules
@@ -118,7 +118,7 @@ class Validator(Module):
             try:
                 if start_time - last_validation_time >= self.VALIDATION_VOTE_INTERVAL_SECONDS:
                     print("Starting validation and voting task")
-                    asyncio.create_task(self.validation_task())
+                    asyncio.create_task(self.validate_task())
                     last_validation_time = start_time
             except Exception as e:
                 print(f"Error validating - {e}")
@@ -195,7 +195,7 @@ class Validator(Module):
                 print(f"Error creating blocks - {e}")
                 await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS)
 
-    async def validation_task(self):
+    async def validate_task(self):
         """
         Handles the validation of events and updates the node's event pool accordingly.
 
@@ -207,11 +207,10 @@ class Validator(Module):
             if miner.ss58_address != self._key.ss58_address
         ]
 
-        remove_events, result_miners = await validate_step(
+        remove_events, result_miners = await validate(
             miners=miners,
             database=self._database,
-            key=self._key,
-            validators_len=len(self.node.get_active_validators_connections()) + 1  # To include myself
+            key=self._key
         )
 
         if result_miners:
@@ -228,7 +227,6 @@ class Validator(Module):
                 database=self._database,
                 is_temporary_chunk=True
             )
-
 
     async def periodically_ping_validators(self):
         """

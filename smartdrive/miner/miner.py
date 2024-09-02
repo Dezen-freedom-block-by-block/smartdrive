@@ -166,7 +166,7 @@ class Miner(Module):
             return {"id": file_uuid}
         except Exception as e:
             print(f"ERROR store - {e}")
-            raise HTTPException(status_code=409, detail=f"Error: {str(e)}")
+            raise HTTPException(status_code=409, detail=f"Error: {e}")
 
     async def remove(self, request: Request) -> dict:
         """
@@ -194,7 +194,7 @@ class Miner(Module):
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="Chunk not found")
         except Exception as e:
-            raise HTTPException(status_code=409, detail=f"Error: f{str(e)}")
+            raise HTTPException(status_code=409, detail=f"Error: {e}")
 
     async def retrieve(self, request: Request) -> StreamingResponse:
         """
@@ -226,7 +226,7 @@ class Miner(Module):
             raise HTTPException(status_code=404, detail="Chunk not found")
         except Exception as e:
             print(e)
-            raise HTTPException(status_code=409, detail=f"Error: f{str(e)}")
+            raise HTTPException(status_code=409, detail=f"Error: {e}")
 
     async def validation(self, request: Request) -> dict:
         """
@@ -259,7 +259,7 @@ class Miner(Module):
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="Chunk not found")
         except Exception as e:
-            raise HTTPException(status_code=409, detail=f"Error: f{str(e)}")
+            raise HTTPException(status_code=409, detail=f"Error: {e}")
 
 
 if __name__ == "__main__":

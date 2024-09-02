@@ -46,6 +46,7 @@ class RemoveAPI:
         self._key = classic_load_key(config_manager.config.key)
         self._database: Database = Database()
 
+    # TODO: Check if file_uuid arguments needs to be a Form
     async def remove_endpoint(self, request: Request, file_uuid: str = Form()):
         """
         Send an event with the user's intention to remove a specific file from the SmartDrive network.
@@ -57,25 +58,20 @@ class RemoveAPI:
         Raises:
            HTTPException: If the file does not exist, there are no miners with the file, or there are no active miners available.
         """
-        # Get headers related info
         user_public_key = request.headers.get("X-Key")
         input_signed_params = request.headers.get("X-Signature")
         user_ss58_address = get_ss58_address_from_public_key(user_public_key)
 
-        # Check if the file exists
         file = self._database.get_file(user_ss58_address, file_uuid)
         if not file:
             raise HTTPException(status_code=404, detail="The file does not exist")
 
-        # Get miners and chunks for the file
         chunks = self._database.get_chunks(file_uuid)
         if not chunks:
-            raise HTTPException(status_code=404, detail="Currently there are no miners with this file name")
+            # Using the same error detail for both cases as the end-user experience is essentially the same
+            raise HTTPException(status_code=404, detail="The file does not exist")
 
-        # Create event
-        event_params = EventParams(
-            file_uuid=file_uuid
-        )
+        event_params = EventParams(file_uuid=file_uuid)
 
         signed_params = sign_data(event_params.dict(), self._key)
 
@@ -89,5 +85,4 @@ class RemoveAPI:
             input_signed_params=input_signed_params
         )
 
-        # Emit event
         self._node.send_event_to_validators(event)

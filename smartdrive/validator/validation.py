@@ -38,19 +38,23 @@ from smartdrive.models.event import RemoveEvent, EventParams, RemoveInputParams,
 from smartdrive.commune.utils import calculate_hash
 
 
-async def validate_step(miners: list[ModuleInfo], database: Database, key: Keypair, validators_len: int) -> Optional[Tuple[List[RemoveEvent], dict[int, bool]]]:
+async def validate(miners: list[ModuleInfo], database: Database, key: Keypair) -> Optional[Tuple[List[RemoveEvent], dict[int, bool]]]:
     """
-    Performs a validation step in the process.
-
-    This function retrieves expired validations, deletes them if necessary, and creates new validations along with their
-     respective files to replace the deleted ones. It also validates files that have not expired.
+    This function retrieves the current validations from the network and performs the following processes:
+    1. Separates the current validations into validations with expiration and validations without expiration.
+    2. Divides the validations with expiration into expired or non-expired validations. It includes validations without
+       expiration as non-expired and ensures that there is always a single validation per validator in the non-expired
+       validations, which, whenever possible, will be a validation without expiration, but if not, it will be a validation
+       with expiration.
+    3. Stores a file with an expiration on the network and generates a validation event for each miner who stored the file.
+    4. Checks if the miners who stored the file currently have a validation event in the `validation_events_not_expired` array;
+       if not, it inserts the newly generated validation event.
+    5. Finally, it removes the expired validations and validates the miners with the non-expired validations.
 
     Params:
         miners (list[ModuleInfo]): List of miners objects.
         database (Database): The database instance to operate on.
         key (Keypair): The keypair used for signing requests.
-        netuid (int): The network UID used to filter the active miners.
-        validators_len (int): Validators len.
 
     Returns:
         Optional[Tuple[List[RemoveEvent], dict[int, bool]]: An optional tuple containing a list of
@@ -60,32 +64,35 @@ async def validate_step(miners: list[ModuleInfo], database: Database, key: Keypa
         CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
     if not miners:
-        print("Skipping validation step, there is not any miner.")
+        print("Skipping validation, there is not any miner.")
         return
 
-    expired_validations, non_expired_validations, remove_events, validation_events, result_miners = [], [], [], [], {}
-    current_timestamp = int(time.time() * 1000)
+    validation_events_expired, validation_events_not_expired = [], []
 
-    validation_events_without_expiration = database.get_validation_events_without_expiration(registered_miners=miners)
+    # These validations are not refreshed from the database because we only need to validate the current ones,
+    # along with the new ones created by this process.
+    validation_events_without_expiration = database.get_random_validation_events_without_expiration_per_miners(miners)
     validation_events_with_expiration = database.get_validation_events_with_expiration()
 
-    # Split validation_events in expired or not expired
+    # Include as not expired validations validation events without expiration, since later behaviour is the same
+    validation_events_not_expired.extend(validation for validation in validation_events_without_expiration)
+
+    current_timestamp = int(time.time() * 1000)
+    miners_ss58_address_in_validation_events_not_expired = [validation_event.miner_ss58_address for validation_event in validation_events_not_expired]
+
     for validation_event in validation_events_with_expiration:
         if current_timestamp > (validation_event.created_at + validation_event.expiration_ms):
-            expired_validations.append(validation_event)
+            validation_events_expired.append(validation_event)
         else:
-            non_expired_validations.append(validation_event)
+            # This ensures we avoid adding duplicate validation events for the same miner, particularly when the miner
+            # has a non-expired events.
+            if validation_event.miner_ss58_address not in miners_ss58_address_in_validation_events_not_expired:
+                miners_ss58_address_in_validation_events_not_expired.append(validation_event.miner_ss58_address)
+                validation_events_not_expired.append(validation_event)
 
-    existing_miners_non_expired_validations = {validation.miner_ss58_address: validation for validation in non_expired_validations}
-    non_expired_validations.extend(
-        validation for validation in validation_events_without_expiration
-        if validation.miner_ss58_address not in existing_miners_non_expired_validations
-    )
-
-    miners_to_store = _determine_miners_to_store(validation_events_with_expiration, expired_validations, miners)
-
+    miners_to_store = _determine_miners_to_store(validation_events_with_expiration, validation_events_expired, miners)
     if miners_to_store:
-        file_data = generate_data(5)
+        file_data = generate_data(size_mb=5)
         input_params = {"file": calculate_hash(file_data)}
         input_signed_params = sign_data(input_params, key)
 
@@ -96,42 +103,39 @@ async def validate_step(miners: list[ModuleInfo], database: Database, key: Keypa
             user_ss58_address=Ss58Address(key.ss58_address),
             input_signed_params=input_signed_params.hex(),
             validating=True,
-            validators_len=validators_len
+            validators_len=1 # To include myself
         )
 
         if validations_events_per_validator:
-            validation_events.extend(validations_events_per_validator[0])
+            current_validator_validation_events = validations_events_per_validator[0]
+            database.insert_validation_events(current_validator_validation_events)
 
-    if validation_events:
-        database.insert_validation_events(validation_events=validation_events)
+            # Check if there is no validation for each of the miners who stored the previously generated file. If there
+            # is no validation, insert the generated one.
+            for validation_event in current_validator_validation_events:
+                if validation_event.miner_ss58_address not in miners_ss58_address_in_validation_events_not_expired:
+                    miners_ss58_address_in_validation_events_not_expired.append(validation_event.miner_ss58_address)
+                    validation_events_not_expired.append(validation_event)
 
-    # Get remove events
-    if expired_validations:
-        remove_events = _remove_files(
-            validation_events=expired_validations,
+    remove_events = []
+    if validation_events_expired:
+        remove_events = _generate_remove_events(
+            validation_events=validation_events_expired,
             keypair=key
         )
 
-    # Validate non expired files
-    if non_expired_validations or (not expired_validations and not non_expired_validations and miners_to_store):
-        if not non_expired_validations:
-            # If no non-expired validations exist, refresh them
-            validation_events_with_expiration = database.get_validation_events_with_expiration()
-            non_expired_validations = [
-                validation_event for validation_event in validation_events_with_expiration
-                if current_timestamp <= (validation_event.created_at + validation_event.expiration_ms)
-            ]
-
+    result_miners = {}
+    if validation_events_not_expired:
         result_miners = await _validate_miners(
             miners=miners,
-            validation_events=non_expired_validations,
+            validation_events=validation_events_not_expired,
             keypair=key
         )
 
     return remove_events, result_miners
 
 
-def _remove_files(validation_events: List[ValidationEvent], keypair: Keypair) -> List[RemoveEvent]:
+def _generate_remove_events(validation_events: List[ValidationEvent], keypair: Keypair) -> List[RemoveEvent]:
     """
     Removes files from the SmartDrive network and generates removal events.
 
@@ -183,7 +187,6 @@ async def _validate_miners(miners: list[ModuleInfo], validation_events: list[Val
         miners (list[ModuleInfo]): List of miners objects.
         validation_events (list[ValidationEvent]): A list of ValidationEvent containing relative information for validation.
         keypair (Keypair): The validator key used to authorize the requests.
-        netuid (int): The network UID used to filter the miners.
 
     Returns:
         dict[int, bool]: A dictionary of miners uid and his result.
@@ -218,7 +221,7 @@ def _determine_miners_to_store(validations_with_expiration: list[ValidationEvent
     Determines which miners should store new files.
 
     This method decides which miners should be assigned to store new files based on the
-    list of current ValidationEvent, expired ValidationEvent, and active miners. It ensures that active miners
+    list of current validation events with expiration, expired validation events, and active miners. It ensures that active miners
     that were previously storing expired files and active miners not currently storing any
     files are selected.
 
@@ -236,13 +239,11 @@ def _determine_miners_to_store(validations_with_expiration: list[ValidationEvent
         miners_to_store = miners
 
     else:
-        # Map expired miner ss58_address
         expired_miners_ss58_address = {
             validation_event.miner_ss58_address
             for validation_event in expired_validations_dict
         }
 
-        # Add expired miner to list
         for miner in miners:
             if miner.ss58_address in expired_miners_ss58_address:
                 miners_to_store.append(miner)
@@ -252,7 +253,6 @@ def _determine_miners_to_store(validations_with_expiration: list[ValidationEvent
             validation_event.miner_ss58_address
             for validation_event in validations_with_expiration
         ]
-
         for miner in miners:
             if miner.ss58_address not in users_ss58_addresses_having_files:
                 miners_to_store.append(miner)

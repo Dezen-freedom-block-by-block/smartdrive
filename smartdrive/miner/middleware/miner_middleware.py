@@ -109,5 +109,5 @@ class MinerMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             return response
         except Exception as e:
-            print(f"Middleware error: {str(e)}")
-            return json_error(400, str(e))
+            print(f"Middleware error: {e}")
+            return json_error(400, e)

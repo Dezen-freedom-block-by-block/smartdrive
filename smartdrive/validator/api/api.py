@@ -34,23 +34,23 @@ from smartdrive.validator.node.node import Node
 
 
 class API:
-    app = FastAPI()
+    _app = FastAPI()
 
-    store_api: StoreAPI = None
-    retrieve_api: RetrieveAPI = None
-    remove_api: RemoveAPI = None
+    _store_api: StoreAPI = None
+    _retrieve_api: RetrieveAPI = None
+    _remove_api: RemoveAPI = None
 
     def __init__(self, node: Node):
-        self.store_api = StoreAPI(node)
-        self.retrieve_api = RetrieveAPI(node)
-        self.remove_api = RemoveAPI(node)
+        self._store_api = StoreAPI(node)
+        self._retrieve_api = RetrieveAPI(node)
+        self._remove_api = RemoveAPI(node)
 
-        self.app.add_middleware(SubnetMiddleware)
+        self._app.add_middleware(SubnetMiddleware)
 
-        self.app.add_api_route("/method/ping", self.ping_endpoint, methods=["POST"])
-        self.app.add_api_route("/store", self.store_api.store_endpoint, methods=["POST"])
-        self.app.add_api_route("/retrieve", self.retrieve_api.retrieve_endpoint, methods=["GET"])
-        self.app.add_api_route("/remove", self.remove_api.remove_endpoint, methods=["POST"])
+        self._app.add_api_route("/method/ping", self._ping_endpoint, methods=["POST"])
+        self._app.add_api_route("/store", self._store_api.store_endpoint, methods=["POST"])
+        self._app.add_api_route("/retrieve", self._retrieve_api.retrieve_endpoint, methods=["GET"])
+        self._app.add_api_route("/remove", self._remove_api.remove_endpoint, methods=["POST"])
 
     async def run_server(self) -> None:
         """
@@ -61,11 +61,11 @@ class API:
         and on the port specified in the instance configuration.
         """
         dir = os.path.dirname(os.path.abspath(__file__))
-        config = uvicorn.Config(self.app, workers=8, host="0.0.0.0", port=config_manager.config.port, ssl_keyfile=f"{dir}/cert/key.pem", ssl_certfile=f"{dir}/cert/cert.pem", log_level="info")
+        config = uvicorn.Config(self._app, workers=8, host="0.0.0.0", port=config_manager.config.port, ssl_keyfile=f"{dir}/cert/key.pem", ssl_certfile=f"{dir}/cert/cert.pem", log_level="info")
         server = uvicorn.Server(config)
         await server.serve()
 
-    def ping_endpoint(self):
+    def _ping_endpoint(self):
         """
         Return a dictionary with validator information.
 

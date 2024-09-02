@@ -28,48 +28,6 @@ from smartdrive.commune.models import ModuleInfo
 from smartdrive.validator.models.models import MinerWithChunk
 
 
-def get_miner_info_with_chunk(miners: list[ModuleInfo], miner_chunks: list[MinerWithChunk]) -> list:
-    """
-    Gather information about active miners and their associated chunks.
-
-    This function matches active miners with their corresponding chunks and compiles
-    the relevant information into a list of dictionaries.
-
-    Params:
-        miners (list[ModuleInfo]): A list of miner objects.
-        miner_chunks (list[MinerWithChunk]): A list of miner chunk objects.
-
-    Returns:
-        list[dict]: A list of dictionaries, each containing:
-            uid (str): The unique identifier of the miner.
-            ss58_address (SS58_address): The SS58 address of the miner.
-            connection (dict): A dictionary containing the IP address and port of the miner's connection.
-            chunk_uuid (str): The UUID of the chunk associated with the miner.
-    """
-    miner_info_with_chunk = []
-
-    for miner in miners:
-        for miner_chunk in miner_chunks:
-            if miner.ss58_address == miner_chunk.ss58_address:
-                data = {
-                    "uid": miner.uid,
-                    "ss58_address": miner.ss58_address,
-                    "connection": {
-                        "ip": miner.connection.ip,
-                        "port": miner.connection.port
-                    },
-                    "chunk_uuid": miner_chunk.chunk_uuid,
-                    "sub_chunk_start": miner_chunk.sub_chunk_start,
-                    "sub_chunk_end": miner_chunk.sub_chunk_end,
-                    "sub_chunk_encoded": miner_chunk.sub_chunk_encoded,
-                    "chunk_index": miner_chunk.chunk_index
-                }
-
-                miner_info_with_chunk.append(data)
-
-    return miner_info_with_chunk
-
-
 async def remove_chunk_request(keypair: Keypair, user_ss58_address: Ss58Address, miner: ModuleInfo, chunk_uuid: str) -> bool:
     """
     Sends a request to a miner to remove a specific data chunk.

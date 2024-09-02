@@ -33,7 +33,7 @@ from communex.types import Ss58Address
 
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
-from smartdrive.validator.api.utils import get_miner_info_with_chunk
+from smartdrive.models.utils import compile_miners_info_and_chunks
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.commune.request import execute_miner_request, get_filtered_modules
@@ -68,91 +68,85 @@ class RetrieveAPI:
             chunk: The retrieved file chunk if available, None otherwise.
 
         Raises:
-            HTTPException: If the file does not exist, no miner has the chunk, or no active miners are available.
+            HTTPException: If the file does not exist, no miner has the chunk, the commune network is unreachable or
+            no active miners are available.
         """
         user_public_key = request.headers.get("X-Key")
         user_ss58_address = get_ss58_address_from_public_key(user_public_key)
 
         file = self._database.get_file(user_ss58_address, file_uuid)
         if not file:
-            print("The file not exists")
             raise HTTPException(status_code=404, detail="File does not exist")
 
         chunks = self._database.get_chunks(file_uuid)
         if not chunks:
-            print("Currently no miner has any chunk")
-            raise HTTPException(status_code=404, detail="Currently no miner has any chunk")
+            # Using the same error detail as above as the end-user experience is essentially the same
+            raise HTTPException(status_code=404, detail="File does not exist")
 
         try:
             miners = get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
         except CommuneNetworkUnreachable:
-            raise HTTPException(status_code=404, detail="Commune network is unreachable")
+            raise HTTPException(status_code=503, detail="Commune network is unreachable")
 
         if not miners:
-            print("Currently there are no miners")
-            raise HTTPException(status_code=404, detail="Currently there are no miners")
+            raise HTTPException(status_code=503, detail="Currently there are no miners in the SmartDrive network")
 
-        # Group miner_chunks by chunk_index
-        miners_with_chunks = get_miner_info_with_chunk(miners, chunks)
-        miner_chunks_by_index = {}
-        for miner_chunk in miners_with_chunks:
-            chunk_index = miner_chunk["chunk_index"]
-            if chunk_index not in miner_chunks_by_index:
-                miner_chunks_by_index[chunk_index] = []
-            miner_chunks_by_index[chunk_index].append(miner_chunk)
+        miners_info_with_chunk = compile_miners_info_and_chunks(miners, chunks)
 
-        # Shuffle the items in each list within the dictionary
-        for chunk_index in miner_chunks_by_index:
-            random.shuffle(miner_chunks_by_index[chunk_index])
+        miners_info_with_chunk_ordered_by_chunk_index = {}
+        for miner_info_with_chunk in miners_info_with_chunk:
+            chunk_index = miner_info_with_chunk["chunk_index"]
 
-        # Create event
-        chunks = []
+            if chunk_index not in miners_info_with_chunk_ordered_by_chunk_index:
+                miners_info_with_chunk_ordered_by_chunk_index[chunk_index] = []
 
-        async def retrieve_chunk_from_miners(user_ss58_address, miners_with_chunks):
-            for miner_chunk in miners_with_chunks:
-                connection = ConnectionInfo(miner_chunk["connection"]["ip"], miner_chunk["connection"]["port"])
+            miners_info_with_chunk_ordered_by_chunk_index[chunk_index].append(miner_info_with_chunk)
+
+        # Randomly shuffle the list of miners for each chunk to ensure that requests are not always made to the same miner
+        for chunk_index in miners_info_with_chunk_ordered_by_chunk_index:
+            random.shuffle(miners_info_with_chunk_ordered_by_chunk_index[chunk_index])
+
+        async def _retrieve_request_task(chunk_index, miners_info_with_chunk):
+            for miner_info_with_chunk in miners_info_with_chunk:
+                connection = ConnectionInfo(
+                    miner_info_with_chunk["connection"]["ip"],
+                    miner_info_with_chunk["connection"]["port"]
+                )
                 miner_info = ModuleInfo(
-                    miner_chunk["uid"],
-                    miner_chunk["ss58_address"],
+                    miner_info_with_chunk["uid"],
+                    miner_info_with_chunk["ss58_address"],
                     connection
                 )
-                chunk = await retrieve_request(self._key, user_ss58_address, miner_info, miner_chunk["chunk_uuid"])
-                succeed = chunk is not None
+                chunk = await _retrieve_request(self._key, user_ss58_address, miner_info, miner_info_with_chunk["chunk_uuid"])
+                if chunk:
+                    return (chunk_index, chunk)
 
-                if succeed:
-                    return chunk
-            return None
+            return (chunk_index, None)
 
-        async def fetch_chunk(chunk_index, miner_chunks_for_index):
-            chunk = await retrieve_chunk_from_miners(user_ss58_address, miner_chunks_for_index)
-            return (chunk_index, chunk)
-
-        # Use asyncio.gather to fetch all chunks concurrently
-        fetch_tasks = [
-            fetch_chunk(chunk_index, miner_chunks_for_index)
-            for chunk_index, miner_chunks_for_index in miner_chunks_by_index.items()
+        retrieve_request_tasks = [
+            _retrieve_request_task(chunk_index, miners_info_with_chunk)
+            for chunk_index, miners_info_with_chunk in miners_info_with_chunk_ordered_by_chunk_index.items()
         ]
+        retrieve_requests = await asyncio.gather(*retrieve_request_tasks)
 
-        fetched_chunks = await asyncio.gather(*fetch_tasks)
-
-        for chunk_index, chunk in fetched_chunks:
+        chunks = []
+        for chunk_index, chunk in retrieve_requests:
             if chunk is not None:
                 chunks.append((chunk_index, chunk))
 
-        # Sort chunks by chunk_index
-        chunks.sort(key=lambda x: x[0])
-
-        # Combine all chunks into a single file
-        final_file = b''.join(chunk for _, chunk in chunks)
-
         if len(chunks) == file.total_chunks:
+            # Sort chunks by chunk_index
+            chunks.sort(key=lambda x: x[0])
+
+            # Combine all chunks into a single file
+            final_file = b''.join(chunk for _, chunk in chunks)
             return StreamingResponse(io.BytesIO(final_file), media_type='application/octet-stream')
+
         else:
-            print("The file currently is not available")
             raise HTTPException(status_code=404, detail="The file currently is not available")
 
 
-async def retrieve_request(keypair: Keypair, user_ss58address: Ss58Address, miner: ModuleInfo, chunk_uuid: str) -> Optional[str]:
+async def _retrieve_request(keypair: Keypair, user_ss58address: Ss58Address, miner: ModuleInfo, chunk_uuid: str) -> Optional[str]:
     """
     Sends a request to a miner to retrieve a specific data chunk.
 

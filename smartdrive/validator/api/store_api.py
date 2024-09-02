@@ -26,9 +26,8 @@ import time
 import traceback
 import uuid
 from typing import Optional, Tuple, List
-
-from substrateinterface import Keypair
 from fastapi import Form, UploadFile, HTTPException, Request
+from substrateinterface import Keypair
 
 from communex.compat.key import classic_load_key
 from communex.types import Ss58Address
@@ -47,7 +46,6 @@ from smartdrive.validator.node.node import Node
 from smartdrive.validator.utils import get_file_expiration
 from smartdrive.commune.utils import calculate_hash
 
-# TODO: CHANGE VALUES IN PRODUCTION IF IT IS NECESSARY
 MIN_MINERS_FOR_FILE = 2
 MIN_MINERS_REPLICATION_FOR_CHUNK = 2
 MAX_MINERS_FOR_FILE = 10
@@ -68,41 +66,46 @@ class StoreAPI:
         """
         Stores a file across multiple active miners.
 
-        This method reads a file uploaded by a user and distributes it among active miners available in the system.
+        This method reads a file uploaded by a user and distributes it among active miners available in the SmartDrive network.
         Once it is distributed sends an event with the related info.
 
         Params:
+            request (Request): The incoming request containing necessary headers for validation.
             file (UploadFile): The file to be uploaded.
 
         Raises:
             HTTPException: If no active miners are available or if no miner responds with a valid response.
         """
         user_public_key = request.headers.get("X-Key")
-        input_signed_params = request.headers.get("X-Signature")
         user_ss58_address = get_ss58_address_from_public_key(user_public_key)
+        input_signed_params = request.headers.get("X-Signature")
         file_bytes = await file.read()
 
         try:
             miners = get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
         except CommuneNetworkUnreachable:
-            raise HTTPException(status_code=404, detail="Commune network is unreachable")
+            raise HTTPException(status_code=503, detail="Commune network is unreachable")
 
         if not miners:
-            raise HTTPException(status_code=404, detail="Currently there are no miners")
+            raise HTTPException(status_code=503, detail="Currently there are no miners in the SmartDrive network")
 
         active_validators = self._node.get_active_validators_connections()
         validators_len = len(active_validators) + 1  # To include myself
-        store_event, validations_events_per_validator = await store_new_file(
-            file_bytes=file_bytes,
-            miners=miners,
-            validator_keypair=self._key,
-            user_ss58_address=user_ss58_address,
-            input_signed_params=input_signed_params,
-            validators_len=validators_len
-        )
+
+        try:
+            store_event, validations_events_per_validator = await store_new_file(
+                file_bytes=file_bytes,
+                miners=miners,
+                validator_keypair=self._key,
+                user_ss58_address=user_ss58_address,
+                input_signed_params=input_signed_params,
+                validators_len=validators_len
+            )
+        except Exception: # TODO: Do not capture bare exceptions
+            raise HTTPException(status_code=500, detail="Unexpected error")
 
         if not store_event:
-            raise HTTPException(status_code=404, detail="No miner answered with a valid response")
+            raise HTTPException(status_code=503, detail="No miner answered with a valid response")
 
         if validations_events_per_validator:
             self._database.insert_validation_events(validation_events=validations_events_per_validator.pop(0))
@@ -123,7 +126,7 @@ async def store_new_file(
         validating: bool = False,
 ) -> Tuple[Optional[StoreEvent], List[List[ValidationEvent]]]:
     if not validating and len(miners) < MIN_MINERS_FOR_FILE:
-        raise HTTPException(status_code=409, detail="Currently, redundancy in the network is not guaranteed")
+        raise HTTPException(status_code=503, detail="Currently, redundancy in the network is not guaranteed")
 
     stored_chunks_results = []
     stored_miner_with_chunk_uuid: List[Tuple[ModuleInfo, str]] = []
@@ -181,6 +184,7 @@ async def store_new_file(
             await asyncio.gather(*[handle_store_request(miner, file_bytes, 0) for miner in miners])
             if not stored_chunks_results:
                 return None, []
+
         else:
             num_chunks = min(len(miners), MAX_MINERS_FOR_FILE)
             chunk_size = max(1, len(file_bytes) // num_chunks)
@@ -260,6 +264,7 @@ async def store_new_file(
         await remove_stored_chunks()
         raise
 
+
 async def _store_request(keypair: Keypair, miner: ModuleInfo, user_ss58_address: Ss58Address, chunk_bytes: bytes) -> Optional[MinerWithChunk]:
     """
      Sends a request to a miner to store a file chunk.
@@ -286,5 +291,4 @@ async def _store_request(keypair: Keypair, miner: ModuleInfo, user_ss58_address:
         }
     )
 
-    if miner_answer:
-        return MinerWithChunk(miner.ss58_address, miner_answer["id"])
+    return MinerWithChunk(miner.ss58_address, miner_answer["id"]) if miner_answer else None
