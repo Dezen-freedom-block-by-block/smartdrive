@@ -209,11 +209,6 @@ class Validator(Module):
             key=self._key
         )
 
-        # TODO: Running validation and voting should be a relatively consecutive process. This is because validation and
-        #  voting are atomic operations that largely depend on the UID of the miners. Between these operations, changes
-        #  in UIDs could occur, making the voting operation not entirely secure.
-        #  If the operations cannot be consecutive as is currently the case, we should include the miner's ss58 address
-        #  along with their UID and result. This way, we can before the vote check if the UID is still associated with that ss58 address.
         if result_miners:
             score_dict = score_miners(result_miners=result_miners)
             if score_dict:
