@@ -22,23 +22,23 @@
 
 import asyncio
 import time
-import uuid
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
-from substrateinterface import Keypair
 from communex.types import Ss58Address
+from substrateinterface import Keypair
 
 from smartdrive.commune.models import ModuleInfo
+from smartdrive.commune.utils import calculate_hash
+from smartdrive.models.event import ValidationEvent
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.validator.api.store_api import store_new_file
+from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.api.validate_api import validate_chunk_request
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.evaluation.utils import generate_data
-from smartdrive.models.event import RemoveEvent, EventParams, RemoveInputParams, ValidationEvent
-from smartdrive.commune.utils import calculate_hash
 
 
-async def validate(miners: list[ModuleInfo], database: Database, key: Keypair) -> Optional[Tuple[List[RemoveEvent], dict[int, bool]]]:
+async def validate(miners: list[ModuleInfo], database: Database, key: Keypair) -> Optional[dict[int, bool]]:
     """
     This function retrieves the current validations from the network and performs the following processes:
     1. Separates the current validations into validations with expiration and validations without expiration.
@@ -57,8 +57,7 @@ async def validate(miners: list[ModuleInfo], database: Database, key: Keypair) -
         key (Keypair): The keypair used for signing requests.
 
     Returns:
-        Optional[Tuple[List[RemoveEvent], dict[int, bool]]: An optional tuple containing a list of
-        Events objects and miners and his result.
+        Optional[dict[int, bool]: An optional dict containing the miner UUID and the validation result.
 
     Raises:
         CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
@@ -103,7 +102,7 @@ async def validate(miners: list[ModuleInfo], database: Database, key: Keypair) -
             user_ss58_address=Ss58Address(key.ss58_address),
             input_signed_params=input_signed_params.hex(),
             validating=True,
-            validators_len=1 # To include myself
+            validators_len=1 # To include current validator
         )
 
         if validations_events_per_validator:
@@ -117,65 +116,52 @@ async def validate(miners: list[ModuleInfo], database: Database, key: Keypair) -
                     miners_ss58_address_in_validation_events_not_expired.append(validation_event.miner_ss58_address)
                     validation_events_not_expired.append(validation_event)
 
-    remove_events = []
     if validation_events_expired:
-        remove_events = _generate_remove_events(
-            validation_events=validation_events_expired,
+        await _remove_expired_validations(
+            validation_events_expired=validation_events_expired,
+            miners=miners,
+            database=database,
             keypair=key
         )
 
     result_miners = {}
     if validation_events_not_expired:
         result_miners = await _validate_miners(
+            validation_events_not_expired=validation_events_not_expired,
             miners=miners,
-            validation_events=validation_events_not_expired,
             keypair=key
         )
 
-    return remove_events, result_miners
+    return result_miners
 
 
-def _generate_remove_events(validation_events: List[ValidationEvent], keypair: Keypair) -> List[RemoveEvent]:
+async def _remove_expired_validations(validation_events_expired: List[ValidationEvent], miners: List[ModuleInfo], database: Database, keypair: Keypair):
     """
-    Removes files from the SmartDrive network and generates removal events.
-
-    This function generates `RemoveEvent` objects that contain details of the removal process. The remove process will
-    be processed when the new block will be generated.
+    Removes expired validations from the SmartDrive network. It also removes the expired validations in the current validator database.
 
     Params:
-        validation_events (List[ValidationEvent]): A list of ValidationEvent objects containing the files to be removed.
+        validation_events_expired (List[ValidationEvent]): A list of ValidationEvent objects containing the files to be removed.
+        miners (List[ModuleInfo]): A list of ModuleInfo objects representing all the miners used in the validation process.
         keypair (Keypair): The keypair used to authorize and sign the removal requests.
-
-    Returns:
-        List[RemoveEvent]: A list of `RemoveEvent` objects, each representing the removal operation for a file.
     """
-    events: List[RemoveEvent] = []
+    async def _remove_task(validation_event: ValidationEvent) -> Optional[bool]:
+        for miner in miners:
+            if miner.ss58_address == validation_event.miner_ss58_address:
+                return await remove_chunk_request(keypair, validation_event.user_ss58_address, miner, validation_event.uuid)
+        return None
 
-    for validation_event in validation_events:
-        event_params = EventParams(
-            file_uuid=validation_event.file_uuid
-        )
+    futures = []
+    for validation_event in validation_events_expired:
+        task = await _remove_task(validation_event)
+        if task:
+            futures.append(task)
 
-        signed_params = sign_data(event_params.dict(), keypair)
+        database.remove_file(validation_event.file_uuid)
 
-        input_params = RemoveInputParams(file_uuid=validation_event.file_uuid)
-        input_signed_params = sign_data(input_params.dict(), keypair)
-
-        event = RemoveEvent(
-            uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
-            validator_ss58_address=Ss58Address(keypair.ss58_address),
-            event_params=event_params,
-            event_signed_params=signed_params.hex(),
-            user_ss58_address=Ss58Address(validation_event.user_owner_ss58_address),
-            input_params=input_params,
-            input_signed_params=input_signed_params.hex()
-        )
-        events.append(event)
-
-    return events
+    await asyncio.gather(*futures)
 
 
-async def _validate_miners(miners: list[ModuleInfo], validation_events: list[ValidationEvent], keypair: Keypair) -> dict[int, bool]:
+async def _validate_miners(validation_events_not_expired: list[ValidationEvent], miners: list[ModuleInfo], keypair: Keypair) -> dict[int, bool]:
     """
     Validates the stored chunks across miners.
 
@@ -184,8 +170,8 @@ async def _validate_miners(miners: list[ModuleInfo], validation_events: list[Val
     success status of each validation request.
 
     Params:
-        miners (list[ModuleInfo]): List of miners objects.
-        validation_events (list[ValidationEvent]): A list of ValidationEvent containing relative information for validation.
+        miners (List[ModuleInfo]): A list of ModuleInfo objects representing all the miners used in the validation process.
+        validation_events_expired (List[ValidationEvent]): A list of ValidationEvent objects containing relative info for the validation.
         keypair (Keypair): The validator key used to authorize the requests.
 
     Returns:
@@ -196,27 +182,24 @@ async def _validate_miners(miners: list[ModuleInfo], validation_events: list[Val
     """
     result_miners: dict[int, bool] = {}
 
-    async def handle_validation_request(miner_info: ModuleInfo, validation_event: ValidationEvent) -> bool:
-        return await validate_chunk_request(
-            keypair=keypair,
-            user_owner_ss58_address=Ss58Address(validation_event.user_owner_ss58_address),
-            miner_module_info=miner_info,
-            validation_event=validation_event
-        )
-
-    async def process_file(validation_event: ValidationEvent):
+    async def _validation_task(validation_event: ValidationEvent):
         validation_event_miner_module_info = next((miner for miner in miners if miner.ss58_address == validation_event.miner_ss58_address), None)
         if validation_event_miner_module_info:
-            result = await handle_validation_request(validation_event_miner_module_info, validation_event)
+            result = await validate_chunk_request(
+                keypair=keypair,
+                user_owner_ss58_address=Ss58Address(validation_event.user_owner_ss58_address),
+                miner_module_info=validation_event_miner_module_info,
+                validation_event=validation_event
+            )
             result_miners[int(validation_event_miner_module_info.uid)] = result
 
-    futures = [process_file(validation_event) for validation_event in validation_events]
+    futures = [_validation_task(validation_event) for validation_event in validation_events_not_expired]
     await asyncio.gather(*futures)
 
     return result_miners
 
 
-def _determine_miners_to_store(validations_with_expiration: list[ValidationEvent], expired_validations_dict: list[ValidationEvent], miners: list[ModuleInfo]):
+def _determine_miners_to_store(validations_with_expiration: list[ValidationEvent], validation_events_expired: list[ValidationEvent], miners: list[ModuleInfo]):
     """
     Determines which miners should store new files.
 
@@ -227,7 +210,7 @@ def _determine_miners_to_store(validations_with_expiration: list[ValidationEvent
 
     Params:
         validations_with_expiration (list[ValidationEvent]): The list of current ValidationEvent with expiration.
-        expired_validations_dict (list[ValidationEvent]): The list of expired ValidationEvent.
+        validation_events_expired (list[ValidationEvent]): The list of expired ValidationEvent.
         miners (list[ModuleInfo]): The list of miners.
 
     Returns:
@@ -241,7 +224,7 @@ def _determine_miners_to_store(validations_with_expiration: list[ValidationEvent
     else:
         expired_miners_ss58_address = {
             validation_event.miner_ss58_address
-            for validation_event in expired_validations_dict
+            for validation_event in validation_events_expired
         }
 
         for miner in miners:

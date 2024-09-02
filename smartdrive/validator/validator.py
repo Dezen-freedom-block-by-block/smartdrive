@@ -111,16 +111,16 @@ class Validator(Module):
         processing events, and ensuring that the block creation and validation intervals are respected.
         """
         last_validation_time = time.monotonic()
-        first_validation_launched = False
+        first_validation_vote_launched = False
 
         while True:
             start_time = time.monotonic()
 
             try:
-                if not first_validation_launched or start_time - last_validation_time >= self.VALIDATION_VOTE_INTERVAL_SECONDS:
+                if not first_validation_vote_launched or start_time - last_validation_time >= self.VALIDATION_VOTE_INTERVAL_SECONDS:
                     print("Starting validation and voting task")
-                    asyncio.create_task(self.validate_task())
-                    first_validation_launched = True
+                    asyncio.create_task(self.validate_vote_task())
+                    first_validation_vote_launched = True
                     last_validation_time = start_time
             except Exception as e:
                 print(f"Error validating - {e}")
@@ -197,46 +197,29 @@ class Validator(Module):
                 print(f"Error creating blocks - {e}")
                 await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS)
 
-    async def validate_task(self):
-        """
-        Handles the validation of events and updates the node's event pool accordingly.
-
-        This method asynchronously processes events by validating them and then managing
-        the resulting actions, such as removal, validation, or storage of events.
-        """
+    async def validate_vote_task(self):
         miners = [
             miner for miner in get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
             if miner.ss58_address != self._key.ss58_address
         ]
 
-        remove_events, result_miners = await validate(
+        result_miners = await validate(
             miners=miners,
             database=self._database,
             key=self._key
         )
 
+        # TODO: Running validation and voting should be a relatively consecutive process. This is because validation and
+        #  voting are atomic operations that largely depend on the UID of the miners. Between these operations, changes
+        #  in UIDs could occur, making the voting operation not entirely secure.
+        #  If the operations cannot be consecutive as is currently the case, we should include the miner's ss58 address
+        #  along with their UID and result. This way, we can before the vote check if the UID is still associated with that ss58 address.
         if result_miners:
             score_dict = score_miners(result_miners=result_miners)
             if score_dict:
                 await set_weights(score_dict, config_manager.config.netuid, self._key)
 
-        if remove_events:
-            await process_events(
-                events=remove_events,
-                is_proposer_validator=False,
-                keypair=self._key,
-                netuid=config_manager.config.netuid,
-                database=self._database,
-                is_temporary_chunk=True
-            )
-
     async def periodically_ping_validators(self):
-        """
-        Periodically pings validators at regular intervals.
-
-        This method runs an infinite loop that pings the node's validators
-        every 5 seconds.
-        """
         while True:
             await self.node.ping_validators()
             await asyncio.sleep(5)

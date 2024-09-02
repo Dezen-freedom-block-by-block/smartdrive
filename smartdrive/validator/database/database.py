@@ -231,24 +231,17 @@ class Database:
                 connection.close()
         return result
 
-    def get_chunks(self, file_uuid: str, is_temporary_chunk: bool = False) -> List[MinerWithChunk]:
+    def get_chunks(self, file_uuid: str) -> List[MinerWithChunk]:
         """
         Retrieves the miners' addresses and chunk hashes associated with a given file UUID.
 
         Params:
             file_uuid (str): The UUID of the file to search for.
-            is_temporary_chunk (bool): Flag indicating whether to search in the temporary file validation table.
-                                      Defaults to False.
 
         Returns:
-            List[MinerWithChunk]: A list of MinerWithChunk objects containing the miners' addresses,
-                                  chunk UUIDs, and optionally chunk indices.
+            List[MinerWithChunk]: A list of MinerWithChunk objects.
         """
         query = """
-            SELECT v.miner_ss58_address, v.chunk_uuid
-            FROM validation v
-            WHERE v.file_uuid = ?
-        """ if is_temporary_chunk else """
             SELECT c.miner_ss58_address, c.uuid, c.chunk_index
             FROM chunk c
             INNER JOIN file f ON c.file_uuid = f.uuid
@@ -264,7 +257,7 @@ class Database:
                 MinerWithChunk(
                     ss58_address=row[0],
                     chunk_uuid=row[1],
-                    chunk_index=None if is_temporary_chunk else row[2]
+                    chunk_index=row[2]
                 )
                 for row in rows
             ]
@@ -274,6 +267,58 @@ class Database:
         finally:
             if connection:
                 connection.close()
+
+    def get_validation_events_by_file_uuid(self, file_uuid: str) -> List[ValidationEvent]:
+        """
+        Retrieve a list of validation events with expiration information.
+
+        This function queries the database to find validations by its file UUID. It constructs a list of `ValidationEvent`
+        objects.
+
+        Returns:
+            List[ValidationEvent]: A list of `ValidationEvent` objects.
+
+        Raises:
+            sqlite3.Error: If there is an error accessing the database.
+        """
+        validation_events: list[ValidationEvent] = []
+        connection = None
+        try:
+            connection = sqlite3.connect(self._database_file_path)
+            cursor = connection.cursor()
+
+            query = """
+                SELECT chunk_uuid, miner_ss58_address, sub_chunk_start, sub_chunk_end, sub_chunk_encoded,
+                    expiration_ms, created_at, file_uuid, user_ss58_address
+                FROM validation
+                WHERE validation.file_uuid = ?
+            """
+
+            cursor.execute(query, (file_uuid,))
+            rows = cursor.fetchall()
+
+            for row in rows:
+                validation_event = ValidationEvent(
+                    uuid=row["chunk_uuid"],
+                    miner_ss58_address=row["miner_ss58_address"],
+                    sub_chunk_start=row["sub_chunk_start"],
+                    sub_chunk_end=row["sub_chunk_end"],
+                    sub_chunk_encoded=row["sub_chunk_encoded"],
+                    expiration_ms=row["expiration_ms"],
+                    created_at=row["created_at"],
+                    file_uuid=row["file_uuid"],
+                    user_owner_ss58_address=row["user_ss58_address"]
+                )
+                validation_events.append(validation_event)
+
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return []
+        finally:
+            if connection:
+                connection.close()
+
+        return validation_events
 
     def get_validation_events_with_expiration(self) -> List[ValidationEvent]:
         """
@@ -297,7 +342,7 @@ class Database:
 
             query = '''
                 SELECT chunk_uuid, miner_ss58_address, sub_chunk_start, sub_chunk_end, sub_chunk_encoded,
-                           expiration_ms, created_at, file_uuid, user_ss58_address
+                    expiration_ms, created_at, file_uuid, user_ss58_address
                 FROM validation
                 WHERE expiration_ms IS NOT NULL AND created_at IS NOT NULL
             '''
