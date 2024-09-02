@@ -44,6 +44,7 @@ from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_active_validators, EXTENDED_PING_TIMEOUT
 from smartdrive.models.event import StoreInputParams, RetrieveInputParams, RemoveInputParams
+from smartdrive.utils import MAX_FILE_SIZE
 from smartdrive.validator.api.middleware.sign import sign_data
 from smartdrive.commune.utils import calculate_hash
 
@@ -78,6 +79,11 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
 
     if not Path(file_path).is_file():
         print(f"ERROR: File {file_path} does not exist or is a directory.")
+        return
+
+    # TODO: Change in the future
+    if os.path.getsize(file_path) > MAX_FILE_SIZE:
+        print("ERROR: File size exceeds the maximum limit of 500 MB")
         return
 
     key = _get_key(key_name)
