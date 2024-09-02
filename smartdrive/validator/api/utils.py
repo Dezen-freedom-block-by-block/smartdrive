@@ -25,7 +25,6 @@ from substrateinterface import Keypair
 
 from smartdrive.commune.request import execute_miner_request
 from smartdrive.commune.models import ModuleInfo
-from smartdrive.validator.models.models import MinerWithChunk
 
 
 async def remove_chunk_request(keypair: Keypair, user_ss58_address: Ss58Address, miner: ModuleInfo, chunk_uuid: str) -> bool:

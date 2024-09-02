@@ -39,9 +39,6 @@ def compile_miners_info_and_chunks(miners: list[ModuleInfo], miner_chunks: list[
             ss58_address (SS58_address): The SS58 address of the miner.
             connection (dict): A dictionary containing the IP address and port of the miner's connection.
             chunk_uuid (str): The UUID of the chunk associated with the miner.
-            sub_chunk_start (int): Start index of the sub-chunk.
-            sub_chunk_end (int): End index of the sub-chunk.
-            sub_chunk_encoded (str): Sub-chunk encoded.
             chunk_index (int): Chunk index in file.
     """
     miner_info_with_chunk = []
@@ -57,9 +54,6 @@ def compile_miners_info_and_chunks(miners: list[ModuleInfo], miner_chunks: list[
                         "port": miner.connection.port
                     },
                     "chunk_uuid": miner_chunk.chunk_uuid,
-                    "sub_chunk_start": miner_chunk.sub_chunk_start,
-                    "sub_chunk_end": miner_chunk.sub_chunk_end,
-                    "sub_chunk_encoded": miner_chunk.sub_chunk_encoded,
                     "chunk_index": miner_chunk.chunk_index
                 }
 
