@@ -24,7 +24,7 @@ import asyncio
 import io
 import random
 from typing import Optional
-from fastapi import HTTPException, Request
+from fastapi import Request
 
 from communex.compat.key import classic_load_key
 from starlette.responses import StreamingResponse
@@ -32,6 +32,8 @@ from substrateinterface import Keypair
 from communex.types import Ss58Address
 
 from smartdrive.commune.errors import CommuneNetworkUnreachable
+from smartdrive.validator.api.exceptions import FileDoesNotExistException, \
+    CommuneNetworkUnreachable as HTTPCommuneNetworkUnreachable, NoMinersInNetworkException, FileNotAvailableException
 from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_from_public_key
 from smartdrive.models.utils import compile_miners_info_and_chunks
 from smartdrive.validator.config import config_manager
@@ -61,35 +63,36 @@ class RetrieveAPI:
         from active miners.
 
         Params:
-            user_ss58_address (Ss58Address): The SS58 address of the user associated with the file.
             file_uuid (str): The UUID of the file to be retrieved.
 
         Returns:
             chunk: The retrieved file chunk if available, None otherwise.
 
         Raises:
-            HTTPException: If the file does not exist, no miner has the chunk, the commune network is unreachable or
-            no active miners are available.
+            FileDoesNotExistException: If the file does not exist or no miner has the chunk.
+            CommuneNetworkUnreachable: If the commune network is unreachable.
+            NoMinersInNetworkException: If there are no active miners in the SmartDrive network.
+            FileNotAvailableException: If the file is not fully available.
         """
         user_public_key = request.headers.get("X-Key")
         user_ss58_address = get_ss58_address_from_public_key(user_public_key)
 
         file = self._database.get_file(user_ss58_address, file_uuid)
         if not file:
-            raise HTTPException(status_code=404, detail="File does not exist")
+            raise FileDoesNotExistException
 
         chunks = self._database.get_chunks(file_uuid)
         if not chunks:
             # Using the same error detail as above as the end-user experience is essentially the same
-            raise HTTPException(status_code=404, detail="File does not exist")
+            raise FileDoesNotExistException
 
         try:
             miners = get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
         except CommuneNetworkUnreachable:
-            raise HTTPException(status_code=503, detail="Commune network is unreachable")
+            raise HTTPCommuneNetworkUnreachable
 
         if not miners:
-            raise HTTPException(status_code=503, detail="Currently there are no miners in the SmartDrive network")
+            raise NoMinersInNetworkException
 
         miners_info_with_chunk = compile_miners_info_and_chunks(miners, chunks)
 
@@ -143,7 +146,7 @@ class RetrieveAPI:
             return StreamingResponse(io.BytesIO(final_file), media_type='application/octet-stream')
 
         else:
-            raise HTTPException(status_code=404, detail="The file currently is not available")
+            raise FileNotAvailableException
 
 
 async def _retrieve_request(keypair: Keypair, user_ss58address: Ss58Address, miner: ModuleInfo, chunk_uuid: str) -> Optional[str]:

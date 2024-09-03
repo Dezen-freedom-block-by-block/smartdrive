@@ -8,7 +8,7 @@
 # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
-# 
+#
 # The above copyright notice and this permission notice shall be included in all
 # copies or substantial portions of the Software.
 #
@@ -25,7 +25,7 @@ import random
 import time
 import uuid
 from typing import Optional, Tuple, List
-from fastapi import Form, UploadFile, HTTPException, Request
+from fastapi import Form, UploadFile, Request
 from substrateinterface import Keypair
 
 from communex.compat.key import classic_load_key
@@ -34,6 +34,8 @@ from communex.types import Ss58Address
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.utils import MAX_FILE_SIZE
 from smartdrive.sign import sign_data
+from smartdrive.validator.api.exceptions import RedundancyException, FileTooLargeException, NoMinersInNetworkException, \
+    NoValidMinerResponseException, UnexpectedErrorException, HTTPRedundancyException, CommuneNetworkUnreachable as HTTPCommuneNetworkUnreachable
 from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.config import config_manager
@@ -74,7 +76,12 @@ class StoreAPI:
             file (UploadFile): The file to be uploaded.
 
         Raises:
-            HTTPException: If no active miners are available or if no miner responds with a valid response.
+            FileDoesNotExistException: If the file is bigger than allowed.
+            HTTPCommuneNetworkUnreachable: If the Commune network is unreachable.
+            NoMinersInNetworkException: If there are no active miners in the SmartDrive network.
+            HTTPRedundancyException: If the file redundancy is not guaranteed.
+            UnexpectedErrorException: If an unexpected error happened.
+            NoValidMinerResponseException: If any miner answered with a valid response.
         """
         user_public_key = request.headers.get("X-Key")
         user_ss58_address = get_ss58_address_from_public_key(user_public_key)
@@ -83,15 +90,15 @@ class StoreAPI:
 
         # TODO: Change in the future
         if len(file_bytes) > MAX_FILE_SIZE:
-            raise HTTPException(status_code=413, detail="File size exceeds the maximum limit of 500 MB")
+            raise FileTooLargeException
 
         try:
             miners = get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
         except CommuneNetworkUnreachable:
-            raise HTTPException(status_code=503, detail="Commune network is unreachable")
+            raise HTTPCommuneNetworkUnreachable
 
         if not miners:
-            raise HTTPException(status_code=503, detail="Currently there are no miners in the SmartDrive network")
+            raise NoMinersInNetworkException
 
         active_validators = self._node.get_active_validators_connections()
         validators_len = len(active_validators) + 1  # To include myself
@@ -105,11 +112,13 @@ class StoreAPI:
                 input_signed_params=input_signed_params,
                 validators_len=validators_len
             )
+        except RedundancyException as redundancy_exception:
+            raise HTTPRedundancyException(redundancy_exception.message)
         except Exception: # TODO: Do not capture bare exceptions
-            raise HTTPException(status_code=500, detail="Unexpected error")
+            raise UnexpectedErrorException
 
         if not store_event:
-            raise HTTPException(status_code=503, detail="No miner answered with a valid response")
+            raise NoValidMinerResponseException
 
         if validations_events_per_validator:
             self._database.insert_validation_events(validation_events=validations_events_per_validator.pop(0))
@@ -130,7 +139,7 @@ async def store_new_file(
         validating: bool = False,
 ) -> Tuple[Optional[StoreEvent], List[List[ValidationEvent]]]:
     if not validating and len(miners) < MIN_MINERS_FOR_FILE:
-        raise HTTPException(status_code=503, detail="Currently, redundancy in the network is not guaranteed")
+        raise RedundancyException
 
     stored_chunks_results = []
     stored_miner_with_chunk_uuid: List[Tuple[ModuleInfo, str]] = []
@@ -201,7 +210,7 @@ async def store_new_file(
             await asyncio.gather(*[store_chunk_with_redundancy(chunk_bytes, index) for index, chunk_bytes in enumerate(chunks_bytes)])
 
             if len(stored_chunks_results) != len(chunks_bytes) * MIN_MINERS_REPLICATION_FOR_CHUNK:
-                raise HTTPException(status_code=409, detail="Currently, redundancy in the network is not guaranteed")
+                raise RedundancyException
 
         # A ChunkParam object is generated per chunk stored
         for chunk_uuid, chunk_index, miner_ss58_address, file in stored_chunks_results:

@@ -22,13 +22,14 @@
 
 import time
 import uuid
-from fastapi import HTTPException, Request
+from fastapi import Request
 from substrateinterface import Keypair
 
 from communex.compat.key import classic_load_key
 from communex.types import Ss58Address
 
 from smartdrive.sign import sign_data
+from smartdrive.validator.api.exceptions import FileDoesNotExistException
 from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
@@ -55,7 +56,7 @@ class RemoveAPI:
             file_uuid (str): The UUID of the file to be removed, provided as a form parameter.
 
         Raises:
-           HTTPException: If the file does not exist, there are no miners with the file, or there are no active miners available.
+           FileDoesNotExistException: If the file does not exist or there are no miners with the files.
         """
         user_public_key = request.headers.get("X-Key")
         input_signed_params = request.headers.get("X-Signature")
@@ -63,12 +64,12 @@ class RemoveAPI:
 
         file = self._database.get_file(user_ss58_address, file_uuid)
         if not file:
-            raise HTTPException(status_code=404, detail="The file does not exist")
+            raise FileDoesNotExistException
 
         chunks = self._database.get_chunks(file_uuid)
         if not chunks:
             # Using the same error detail for both cases as the end-user experience is essentially the same
-            raise HTTPException(status_code=404, detail="The file does not exist")
+            raise FileDoesNotExistException
 
         event_params = EventParams(file_uuid=file_uuid)
 
