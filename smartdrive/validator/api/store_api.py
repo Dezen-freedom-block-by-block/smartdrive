@@ -190,11 +190,11 @@ async def store_new_file(
                 )
                 for miner, chunk_uuid in stored_miner_with_chunk_uuid
             ]
-            await asyncio.gather(*remove_tasks)
+            await asyncio.gather(*remove_tasks, return_exceptions=True)
 
     try:
         if validating:
-            await asyncio.gather(*[handle_store_request(miner, file_bytes, 0) for miner in miners])
+            await asyncio.gather(*[handle_store_request(miner, file_bytes, 0) for miner in miners], return_exceptions=True)
             if not stored_chunks_results:
                 return None, []
 
@@ -207,7 +207,7 @@ async def store_new_file(
             if remainder:
                 chunks_bytes[-1] += file_bytes[-remainder:]
 
-            await asyncio.gather(*[store_chunk_with_redundancy(chunk_bytes, index) for index, chunk_bytes in enumerate(chunks_bytes)])
+            await asyncio.gather(*[store_chunk_with_redundancy(chunk_bytes, index) for index, chunk_bytes in enumerate(chunks_bytes)], return_exceptions=True)
 
             if len(stored_chunks_results) != len(chunks_bytes) * MIN_MINERS_REPLICATION_FOR_CHUNK:
                 raise RedundancyException

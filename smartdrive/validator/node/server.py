@@ -162,7 +162,7 @@ class Server(multiprocessing.Process):
                 for validator in validators
             ]
 
-            await asyncio.gather(*tasks)
+            await asyncio.gather(*tasks, return_exceptions=True)
         except Exception as e:
             print(f"Error initializing validators: {e}")
 

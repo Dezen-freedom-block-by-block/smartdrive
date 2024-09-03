@@ -130,7 +130,7 @@ class RetrieveAPI:
             _retrieve_request_task(chunk_index, miners_info_with_chunk)
             for chunk_index, miners_info_with_chunk in miners_info_with_chunk_ordered_by_chunk_index.items()
         ]
-        retrieve_requests = await asyncio.gather(*retrieve_request_tasks)
+        retrieve_requests = await asyncio.gather(*retrieve_request_tasks, return_exceptions=True)
 
         chunks = []
         for chunk_index, chunk in retrieve_requests:
