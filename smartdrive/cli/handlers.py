@@ -45,7 +45,7 @@ from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_active_validators, EXTENDED_PING_TIMEOUT
 from smartdrive.models.event import StoreInputParams, RetrieveInputParams, RemoveInputParams
 from smartdrive.utils import MAX_FILE_SIZE
-from smartdrive.validator.api.middleware.sign import sign_data
+from smartdrive.sign import sign_data
 from smartdrive.commune.utils import calculate_hash
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)

@@ -57,16 +57,15 @@ class ChunkParams(BaseModel):
 
 
 class ValidationEvent(BaseModel):
-    uuid: Optional[str]
-    miner_ss58_address: Optional[str]
-    chunk_index: Optional[int] = None
-    sub_chunk_start: Optional[int] = None
-    sub_chunk_end: Optional[int] = None
-    sub_chunk_encoded: Optional[str] = None
+    uuid: str
+    miner_ss58_address: str
+    sub_chunk_start: int
+    sub_chunk_end: int
+    sub_chunk_encoded: str
     expiration_ms: Optional[int] = None
     created_at: Optional[int] = None
-    file_uuid: Optional[str] = None
-    user_owner_ss58_address: Optional[str] = None
+    file_uuid: str
+    user_owner_ss58_address: str
 
 
 class EventParams(BaseModel):

@@ -28,8 +28,8 @@ from communex.compat.key import classic_load_key
 
 import smartdrive
 from smartdrive.models.event import parse_event, MessageEvent, Action, Event, ValidationEvent
-from smartdrive.validator.api.middleware.sign import verify_data_signature
-from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
+from smartdrive.sign import verify_data_signature
+from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.models.block import BlockEvent, block_event_to_block, Block

@@ -32,7 +32,7 @@ from substrateinterface import Keypair
 from communex.types import Ss58Address
 
 from smartdrive.commune.errors import CommuneNetworkUnreachable
-from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
+from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_from_public_key
 from smartdrive.models.utils import compile_miners_info_and_chunks
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database

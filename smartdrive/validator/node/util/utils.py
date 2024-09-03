@@ -24,7 +24,7 @@ import json
 import struct
 
 from substrateinterface import Keypair
-from smartdrive.validator.api.middleware.sign import sign_data
+from smartdrive.sign import sign_data
 
 
 def send_json(sock, obj):

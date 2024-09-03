@@ -30,8 +30,8 @@ import traceback
 from communex.compat.key import classic_load_key
 
 from smartdrive.commune.request import get_filtered_modules
-from smartdrive.validator.api.middleware.sign import verify_data_signature, sign_data
-from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
+from smartdrive.sign import verify_data_signature, sign_data
+from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.evaluation.evaluation import MAX_ALLOWED_UIDS
 from smartdrive.validator.models.models import ModuleType

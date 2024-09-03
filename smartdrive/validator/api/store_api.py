@@ -33,8 +33,8 @@ from communex.types import Ss58Address
 
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.utils import MAX_FILE_SIZE
-from smartdrive.validator.api.middleware.sign import sign_data
-from smartdrive.validator.api.middleware.subnet_middleware import get_ss58_address_from_public_key
+from smartdrive.sign import sign_data
+from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
@@ -222,7 +222,6 @@ async def store_new_file(
 
                 validation_event = ValidationEvent(
                     uuid=chunk_uuid,
-                    chunk_index=chunk_index,
                     miner_ss58_address=miner_ss58_address,
                     sub_chunk_start=sub_chunk_start,
                     sub_chunk_end=sub_chunk_end,

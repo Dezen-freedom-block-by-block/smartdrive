@@ -23,8 +23,8 @@
 from typing import Union
 
 from smartdrive.models.block import Block
-from smartdrive.models.event import UserEvent, Event, StoreEvent, RemoveEvent
-from smartdrive.validator.api.middleware.sign import verify_data_signature
+from smartdrive.models.event import UserEvent, StoreEvent, RemoveEvent
+from smartdrive.sign import verify_data_signature
 
 
 def _verify_event_signatures(event: Union[StoreEvent, RemoveEvent]) -> bool:

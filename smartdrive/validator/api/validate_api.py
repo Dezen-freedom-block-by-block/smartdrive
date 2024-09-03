@@ -40,7 +40,7 @@ async def validate_chunk_request(keypair: Keypair, user_owner_ss58_address: Ss58
         keypair (Keypair): The validator key used to authorize the request.
         user_owner_ss58_address (Ss58Address): The SS58 address of the user associated with the chunk.
         miner_module_info (ModuleInfo): The miner's module information.
-        chunk_event (ChunkEvent): The chunk_event to be validated.
+        validation_event (ValidationEvent): The validation event to be validated.
 
     Returns:
         bool: Returns True if the miner confirms the validation request, otherwise False.

@@ -34,14 +34,16 @@ from communex.compat.key import classic_load_key
 from smartdrive.commune.connection_pool import get_staketo
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.utils import get_ss58_address_from_public_key, calculate_hash
-from smartdrive.validator.api.middleware.sign import verify_data_signature
+from smartdrive.sign import verify_data_signature
+from smartdrive.validator.api.endpoints import PING_ENDPOINT
 from smartdrive.validator.config import config_manager
 
 Callback = Callable[[Request], Awaitable[Response]]
-exclude_paths = ["/method/ping"]
+exclude_paths = [PING_ENDPOINT]
 
 
-class SubnetMiddleware(BaseHTTPMiddleware):
+# TODO: Should be refactorized
+class APIMiddleware(BaseHTTPMiddleware):
 
     _key: Keypair = None
 

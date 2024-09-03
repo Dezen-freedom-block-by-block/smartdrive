@@ -36,14 +36,14 @@ from smartdrive.models.block import Block, MAX_EVENTS_PER_BLOCK
 from smartdrive.validator.config import Config, config_manager
 from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 from smartdrive.validator.database.database import Database
+from smartdrive.validator.node.node import Node
 from smartdrive.validator.api.api import API
 from smartdrive.validator.evaluation.evaluation import score_miners, set_weights
 from smartdrive.validator.node.active_validator_manager import INACTIVITY_TIMEOUT_SECONDS as VALIDATOR_INACTIVITY_TIMEOUT_SECONDS
 from smartdrive.validator.models.models import ModuleType
-from smartdrive.validator.node.node import Node
 from smartdrive.validator.validation import validate
 from smartdrive.validator.utils import process_events, prepare_sync_blocks
-from smartdrive.validator.api.middleware.sign import sign_data
+from smartdrive.sign import sign_data
 from smartdrive.commune.request import get_filtered_modules, get_modules
 from smartdrive.commune.utils import filter_truthful_validators
 
@@ -157,8 +157,8 @@ class Validator(Module):
                     # initial_sync_completed has been set to True. This is needed since the response to the
                     # prepare_sync_blocks will be in the background via TCP.
                     # TODO: Improve initial sync
-                    if not _validator.node.initial_sync_completed.value:
-                        _validator.node.initial_sync_completed.value = True
+                    if not self.node.initial_sync_completed.value:
+                        self.node.initial_sync_completed.value = True
                         if active_validators:
                             prepare_sync_blocks(
                                 start=new_block_number,
@@ -233,18 +233,17 @@ if __name__ == "__main__":
     if key.ss58_address not in [module.ss58_address for module in registered_modules]:
         raise Exception(f"Your key: {key.ss58_address} is not registered.")
 
-    # Using an underscore to prevent naming conflicts with other variables later used named 'validator'
-    _validator = Validator()
+    validator = Validator()
 
     async def run_tasks():
-        asyncio.create_task(_validator.periodically_ping_validators())
+        asyncio.create_task(validator.periodically_ping_validators())
 
         # Initial delay to allow active validators to load before request them
         await asyncio.sleep(VALIDATOR_INACTIVITY_TIMEOUT_SECONDS)
 
         await asyncio.gather(
-            _validator.api.run_server(),
-            _validator.create_blocks()
+            validator.api.run_server(),
+            validator.create_blocks()
         )
 
     asyncio.run(run_tasks())

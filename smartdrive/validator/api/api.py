@@ -25,7 +25,8 @@ import os
 from fastapi import FastAPI
 
 import smartdrive
-from smartdrive.validator.api.middleware.subnet_middleware import SubnetMiddleware
+from smartdrive.validator.api.endpoints import *
+from smartdrive.validator.api.middleware.api_middleware import APIMiddleware
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.api.retrieve_api import RetrieveAPI
 from smartdrive.validator.api.remove_api import RemoveAPI
@@ -45,12 +46,12 @@ class API:
         self._retrieve_api = RetrieveAPI(node)
         self._remove_api = RemoveAPI(node)
 
-        self._app.add_middleware(SubnetMiddleware)
+        self._app.add_middleware(APIMiddleware)
 
-        self._app.add_api_route("/method/ping", self._ping_endpoint, methods=["POST"])
-        self._app.add_api_route("/store", self._store_api.store_endpoint, methods=["POST"])
-        self._app.add_api_route("/retrieve", self._retrieve_api.retrieve_endpoint, methods=["GET"])
-        self._app.add_api_route("/remove", self._remove_api.remove_endpoint, methods=["DELETE"])
+        self._app.add_api_route(PING_ENDPOINT, self._ping_endpoint, methods=["POST"])
+        self._app.add_api_route(STORE_ENDPOINT, self._store_api.store_endpoint, methods=["POST"])
+        self._app.add_api_route(RETRIEVE_ENDPOINT, self._retrieve_api.retrieve_endpoint, methods=["GET"])
+        self._app.add_api_route(REMOVE_ENDPOINT, self._remove_api.remove_endpoint, methods=["DELETE"])
 
     async def run_server(self) -> None:
         """

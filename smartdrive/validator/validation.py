@@ -30,7 +30,7 @@ from substrateinterface import Keypair
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.commune.utils import calculate_hash
 from smartdrive.models.event import ValidationEvent
-from smartdrive.validator.api.middleware.sign import sign_data
+from smartdrive.sign import sign_data
 from smartdrive.validator.api.store_api import store_new_file
 from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.api.validate_api import validate_chunk_request
@@ -147,18 +147,16 @@ async def _remove_expired_validations(validation_events_expired: List[Validation
     async def _remove_task(validation_event: ValidationEvent) -> Optional[bool]:
         for miner in miners:
             if miner.ss58_address == validation_event.miner_ss58_address:
-                return await remove_chunk_request(keypair, validation_event.user_ss58_address, miner, validation_event.uuid)
+                return await remove_chunk_request(keypair, Ss58Address(validation_event.user_owner_ss58_address), miner, validation_event.uuid)
         return None
 
-    futures = []
+    tasks = []
     for validation_event in validation_events_expired:
-        task = await _remove_task(validation_event)
-        if task:
-            futures.append(task)
+        tasks.append(_remove_task(validation_event))
 
         database.remove_file(validation_event.file_uuid)
 
-    await asyncio.gather(*futures)
+    await asyncio.gather(*tasks)
 
 
 async def _validate_miners(validation_events_not_expired: list[ValidationEvent], miners: list[ModuleInfo], keypair: Keypair) -> dict[int, bool]:
@@ -170,8 +168,8 @@ async def _validate_miners(validation_events_not_expired: list[ValidationEvent],
     success status of each validation request.
 
     Params:
+        validation_events_not_expired (List[ValidationEvent]): A list of ValidationEvent objects containing relative info for the validation.
         miners (List[ModuleInfo]): A list of ModuleInfo objects representing all the miners used in the validation process.
-        validation_events_expired (List[ValidationEvent]): A list of ValidationEvent objects containing relative info for the validation.
         keypair (Keypair): The validator key used to authorize the requests.
 
     Returns:
