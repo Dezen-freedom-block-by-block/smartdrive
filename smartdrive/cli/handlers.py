@@ -145,7 +145,7 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
     except requests.RequestException as e:
         try:
             error_message = e.response.json().get('detail', 'Unknown error')
-            spinner.stop_with_message(f"Error: Network error - {error_message}.")
+            spinner.stop_with_message(f"Error: {error_message}.")
         except ValueError:
             spinner.stop_with_message(f"Error: Network error.")
     except Exception:
@@ -218,7 +218,7 @@ def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testn
     except requests.RequestException as e:
         try:
             error_message = e.response.json().get('detail', 'Unknown error')
-            spinner.stop_with_message(f"Error: Network error - {error_message}.")
+            spinner.stop_with_message(f"Error: {error_message}.")
         except ValueError:
             spinner.stop_with_message(f"Error: Network error.")
     except Exception as e:
@@ -268,7 +268,7 @@ def remove_handler(file_uuid: str, key_name: str = None, testnet: bool = False):
     except requests.RequestException as e:
         try:
             error_message = e.response.json().get('detail', 'Unknown error')
-            spinner.stop_with_message(f"Error: Network error - {error_message}.")
+            spinner.stop_with_message(f"Error: {error_message}.")
         except ValueError:
             spinner.stop_with_message(f"Error: Network error.")
     except Exception as e:

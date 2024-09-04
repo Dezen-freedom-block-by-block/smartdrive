@@ -21,7 +21,6 @@
 # SOFTWARE.
 
 import asyncio
-import io
 import random
 from typing import Optional
 from fastapi import Request
@@ -42,6 +41,9 @@ from smartdrive.commune.request import execute_miner_request, get_filtered_modul
 from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.node.node import Node
+
+
+MINER_RETRIEVE_TIMEOUT_SECONDS = 60
 
 
 class RetrieveAPI:
@@ -122,28 +124,26 @@ class RetrieveAPI:
                 )
                 chunk = await _retrieve_request(self._key, user_ss58_address, miner_info, miner_info_with_chunk["chunk_uuid"])
                 if chunk:
-                    return (chunk_index, chunk)
+                    return chunk_index, chunk
 
-            return (chunk_index, None)
+            return chunk_index, None
 
         retrieve_request_tasks = [
             _retrieve_request_task(chunk_index, miners_info_with_chunk)
             for chunk_index, miners_info_with_chunk in miners_info_with_chunk_ordered_by_chunk_index.items()
         ]
-        retrieve_requests = await asyncio.gather(*retrieve_request_tasks)
+        retrieve_requests = await asyncio.gather(*retrieve_request_tasks, return_exceptions=True)
 
-        chunks = []
-        for chunk_index, chunk in retrieve_requests:
-            if chunk is not None:
-                chunks.append((chunk_index, chunk))
+        # Filter only requests without exceptions
+        chunks = list(filter(lambda x: x[1] is not None, retrieve_requests))
 
         if len(chunks) == file.total_chunks:
-            # Sort chunks by chunk_index
-            chunks.sort(key=lambda x: x[0])
+            chunks = sorted(chunks, key=lambda x: x[0])
 
-            # Combine all chunks into a single file
-            final_file = b''.join(chunk for _, chunk in chunks)
-            return StreamingResponse(io.BytesIO(final_file), media_type='application/octet-stream')
+            def iter_combined_chunks():
+                for _, chunk in chunks:
+                    yield chunk
+            return StreamingResponse(iter_combined_chunks(), media_type='application/octet-stream')
 
         else:
             raise FileNotAvailableException
@@ -171,7 +171,8 @@ async def _retrieve_request(keypair: Keypair, user_ss58address: Ss58Address, min
         {
             "folder": user_ss58address,
             "chunk_uuid": chunk_uuid
-        }
+        },
+        timeout=MINER_RETRIEVE_TIMEOUT_SECONDS
     )
 
     return miner_answer if miner_answer else None

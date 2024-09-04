@@ -19,13 +19,13 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 import asyncio
 import json
 import aiohttp
 import requests
 from aiohttp import ClientSession, ClientResponse
 from urllib3.exceptions import InsecureRequestWarning
-
 from substrateinterface import Keypair
 
 from ._protocol import create_method_endpoint, create_request_data
@@ -50,6 +50,14 @@ class ModuleClient:
 
         url = create_method_endpoint(self.host, self.port, fn)
 
+        async def _read_streaming_response(response: ClientResponse):
+            # Currently buffer 16KB
+            chunk_size = 16384
+            data = bytearray()
+            async for chunk in response.content.iter_chunked(chunk_size):
+                data.extend(chunk)
+            return bytes(data)
+
         async def _get_body(response: ClientResponse):
             response.raise_for_status()
             if response.status != 200:
@@ -59,7 +67,7 @@ class ModuleClient:
             if content_type == 'application/json':
                 return await response.json()
             elif content_type == 'application/octet-stream':
-                return await response.read()
+                return await _read_streaming_response(response)
             else:
                 raise Exception(f"Unknown content type: {content_type}")
 

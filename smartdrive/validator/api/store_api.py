@@ -52,6 +52,7 @@ MIN_MINERS_FOR_FILE = 2
 MIN_MINERS_REPLICATION_FOR_CHUNK = 2
 MAX_MINERS_FOR_FILE = 10
 MAX_ENCODED_RANGE = 50
+MINER_STORE_TIMEOUT_SECONDS = 60
 
 
 class StoreAPI:
@@ -300,7 +301,8 @@ async def _store_request(keypair: Keypair, miner: ModuleInfo, user_ss58_address:
         file={
            'folder': user_ss58_address,
            'chunk': chunk_bytes
-        }
+        },
+        timeout=MINER_STORE_TIMEOUT_SECONDS
     )
 
     return MinerWithChunk(miner.ss58_address, miner_answer["id"]) if miner_answer else None

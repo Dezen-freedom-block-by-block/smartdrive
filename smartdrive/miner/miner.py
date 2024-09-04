@@ -219,7 +219,12 @@ class Miner(Module):
 
             def iterfile():
                 with open(chunk_path, 'rb') as chunk_file:
-                    yield from chunk_file
+                    while True:
+                        # Currently buffer 16KB
+                        data = chunk_file.read(16384)
+                        if not data:
+                            break
+                        yield data
 
             return StreamingResponse(iterfile(), media_type='application/octet-stream')
         except FileNotFoundError:
