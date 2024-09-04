@@ -156,7 +156,7 @@ async def _remove_expired_validations(validation_events_expired: List[Validation
 
         database.remove_file(validation_event.file_uuid)
 
-    await asyncio.gather(*tasks)
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def _validate_miners(validation_events_not_expired: list[ValidationEvent], miners: list[ModuleInfo], keypair: Keypair) -> dict[int, bool]:
@@ -192,7 +192,7 @@ async def _validate_miners(validation_events_not_expired: list[ValidationEvent],
             result_miners[int(validation_event_miner_module_info.uid)] = result
 
     futures = [_validation_task(validation_event) for validation_event in validation_events_not_expired]
-    await asyncio.gather(*futures)
+    await asyncio.gather(*futures, return_exceptions=True)
 
     return result_miners
 
