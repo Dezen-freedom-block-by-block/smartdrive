@@ -32,7 +32,8 @@ from communex.types import Ss58Address
 
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.validator.api.exceptions import FileDoesNotExistException, \
-    CommuneNetworkUnreachable as HTTPCommuneNetworkUnreachable, NoMinersInNetworkException, FileNotAvailableException
+    CommuneNetworkUnreachable as HTTPCommuneNetworkUnreachable, NoMinersInNetworkException, FileNotAvailableException, \
+    ChunkNotAvailableException
 from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_from_public_key
 from smartdrive.models.utils import compile_miners_info_and_chunks
 from smartdrive.validator.config import config_manager
@@ -126,23 +127,29 @@ class RetrieveAPI:
                 if chunk:
                     return chunk_index, chunk
 
-            return chunk_index, None
+            raise ChunkNotAvailableException
 
         retrieve_request_tasks = [
             _retrieve_request_task(chunk_index, miners_info_with_chunk)
             for chunk_index, miners_info_with_chunk in miners_info_with_chunk_ordered_by_chunk_index.items()
         ]
-        retrieve_requests = await asyncio.gather(*retrieve_request_tasks, return_exceptions=True)
 
-        # Filter only requests without exceptions
-        chunks = list(filter(lambda x: x[1] is not None, retrieve_requests))
+        try:
+            retrieve_requests = await asyncio.gather(*retrieve_request_tasks)
+        except ChunkNotAvailableException:
+            # If any chunk fails to be retrieved, we stop the process and raise the exception
+            raise FileNotAvailableException
 
-        if len(chunks) == file.total_chunks:
-            chunks = sorted(chunks, key=lambda x: x[0])
+        received_chunks = {chunk_index: chunk for chunk_index, chunk in retrieve_requests if chunk is not None}
 
+        received_same_as_required_chunks = len(received_chunks) == file.total_chunks
+        if received_same_as_required_chunks:
+
+            sorted_chunks = [received_chunks[i] for i in range(file.total_chunks)]
             def iter_combined_chunks():
-                for _, chunk in chunks:
+                for _, chunk in sorted_chunks:
                     yield chunk
+
             return StreamingResponse(iter_combined_chunks(), media_type='application/octet-stream')
 
         else:

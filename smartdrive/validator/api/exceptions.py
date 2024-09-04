@@ -29,6 +29,12 @@ class UnexpectedErrorException(HTTPException):
         super().__init__(status_code=500, detail=detail)
 
 
+class ChunkNotAvailableException(Exception):
+    def __init__(self, message: Optional[str] = "The chunk currently is not available"):
+        super().__init__(message)
+        self.message = message
+
+
 class FileDoesNotExistException(HTTPException):
     def __init__(self, detail: str = "The file does not exist"):
         super().__init__(status_code=404, detail=detail)
