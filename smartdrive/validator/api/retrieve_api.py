@@ -147,7 +147,7 @@ class RetrieveAPI:
 
             sorted_chunks = [received_chunks[i] for i in range(file.total_chunks)]
             def iter_combined_chunks():
-                for _, chunk in sorted_chunks:
+                for chunk in sorted_chunks:
                     yield chunk
 
             return StreamingResponse(iter_combined_chunks(), media_type='application/octet-stream')
