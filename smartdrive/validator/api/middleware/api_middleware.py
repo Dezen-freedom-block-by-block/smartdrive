@@ -33,10 +33,12 @@ from communex.compat.key import classic_load_key
 
 from smartdrive.commune.connection_pool import get_staketo
 from smartdrive.commune.errors import CommuneNetworkUnreachable
+from smartdrive.commune.request import get_filtered_modules
 from smartdrive.commune.utils import get_ss58_address_from_public_key, calculate_hash
 from smartdrive.sign import verify_data_signature
 from smartdrive.validator.api.endpoints import PING_ENDPOINT
 from smartdrive.validator.config import config_manager
+from smartdrive.validator.models.models import ModuleType
 
 Callback = Callable[[Request], Awaitable[Response]]
 exclude_paths = [PING_ENDPOINT]
@@ -93,10 +95,13 @@ class APIMiddleware(BaseHTTPMiddleware):
 
         try:
             staketo_modules = get_staketo(ss58_address, config_manager.config.netuid)
+            validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
         except CommuneNetworkUnreachable:
             return _error_response(404, "Currently the Commune network is unreachable")
 
-        if not staketo_modules.keys():
+        non_self_addresses = {address for address in staketo_modules.keys() if address != str(ss58_address)}
+        validator_addresses = {validator.ss58_address for validator in validators}
+        if not non_self_addresses & validator_addresses:
             return _error_response(401, "You must stake to at least one active validator in the subnet")
 
         signature = request.headers.get('X-Signature')
