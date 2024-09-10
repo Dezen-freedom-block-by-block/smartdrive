@@ -37,17 +37,18 @@ class ActiveValidatorsManager:
 
     def update_validator(self, validator, connection):
         with self.lock:
-            for v in self.active_validators:
+            active_validator = ActiveValidator({ConnectionPool.MODULEINFO: validator, ConnectionPool.CONNECTION: connection}, time.monotonic())
+            for idx, v in enumerate(self.active_validators):
                 if v.active_validators[ConnectionPool.MODULEINFO].ss58_address == validator.ss58_address:
-                    v.last_response_time = time.monotonic()
+                    self.active_validators[idx] = active_validator
                     return
-            self.active_validators.append(ActiveValidator({ConnectionPool.MODULEINFO: validator, ConnectionPool.CONNECTION: connection}, time.monotonic()))
+            self.active_validators.append(active_validator)
 
     def remove_inactive_validators(self):
         with self.lock:
             current_time = time.monotonic()
-            self.active_validators[:] = [v for v in self.active_validators if current_time - v.last_response_time <= INACTIVITY_TIMEOUT_SECONDS]
             to_remove = [v.active_validators[ConnectionPool.MODULEINFO].ss58_address for v in self.active_validators if current_time - v.last_response_time > INACTIVITY_TIMEOUT_SECONDS]
+            self.active_validators[:] = [v for v in self.active_validators if v.active_validators[ConnectionPool.MODULEINFO].ss58_address not in to_remove]
             return to_remove
 
     def get_active_validators(self):
