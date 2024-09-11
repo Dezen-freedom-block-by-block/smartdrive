@@ -35,12 +35,13 @@ from substrateinterface import Keypair
 from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.commune.request import get_filtered_modules
 from smartdrive.models.event import Event, StoreEvent, RemoveEvent
+from smartdrive.sign import sign_data
 from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.models.utils import compile_miners_info_and_chunks
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.models.models import Chunk, File, ModuleType
-from smartdrive.validator.node.util.message import MessageCode
-from smartdrive.validator.node.util.utils import prepare_body_tcp, send_json
+from smartdrive.validator.node.util.message import MessageCode, MessageBody, Message
+from smartdrive.validator.node.util.utils import send_json
 
 MAX_RETRIES = 3
 RETRY_DELAY = 5
@@ -190,11 +191,22 @@ def prepare_sync_blocks(start, keypair, end=None, active_connections=None):
 async def get_synced_blocks(start: int, connections, keypair, end: int = None):
     async def _get_synced_blocks(c):
         try:
-            body = {"code": MessageCode.MESSAGE_CODE_SYNC_BLOCK.value, "start": str(start)}
+            body = MessageBody(
+                code=MessageCode.MESSAGE_CODE_SYNC_BLOCK,
+                data={"start": str(start)}
+            )
             if end:
-                body["end"] = str(end)
-            message = prepare_body_tcp(body, keypair)
-            send_json(c.socket, message)
+                body.data["end"] = str(end)
+
+            body_sign = sign_data(body.dict(), keypair)
+
+            message = Message(
+                body=body,
+                signature_hex=body_sign.hex(),
+                public_key_hex=keypair.public_key.hex()
+            )
+
+            send_json(c.socket, message.dict())
         except Exception as e:
             print(f"Error getting synced blocks: {e}")
 

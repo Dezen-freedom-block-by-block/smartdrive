@@ -38,7 +38,7 @@ from smartdrive.validator.node.util import packing
 from smartdrive.validator.node.util.authority import are_all_block_events_valid, remove_invalid_block_events
 from smartdrive.validator.node.util.exceptions import MessageException, ClientDisconnectedException, MessageFormatException, InvalidSignatureException
 from smartdrive.validator.node.util.message import MessageCode, Message, MessageBody
-from smartdrive.validator.node.util.utils import send_json, prepare_body_tcp
+from smartdrive.validator.node.util.utils import send_json
 from smartdrive.validator.utils import process_events, prepare_sync_blocks
 
 
@@ -165,10 +165,9 @@ class Client(multiprocessing.Process):
                     send_json(self._client_socket, message.dict())
 
                 elif message.body.code == MessageCode.MESSAGE_CODE_PONG.value:
-                    if message.body.data["type"] == "validator":
-                        connection = self._connection_pool.get(self._identifier)
-                        if connection:
-                            connection_pool.upsert_connection(connection.module.ss58_address, connection.module, connection.socket)
+                    connection = self._connection_pool.get(self._identifier)
+                    if connection:
+                        connection_pool.upsert_connection(connection.module.ss58_address, connection.module, connection.socket)
 
                 elif message.body.code == MessageCode.MESSAGE_CODE_SYNC_BLOCK.value:
                     start = int(message.body.data['start'])
