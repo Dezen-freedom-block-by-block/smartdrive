@@ -21,6 +21,7 @@
 # SOFTWARE.
 
 import multiprocessing
+import traceback
 from time import sleep
 from typing import Union
 
@@ -86,7 +87,7 @@ class Node:
         message_event = MessageEvent.from_json(event.dict(), event.get_event_action())
 
         connections = self.get_connections()
-        for index, active_validator in enumerate(connections):
+        for index, connection in enumerate(connections):
 
             body = MessageBody(
                 code=MessageCode.MESSAGE_CODE_EVENT,
@@ -100,7 +101,7 @@ class Node:
                 signature_hex=body_sign.hex(),
                 public_key_hex=self._keypair.public_key.hex()
             )
-            self.send_message(active_validator, message)
+            self.send_message(connection, message)
 
     def consume_events(self, count: int):
         items = []
@@ -113,6 +114,7 @@ class Node:
         try:
             send_json(connection.socket, message.dict())
         except Exception as e:
+            traceback.print_exc()
             print(e)
 
     def send_block(self, block: Block):
@@ -153,8 +155,9 @@ class Node:
                         public_key_hex=self._keypair.public_key.hex()
                     )
 
-                    self.send_message(c.socket, message)
+                    self.send_message(c, message)
                 except Exception as e:
+                    traceback.print_exc()
                     print(f"Error pinging validator: {e}")
 
             inactive_connections = self._connection_pool.remove_and_return_inactive_sockets()

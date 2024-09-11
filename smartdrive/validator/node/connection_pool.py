@@ -78,9 +78,6 @@ class ConnectionPool:
             connections_to_remove = [identifier for identifier, c in self._connections.items() if current_time - c.last_response_time > INACTIVITY_TIMEOUT_SECONDS]
             sockets_to_remove = [self._connections[identifier].socket for identifier in connections_to_remove]
 
-            print("connections_to_remove")
-            print(connections_to_remove)
-            print(sockets_to_remove)
             for identifier in connections_to_remove:
                 del self._connections[identifier]
             return sockets_to_remove

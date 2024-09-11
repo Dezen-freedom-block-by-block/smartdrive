@@ -39,10 +39,20 @@ class MessageCode(Enum):
 
 class MessageBody(BaseModel):
     code: MessageCode
-    data: Optional[dict]
+    data: Optional[dict] = None
+
+    def dict(self, **kwargs):
+        result = super().dict(**kwargs)
+        result['code'] = self.code.value
+        return result
 
 
 class Message(BaseModel):
     body: MessageBody
     signature_hex: str
     public_key_hex: str
+
+    def dict(self, **kwargs):
+        result = super().dict(**kwargs)
+        result['body'] = self.body.dict()
+        return result

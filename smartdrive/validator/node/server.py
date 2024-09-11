@@ -222,6 +222,6 @@ class Server(multiprocessing.Process):
                 client_socket.close()
 
         except Exception as e:
-            print(f"Error handling connection: {e}")
             traceback.print_exc()
+            print(f"Error handling connection: {e}")
             client_socket.close()
