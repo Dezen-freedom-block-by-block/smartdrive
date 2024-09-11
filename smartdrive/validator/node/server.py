@@ -38,7 +38,7 @@ from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.node.client import Client
 from smartdrive.validator.node.connection_pool import ConnectionPool
 from smartdrive.validator.node.util import packing
-from smartdrive.validator.node.util.message import MessageCode
+from smartdrive.validator.node.util.message import MessageCode, MessageBody, Message
 from smartdrive.validator.node.util.utils import send_json
 
 
@@ -119,17 +119,20 @@ class Server(multiprocessing.Process):
         validator_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             await asyncio.get_event_loop().sock_connect(validator_socket, (validator.connection.ip, validator.connection.port + 1))
-            body = {
-                "code": MessageCode.MESSAGE_CODE_IDENTIFIER.value,
-                "data": {"ss58_address": keypair.ss58_address}
-            }
-            body_sign = sign_data(body, keypair)
-            message = {
-                "body": body,
-                "signature_hex": body_sign.hex(),
-                "public_key_hex": keypair.public_key.hex()
-            }
-            send_json(validator_socket, message)
+
+            body = MessageBody(
+                code=MessageCode.MESSAGE_CODE_IDENTIFIER,
+                data={"ss58_address": keypair.ss58_address}
+            )
+
+            body_sign = sign_data(body.dict(), self._keypair)
+
+            message = Message(
+                body=body,
+                signature_hex=body_sign.hex(),
+                public_key_hex=keypair.public_key.hex()
+            )
+            send_json(validator_socket, message.dict())
             connection_pool.upsert_connection(validator.ss58_address, validator, validator_socket)
             client_receiver = Client(validator_socket, validator.ss58_address, connection_pool, event_pool, event_pool_lock, initial_sync_completed)
             client_receiver.start()
