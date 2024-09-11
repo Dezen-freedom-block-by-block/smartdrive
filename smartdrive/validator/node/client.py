@@ -237,7 +237,7 @@ class Client(multiprocessing.Process):
                             self._database.create_block(block)
 
                 elif message.body.code == MessageCode.MESSAGE_CODE_VALIDATION_EVENTS:
-                    validation_events = [ValidationEvent(**validation_event) for validation_event in message.body.data]
+                    validation_events = [ValidationEvent(**validation_event) for validation_event in message.body.data["list"]]
                     if validation_events:
                         self._database.insert_validation_events(validation_events=validation_events)
 

@@ -103,9 +103,7 @@ class StoreAPI:
         if not miners:
             raise NoMinersInNetworkException
 
-        active_validators = self._node.get_connected_modules()
-        validators_len = len(active_validators) + 1  # To include myself
-
+        active_connections = self._node.get_connections()
         try:
             store_event, validations_events_per_validator = await store_new_file(
                 file_bytes=file_bytes,
@@ -113,11 +111,11 @@ class StoreAPI:
                 validator_keypair=self._key,
                 user_ss58_address=user_ss58_address,
                 input_signed_params=input_signed_params,
-                validators_len=validators_len
+                validators_len=len(active_connections) + 1  # To include myself
             )
         except RedundancyException as redundancy_exception:
             raise HTTPRedundancyException(redundancy_exception.message)
-        except Exception: # TODO: Do not capture bare exceptions
+        except Exception:  # TODO: Do not capture bare exceptions
             raise UnexpectedErrorException
 
         if not store_event:
@@ -126,12 +124,12 @@ class StoreAPI:
         if validations_events_per_validator:
             self._database.insert_validation_events(validation_events=validations_events_per_validator.pop(0))
 
-            for index, active_validator in enumerate(active_validators):
+            for index, active_connection in enumerate(active_connections):
                 data_list = [validations_events.dict() for validations_events in validations_events_per_validator[index]]
 
                 body = MessageBody(
                     code=MessageCode.MESSAGE_CODE_VALIDATION_EVENTS,
-                    data=data_list
+                    data={"list": data_list}
                 )
 
                 body_sign = sign_data(body.dict(), self._key)
@@ -141,7 +139,7 @@ class StoreAPI:
                     signature_hex=body_sign.hex(),
                     public_key_hex=self._key.public_key.hex()
                 )
-                self._node.send_message(active_validator, message)
+                self._node.send_message(active_connection, message)
 
         self._node.add_event(store_event)
 

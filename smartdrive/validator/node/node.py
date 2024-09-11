@@ -23,11 +23,12 @@
 import multiprocessing
 import traceback
 from time import sleep
-from typing import Union
+from typing import Union, List
 
 from communex.compat.key import classic_load_key
 from substrateinterface import Keypair
 
+from smartdrive.commune.models import ModuleInfo
 from smartdrive.models.block import Block, block_to_block_event
 from smartdrive.models.event import MessageEvent, StoreEvent, RemoveEvent
 from smartdrive.sign import sign_data
@@ -74,10 +75,10 @@ class Node:
         )
         server.run()
 
-    def get_connections(self):
+    def get_connections(self) -> List[Connection]:
         return self._connection_pool.get_all()
 
-    def get_connected_modules(self):
+    def get_connected_modules(self) -> List[ModuleInfo]:
         return [connection.module for connection in self._connection_pool.get_all()]
 
     def add_event(self, event: Union[StoreEvent, RemoveEvent]):
