@@ -152,13 +152,17 @@ class Client(multiprocessing.Process):
                         event_pool.append(event)
 
                 elif message.body.code == MessageCode.MESSAGE_CODE_PING.value:
-                    body = {
-                        "code": MessageCode.MESSAGE_CODE_PONG.value,
-                        "type": "validator",
-                        "version": smartdrive.__version__
-                    }
-                    message = prepare_body_tcp(body, self._keypair)
-                    send_json(self._client_socket, message)
+                    body = MessageBody(
+                        code=MessageCode.MESSAGE_CODE_PONG,
+                        data={"version": smartdrive.__version__}
+                    )
+                    body_sign = sign_data(body.dict(), self._keypair)
+                    message = Message(
+                        body=body,
+                        signature_hex=body_sign.hex(),
+                        public_key_hex=self._keypair.public_key.hex()
+                    )
+                    send_json(self._client_socket, message.dict())
 
                 elif message.body.code == MessageCode.MESSAGE_CODE_PONG.value:
                     if message.body.data["type"] == "validator":
