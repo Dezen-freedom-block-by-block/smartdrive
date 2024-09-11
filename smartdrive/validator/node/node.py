@@ -162,6 +162,7 @@ class Node:
                     print(f"Error pinging validator: {e}")
 
             inactive_connections = self._connection_pool.remove_and_return_inactive_sockets()
+            print(f"REMOVED INACTIVED CONNECTIONS {inactive_connections}")
             for inactive_connection in inactive_connections:
                 inactive_connection.close()
 

@@ -49,10 +49,12 @@ class ConnectionPool:
 
     def upsert_connection(self, identifier, module_info, socket):
         with self._pool_lock:
+            print(f"UPSERT CONNECTION - {identifier}")
             connection = Connection(module_info, socket, time.monotonic())
 
             if identifier not in self._connections:
                 if len(self._connections) <= self._cache_size:
+                    print(f"UPSERT CONNECTION - {identifier} INSERTED")
                     self._connections[identifier] = connection
                 else:
                     print(f"Max num of connections reached {self._cache_size}")
@@ -61,12 +63,14 @@ class ConnectionPool:
                 for key, c in self._connections.items():
                     if key == identifier:
                         self._connections[key] = connection
+                        print(f"Connection updated {identifier}")
                         break
 
     def remove_if_exists(self, identifier):
         with self._pool_lock:
             if identifier in self._connections.keys():
                 removed_connection = self._connections.pop(identifier)
+                print(f"REMOVED CONNECTION {identifier}")
                 return removed_connection.socket
             return None
 
@@ -77,6 +81,7 @@ class ConnectionPool:
             sockets_to_remove = [self._connections[identifier].socket for identifier in connections_to_remove]
 
             for identifier in connections_to_remove:
+                print(f"REMOVE CONNECTION - {identifier}")
                 del self._connections[identifier]
             return sockets_to_remove
 

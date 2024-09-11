@@ -44,6 +44,7 @@ from smartdrive.validator.node.util.utils import send_json
 
 class Server(multiprocessing.Process):
     MAX_N_CONNECTIONS = MAX_ALLOWED_UIDS - 1
+    CONNECTION_TIMEOUT_SECONDS = 5
     IDENTIFIER_TIMEOUT_SECONDS = 5
     CONNECTION_PROCESS_TIMEOUT_SECONDS = 10
 
@@ -107,6 +108,10 @@ class Server(multiprocessing.Process):
                         removed_connection.close()
                 identifiers = connection_pool.get_module_identifiers()
                 new_validators = [validator for validator in validators if validator.ss58_address not in identifiers and validator.ss58_address != self._keypair.ss58_address]
+
+                print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
+                print(f"CHECK NEW VALIDATORS {new_validators}")
+
                 asyncio.run(self._initialize_validators(connection_pool, event_pool, event_pool_lock, initial_sync_completed, new_validators))
 
             except Exception as e:
@@ -116,9 +121,17 @@ class Server(multiprocessing.Process):
                 time.sleep(self.CONNECTION_PROCESS_TIMEOUT_SECONDS)
 
     async def _connect_to_validator(self, validator, keypair, connection_pool, event_pool, event_pool_lock, initial_sync_completed):
-        validator_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        validator_socket = None
+
         try:
+            validator_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            validator_socket.settimeout(self.CONNECTION_TIMEOUT_SECONDS)
+            print(f"TRYING TO CONNECT - {validator}")
             await asyncio.get_event_loop().sock_connect(validator_socket, (validator.connection.ip, validator.connection.port + 1))
+            # When you call settimeout(), the timeout applies to all subsequent blocking operations on the socket, such as connect(), recv(), send(), and others.
+            # Since we only want to set the timeout at the connection level, it should be reset.
+            validator_socket.settimeout(None)
+            print(f"CONNECTED - {validator}")
 
             body = MessageBody(
                 code=MessageCode.MESSAGE_CODE_IDENTIFIER,
@@ -137,10 +150,14 @@ class Server(multiprocessing.Process):
             client_receiver = Client(validator_socket, validator.ss58_address, connection_pool, event_pool, event_pool_lock, initial_sync_completed)
             client_receiver.start()
             print(f"Validator {validator.ss58_address} connected and added to the pool.")
+        except socket.timeout:
+            print(f"Connection to {validator.ss58_address} timed out.")
         except Exception as e:
-            connection_pool.remove_if_exists(validator.ss58_address)
-            validator_socket.close()
             print(f"Error connecting to validator {validator.ss58_address}: {e}")
+        finally:
+            connection_pool.remove_if_exists(validator.ss58_address)
+            if validator_socket:
+                validator_socket.close()
 
     async def _initialize_validators(self, connection_pool: ConnectionPool, event_pool, event_pool_lock, initial_sync_completed, validators):
         try:
