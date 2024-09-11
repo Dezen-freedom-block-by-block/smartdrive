@@ -28,7 +28,7 @@ from communex.compat.key import classic_load_key
 
 import smartdrive
 from smartdrive.models.event import parse_event, MessageEvent, Action, Event, ValidationEvent
-from smartdrive.sign import verify_data_signature
+from smartdrive.sign import verify_data_signature, sign_data
 from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
@@ -37,7 +37,7 @@ from smartdrive.validator.node.connection_pool import ConnectionPool
 from smartdrive.validator.node.util import packing
 from smartdrive.validator.node.util.authority import are_all_block_events_valid, remove_invalid_block_events
 from smartdrive.validator.node.util.exceptions import MessageException, ClientDisconnectedException, MessageFormatException, InvalidSignatureException
-from smartdrive.validator.node.util.message import MessageCode, Message
+from smartdrive.validator.node.util.message import MessageCode, Message, MessageBody
 from smartdrive.validator.node.util.utils import send_json, prepare_body_tcp
 from smartdrive.validator.utils import process_events, prepare_sync_blocks
 
@@ -113,12 +113,12 @@ class Client(multiprocessing.Process):
                 if not is_verified_signature:
                     raise InvalidSignatureException()
 
-                if body['code'] == MessageCode.MESSAGE_CODE_BLOCK.value:
+                if message.body.code == MessageCode.MESSAGE_CODE_BLOCK.value:
                     block_event = BlockEvent(
-                        block_number=body["data"]["block_number"],
-                        events=list(map(lambda event: MessageEvent.from_json(event["event"], Action(event["event_action"])), body["data"]["events"])),
-                        signed_block=body["data"]["signed_block"],
-                        proposer_ss58_address=body["data"]["proposer_ss58_address"]
+                        block_number=message.body.data["block_number"],
+                        events=list(map(lambda event: MessageEvent.from_json(event["event"], Action(event["event_action"])), message.body.data["events"])),
+                        signed_block=message.body.data["signed_block"],
+                        proposer_ss58_address=message.body.data["proposer_ss58_address"]
                     )
                     block = block_event_to_block(block_event)
 
@@ -145,13 +145,13 @@ class Client(multiprocessing.Process):
                         if not self._initial_sync_completed.value:
                             self._initial_sync_completed.value = True
 
-                elif body['code'] == MessageCode.MESSAGE_CODE_EVENT.value:
-                    message_event = MessageEvent.from_json(body["data"]["event"], Action(body["data"]["event_action"]))
+                elif message.body.code == MessageCode.MESSAGE_CODE_EVENT.value:
+                    message_event = MessageEvent.from_json(message.body.data["event"], Action(message.body.data["event_action"]))
                     event = parse_event(message_event)
                     if not any(e.uuid == event.uuid for e in event_pool):
                         event_pool.append(event)
 
-                elif body['code'] == MessageCode.MESSAGE_CODE_PING.value:
+                elif message.body.code == MessageCode.MESSAGE_CODE_PING.value:
                     body = {
                         "code": MessageCode.MESSAGE_CODE_PONG.value,
                         "type": "validator",
@@ -160,15 +160,15 @@ class Client(multiprocessing.Process):
                     message = prepare_body_tcp(body, self._keypair)
                     send_json(self._client_socket, message)
 
-                elif body['code'] == MessageCode.MESSAGE_CODE_PONG.value:
-                    if body["type"] == "validator":
+                elif message.body.code == MessageCode.MESSAGE_CODE_PONG.value:
+                    if message.body.data["type"] == "validator":
                         connection = self._connection_pool.get(self._identifier)
                         if connection:
                             connection_pool.upsert_connection(connection.module.ss58_address, connection.module, connection.socket)
 
-                elif body['code'] == MessageCode.MESSAGE_CODE_SYNC_BLOCK.value:
-                    start = int(body['start'])
-                    end = int(body['end']) if body.get("end") else (self._database.get_last_block_number() or 0)
+                elif message.body.code == MessageCode.MESSAGE_CODE_SYNC_BLOCK.value:
+                    start = int(message.body.data['start'])
+                    end = int(message.body.data['end']) if message.body.data.get("end") else (self._database.get_last_block_number() or 0)
                     segment_size = self.MAX_BLOCKS_SYNC
 
                     if start <= end:
@@ -177,36 +177,48 @@ class Client(multiprocessing.Process):
                             blocks = self._database.get_blocks(segment_start, segment_end)
 
                             if blocks:
-                                response_body = {
-                                    "code": MessageCode.MESSAGE_CODE_SYNC_BLOCK_RESPONSE.value,
-                                    "blocks": [block.dict() for block in blocks],
-                                    "start": segment_start,
-                                    "end": segment_end
-                                }
-                                response_message = prepare_body_tcp(response_body, self._keypair)
-                                send_json(self._client_socket, response_message)
+                                body = MessageBody(
+                                    code=MessageCode.MESSAGE_CODE_SYNC_BLOCK_RESPONSE,
+                                    data={
+                                        "blocks": [block.dict() for block in blocks],
+                                        "start": segment_start,
+                                        "end": segment_end
+                                    }
+                                )
+                                body_sign = sign_data(body.dict(), self._keypair)
+                                message = Message(
+                                    body=body,
+                                    signature_hex=body_sign.hex(),
+                                    public_key_hex=self._keypair.public_key.hex()
+                                )
+                                send_json(self._client_socket, message)
 
                         # Send event pool too
                         for event in event_pool:
                             message_event = MessageEvent.from_json(event.dict(), event.get_event_action())
-                            body = {
-                                "code": MessageCode.MESSAGE_CODE_EVENT.value,
-                                "data": message_event.dict()
-                            }
-                            message = prepare_body_tcp(body, self._keypair)
+                            body = MessageBody(
+                                code=MessageCode.MESSAGE_CODE_EVENT,
+                                data=message_event.dict()
+                            )
+                            body_sign = sign_data(body.dict(), self._keypair)
+                            message = Message(
+                                body=body,
+                                signature_hex=body_sign.hex(),
+                                public_key_hex=self._keypair.public_key.hex()
+                            )
                             send_json(self._client_socket, message)
 
-                elif body['code'] == MessageCode.MESSAGE_CODE_SYNC_BLOCK_RESPONSE.value:
-                    if body["blocks"]:
-                        fetched_block_numbers = list(map(lambda block: block["block_number"], body["blocks"]))
+                elif message.body.code == MessageCode.MESSAGE_CODE_SYNC_BLOCK_RESPONSE.value:
+                    if message.body.data["blocks"]:
+                        fetched_block_numbers = list(map(lambda block: block["block_number"], message.body.data["blocks"]))
                         fetched_min_block_number = min(fetched_block_numbers)
                         fetched_max_block_number = max(fetched_block_numbers)
 
-                        if not range(int(body["start"]), int(body["end"])) == range(fetched_min_block_number, fetched_max_block_number):
+                        if not range(int(message.body.data["start"]), int(message.body.data["end"])) == range(fetched_min_block_number, fetched_max_block_number):
                             return
 
                         blocks = []
-                        for block in body["blocks"]:
+                        for block in message.body.data["blocks"]:
                             block = Block(**block)
 
                             if not are_all_block_events_valid(block):
@@ -221,8 +233,8 @@ class Client(multiprocessing.Process):
                             self._remove_events(block.events, event_pool)
                             self._database.create_block(block)
 
-                elif body['code'] == MessageCode.MESSAGE_CODE_VALIDATION_EVENTS.value:
-                    validation_events = [ValidationEvent(**validation_event) for validation_event in body['data']]
+                elif message.body.code == MessageCode.MESSAGE_CODE_VALIDATION_EVENTS.value:
+                    validation_events = [ValidationEvent(**validation_event) for validation_event in message.body.data]
                     if validation_events:
                         self._database.insert_validation_events(validation_events=validation_events)
 
