@@ -20,11 +20,12 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import socket
 import json
 import struct
 
 
-def send_json(sock, obj):
+def send_json(sock: socket, obj: dict):
     msg = json.dumps(obj).encode('utf-8')
     msg_len = len(msg)
     packed_len = struct.pack('!I', msg_len)

@@ -78,12 +78,12 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
     file_path = os.path.expanduser(file_path)
 
     if not Path(file_path).is_file():
-        print(f"ERROR: File {file_path} does not exist or is a directory.")
+        print(f"Error: File {file_path} does not exist or is a directory.")
         return
 
     # TODO: Change in the future
     if os.path.getsize(file_path) > MAX_FILE_SIZE:
-        print("ERROR: File size exceeds the maximum limit of 500 MB")
+        print("Error: File size exceeds the maximum limit of 500 MB")
         return
 
     key = _get_key(key_name)
@@ -131,7 +131,7 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
         try:
             message = response.json()
         except ValueError:
-            print(f"ERROR: Unable to parse response JSON - {response.text}")
+            print(f"Error: Unable to parse response JSON - {response.text}")
             return
 
         uuid = message.get('uuid')
@@ -210,7 +210,7 @@ def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testn
 
         except lzma.LZMAError:
             spinner.stop_with_message("Error: Decompression failed.")
-            print("ERROR: Decompression failed. The data is corrupted or the key is incorrect.")
+            print("Error: Decompression failed. The data is corrupted or the key is incorrect.")
             return
 
     except NoValidatorsAvailableException:
@@ -296,10 +296,10 @@ def _get_key(key_name: str) -> Keypair:
     try:
         key = classic_load_key(key_name, password)
     except CryptoError:
-        print("ERROR: Decryption failed. Ciphertext failed verification.")
+        print("Error: Decryption failed. Ciphertext failed verification.")
         exit(1)
     except FileNotFoundError:
-        print("ERROR: Key not found.")
+        print("Error: Key not found.")
         exit(1)
 
     return key

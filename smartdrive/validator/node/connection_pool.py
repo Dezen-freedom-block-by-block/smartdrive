@@ -61,14 +61,12 @@ class ConnectionPool:
                 for key, c in self._connections.items():
                     if key == identifier:
                         self._connections[key] = connection
-                        print(f"Connection updated {identifier}")
                         break
 
     def remove_if_exists(self, identifier):
         with self._pool_lock:
             if identifier in self._connections.keys():
                 removed_connection = self._connections.pop(identifier)
-                print(f"Removed connection {identifier}")
                 return removed_connection.socket
             return None
 

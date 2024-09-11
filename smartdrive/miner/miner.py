@@ -165,7 +165,7 @@ class Miner(Module):
 
             return {"id": file_uuid}
         except Exception as e:
-            print(f"ERROR store - {e}")
+            print(f"Error store - {e}")
             raise HTTPException(status_code=409, detail=f"Error: {e}")
 
     async def remove(self, request: Request) -> dict:
