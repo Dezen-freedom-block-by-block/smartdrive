@@ -37,7 +37,7 @@ from smartdrive.validator.node.connection_pool import ConnectionPool
 from smartdrive.validator.node.util import packing
 from smartdrive.validator.node.util.authority import are_all_block_events_valid, remove_invalid_block_events
 from smartdrive.validator.node.util.exceptions import MessageException, ClientDisconnectedException, MessageFormatException, InvalidSignatureException
-from smartdrive.validator.node.util.message_code import MessageCode
+from smartdrive.validator.node.util.message import MessageCode, Message
 from smartdrive.validator.node.util.utils import send_json, prepare_body_tcp
 from smartdrive.validator.utils import process_events, prepare_sync_blocks
 
@@ -52,18 +52,16 @@ class Client(multiprocessing.Process):
     _event_pool = None
     _keypair = None
     _database = None
-    _active_validators_manager = None
     _initial_sync_completed = None
     _synced_blocks = None
 
-    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, event_pool, event_pool_lock, active_validators_manager, initial_sync_completed):
+    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, event_pool, event_pool_lock, initial_sync_completed):
         multiprocessing.Process.__init__(self)
         self._client_socket = client_socket
         self._identifier = identifier
         self._connection_pool = connection_pool
         self._event_pool = event_pool
         self._event_pool_lock = event_pool_lock
-        self._active_validators_manager = active_validators_manager
         self._initial_sync_completed = initial_sync_completed
         self._keypair = classic_load_key(config_manager.config.key)
         self._database = Database()
@@ -74,7 +72,7 @@ class Client(multiprocessing.Process):
             self._handle_client()
         except ClientDisconnectedException:
             print(f"Removing connection from connection pool: {self._identifier}")
-            removed_connection = self._connection_pool.remove_connection(self._identifier)
+            removed_connection = self._connection_pool.remove_if_exists(self._identifier)
             if removed_connection:
                 removed_connection.close()
 
@@ -94,23 +92,23 @@ class Client(multiprocessing.Process):
 
     def _receive(self):
         # Here the process is waiting till a new message is sent.
-        msg = packing.receive_msg(self._client_socket)
+        json_message = packing.receive_msg(self._client_socket)
         # Although _event_pool is managed by multiprocessing.Manager(),
         # we explicitly pass it as parameters to make it clear that it is dependency of the process_message process.
-        process = multiprocessing.Process(target=self._process_message, args=(msg, self._event_pool, self._active_validators_manager,))
+        process = multiprocessing.Process(target=self._process_message, args=(json_message, self._event_pool, self._connection_pool,))
         process.start()
         process.join()
 
-    def _process_message(self, msg, event_pool, active_validators_manager):
-        body = msg["body"]
+    def _process_message(self, json_message, event_pool, connection_pool):
+        message = Message(**json_message)
 
         try:
-            if body['code'] in [code.value for code in MessageCode]:
-                signature_hex = msg["signature_hex"]
-                public_key_hex = msg["public_key_hex"]
+            if message.body.code in [code.value for code in MessageCode]:
+                signature_hex = message.signature_hex
+                public_key_hex = message.public_key_hex
                 ss58_address = get_ss58_address_from_public_key(public_key_hex)
 
-                is_verified_signature = verify_data_signature(body, signature_hex, ss58_address)
+                is_verified_signature = verify_data_signature(message.body.data, signature_hex, ss58_address)
 
                 if not is_verified_signature:
                     raise InvalidSignatureException()
@@ -138,7 +136,7 @@ class Client(multiprocessing.Process):
                     #  the proposer and creates another block, in this case, the blocks will be repeated
                     local_block_number = self._database.get_last_block_number() or 0
                     if block.block_number - 1 != local_block_number:
-                        prepare_sync_blocks(start=local_block_number + 1, end=block.block_number, active_validators_manager=active_validators_manager, keypair=self._keypair)
+                        prepare_sync_blocks(start=local_block_number + 1, end=block.block_number, active_connections=connection_pool.get_all(), keypair=self._keypair)
                     else:
                         self._run_process_events(block.events)
                         self._remove_events(block.events, event_pool)
@@ -164,15 +162,9 @@ class Client(multiprocessing.Process):
 
                 elif body['code'] == MessageCode.MESSAGE_CODE_PONG.value:
                     if body["type"] == "validator":
-                        module_info = self._connection_pool.get_connection(self._identifier)
-                        validator = self._connection_pool.get_validator(self._identifier)
-                        connection = None
-
-                        if module_info:
-                            connection = module_info.get(ConnectionPool.CONNECTION)
-
-                        if validator and connection:
-                            active_validators_manager.update_validator(validator, connection)
+                        connection = self._connection_pool.get(self._identifier)
+                        if connection:
+                            connection_pool.upsert_connection(connection.module.ss58_address, connection.module, connection.socket)
 
                 elif body['code'] == MessageCode.MESSAGE_CODE_SYNC_BLOCK.value:
                     start = int(body['start'])

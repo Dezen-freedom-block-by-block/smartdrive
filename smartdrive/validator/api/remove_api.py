@@ -85,4 +85,4 @@ class RemoveAPI:
             input_signed_params=input_signed_params
         )
 
-        self._node.send_event_to_validators(event)
+        self._node.add_event(event)

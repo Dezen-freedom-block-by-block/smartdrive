@@ -39,7 +39,7 @@ from smartdrive.validator.database.database import Database
 from smartdrive.validator.node.node import Node
 from smartdrive.validator.api.api import API
 from smartdrive.validator.evaluation.evaluation import score_miners, set_weights
-from smartdrive.validator.node.active_validator_manager import INACTIVITY_TIMEOUT_SECONDS as VALIDATOR_INACTIVITY_TIMEOUT_SECONDS
+from smartdrive.validator.node.connection_pool import INACTIVITY_TIMEOUT_SECONDS as VALIDATOR_INACTIVITY_TIMEOUT_SECONDS
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.validation import validate
 from smartdrive.validator.utils import process_events, prepare_sync_blocks
@@ -131,7 +131,7 @@ class Validator(Module):
                 # as new validators might be activated in the background.
                 active_validators = []
                 for _ in range(4):
-                    active_validators = self.node.get_active_validators()
+                    active_validators = self.node.get_connected_modules()
                     if active_validators:
                         break
                     await asyncio.sleep(VALIDATOR_INACTIVITY_TIMEOUT_SECONDS / 2)
@@ -162,13 +162,13 @@ class Validator(Module):
                         if active_validators:
                             prepare_sync_blocks(
                                 start=new_block_number,
-                                active_connections=self.node.get_active_validators_connections(),
+                                active_connections=self.node.get_connections(),
                                 keypair=self._key
                             )
                             await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS)
                             continue
 
-                    block_events = self.node.consume_pool_events(count=MAX_EVENTS_PER_BLOCK)
+                    block_events = self.node.consume_events(count=MAX_EVENTS_PER_BLOCK)
                     await process_events(
                         events=block_events,
                         is_proposer_validator=True,
@@ -186,7 +186,7 @@ class Validator(Module):
                     )
                     self._database.create_block(block=block)
 
-                    asyncio.create_task(self.node.send_block_to_validators(block=block))
+                    asyncio.to_thread(self.node.send_block, block=block)
 
                 elapsed = time.monotonic() - start_time
                 sleep_time = max(0.0, self.BLOCK_INTERVAL_SECONDS - elapsed)
@@ -214,11 +214,6 @@ class Validator(Module):
             if score_dict:
                 await set_weights(score_dict, config_manager.config.netuid, self._key)
 
-    async def periodically_ping_validators(self):
-        while True:
-            await self.node.ping_validators()
-            await asyncio.sleep(5)
-
 
 if __name__ == "__main__":
     smartdrive.check_version()
@@ -236,8 +231,6 @@ if __name__ == "__main__":
     validator = Validator()
 
     async def run_tasks():
-        asyncio.create_task(validator.periodically_ping_validators())
-
         # Initial delay to allow active validators to load before request them
         await asyncio.sleep(VALIDATOR_INACTIVITY_TIMEOUT_SECONDS)
 

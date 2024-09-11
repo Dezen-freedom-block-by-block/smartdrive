@@ -21,6 +21,9 @@
 # SOFTWARE.
 
 from enum import Enum
+from typing import Optional
+
+from pydantic import BaseModel
 
 
 class MessageCode(Enum):
@@ -32,3 +35,14 @@ class MessageCode(Enum):
     MESSAGE_CODE_SYNC_BLOCK = 5
     MESSAGE_CODE_SYNC_BLOCK_RESPONSE = 6
     MESSAGE_CODE_VALIDATION_EVENTS = 7
+
+
+class MessageBody(BaseModel):
+    code: MessageCode
+    data: Optional[dict]
+
+
+class Message(BaseModel):
+    body: MessageBody
+    signature_hex: str
+    public_key_hex: str

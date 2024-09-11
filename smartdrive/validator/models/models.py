@@ -83,15 +83,6 @@ class File:
         return f"File(file_uuid={self.file_uuid}, user_owner_ss58address={self.user_owner_ss58address}, chunks={self.chunks})"
 
 
-class ActiveValidator:
-    def __init__(self, active_validators: dict, last_response_time: float):
-        self.active_validators = active_validators
-        self.last_response_time = last_response_time
-
-    def __repr__(self):
-        return f"ActiveValidator(active_validators={self.active_validators}, last_response_time={self.last_response_time})"
-
-
 class ModuleType(Enum):
     MINER = 0
     VALIDATOR = 1
