@@ -107,7 +107,7 @@ class Node:
         return items
 
     def send_message(self, connection: Connection, message: Message):
-        threading.Thread(target=send_json, args=(connection, message,)).start()
+        threading.Thread(target=send_json, args=(connection.socket, message.dict(),)).start()
 
     def send_block(self, block: Block):
         block_event = block_to_block_event(block)

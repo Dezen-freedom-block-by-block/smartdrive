@@ -38,4 +38,4 @@ def send_json(sock: socket, obj: dict):
         else:
             raise TimeoutError("Socket send info time out")
     except Exception as e:
-        print(f"Error en send_json: {e}")
+        print(f"Error sending json: {e}")
