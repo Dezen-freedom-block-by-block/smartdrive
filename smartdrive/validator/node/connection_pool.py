@@ -61,7 +61,6 @@ class ConnectionPool:
                 for key, c in self._connections.items():
                     if key == identifier:
                         self._connections[key] = connection
-                        print(f"Connection updated {identifier}")
                         break
 
     def remove_if_exists(self, identifier):
