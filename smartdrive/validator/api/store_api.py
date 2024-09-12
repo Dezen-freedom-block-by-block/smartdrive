@@ -35,7 +35,8 @@ from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.utils import MAX_FILE_SIZE
 from smartdrive.sign import sign_data
 from smartdrive.validator.api.exceptions import RedundancyException, FileTooLargeException, NoMinersInNetworkException, \
-    NoValidMinerResponseException, UnexpectedErrorException, HTTPRedundancyException, CommuneNetworkUnreachable as HTTPCommuneNetworkUnreachable
+    NoValidMinerResponseException, UnexpectedErrorException, HTTPRedundancyException, \
+    CommuneNetworkUnreachable as HTTPCommuneNetworkUnreachable
 from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.config import config_manager
@@ -45,6 +46,7 @@ from smartdrive.validator.models.models import MinerWithChunk, ModuleType
 from smartdrive.commune.request import execute_miner_request, get_filtered_modules
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.validator.node.node import Node
+from smartdrive.validator.node.util.message import MessageCode, Message, MessageBody
 from smartdrive.validator.utils import get_file_expiration
 from smartdrive.commune.utils import calculate_hash
 
@@ -101,9 +103,7 @@ class StoreAPI:
         if not miners:
             raise NoMinersInNetworkException
 
-        active_validators = self._node.get_active_validators_connections()
-        validators_len = len(active_validators) + 1  # To include myself
-
+        active_connections = self._node.get_connections()
         try:
             store_event, validations_events_per_validator = await store_new_file(
                 file_bytes=file_bytes,
@@ -111,11 +111,11 @@ class StoreAPI:
                 validator_keypair=self._key,
                 user_ss58_address=user_ss58_address,
                 input_signed_params=input_signed_params,
-                validators_len=validators_len
+                validators_len=len(active_connections) + 1  # To include myself
             )
         except RedundancyException as redundancy_exception:
             raise HTTPRedundancyException(redundancy_exception.message)
-        except Exception: # TODO: Do not capture bare exceptions
+        except Exception:  # TODO: Do not capture bare exceptions
             raise UnexpectedErrorException
 
         if not store_event:
@@ -123,9 +123,25 @@ class StoreAPI:
 
         if validations_events_per_validator:
             self._database.insert_validation_events(validation_events=validations_events_per_validator.pop(0))
-            self._node.send_validation_events_to_validators(connections=active_validators, validations_events_per_validator=validations_events_per_validator)
 
-        self._node.send_event_to_validators(store_event)
+            for index, active_connection in enumerate(active_connections):
+                data_list = [validations_events.dict() for validations_events in validations_events_per_validator[index]]
+
+                body = MessageBody(
+                    code=MessageCode.MESSAGE_CODE_VALIDATION_EVENTS,
+                    data={"list": data_list}
+                )
+
+                body_sign = sign_data(body.dict(), self._key)
+
+                message = Message(
+                    body=body,
+                    signature_hex=body_sign.hex(),
+                    public_key_hex=self._key.public_key.hex()
+                )
+                self._node.send_message(active_connection, message)
+
+        self._node.add_event(store_event)
 
         return {"uuid": store_event.event_params.file_uuid}
 
@@ -195,7 +211,8 @@ async def store_new_file(
 
     try:
         if validating:
-            await asyncio.gather(*[handle_store_request(miner, file_bytes, 0) for miner in miners], return_exceptions=True)
+            await asyncio.gather(*[handle_store_request(miner, file_bytes, 0) for miner in miners],
+                                 return_exceptions=True)
             if not stored_chunks_results:
                 return None, []
 
@@ -208,7 +225,9 @@ async def store_new_file(
             if remainder:
                 chunks_bytes[-1] += file_bytes[-remainder:]
 
-            await asyncio.gather(*[store_chunk_with_redundancy(chunk_bytes, index) for index, chunk_bytes in enumerate(chunks_bytes)], return_exceptions=True)
+            await asyncio.gather(
+                *[store_chunk_with_redundancy(chunk_bytes, index) for index, chunk_bytes in enumerate(chunks_bytes)],
+                return_exceptions=True)
 
             if len(stored_chunks_results) != len(chunks_bytes) * MIN_MINERS_REPLICATION_FOR_CHUNK:
                 raise RedundancyException
@@ -299,8 +318,8 @@ async def _store_request(keypair: Keypair, miner: ModuleInfo, user_ss58_address:
     miner_answer = await execute_miner_request(
         keypair, miner.connection, miner.ss58_address, "store",
         file={
-           'folder': user_ss58_address,
-           'chunk': chunk_bytes
+            'folder': user_ss58_address,
+            'chunk': chunk_bytes
         },
         timeout=MINER_STORE_TIMEOUT_SECONDS
     )

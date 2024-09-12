@@ -20,26 +20,22 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import select
+import socket
 import json
 import struct
 
-from substrateinterface import Keypair
-from smartdrive.sign import sign_data
 
+def send_json(sock: socket, obj: dict):
+    try:
+        msg = json.dumps(obj).encode('utf-8')
+        msg_len = len(msg)
+        packed_len = struct.pack('!I', msg_len)
 
-def send_json(sock, obj):
-    msg = json.dumps(obj).encode('utf-8')
-    msg_len = len(msg)
-    packed_len = struct.pack('!I', msg_len)
-    sock.sendall(packed_len + msg)
-
-
-def prepare_body_tcp(body: dict, keypair: Keypair):
-    body_sign = sign_data(body, keypair)
-    message = {
-        "body": body,
-        "signature_hex": body_sign.hex(),
-        "public_key_hex": keypair.public_key.hex()
-    }
-
-    return message
+        _, ready_to_write, _ = select.select([], [sock], [], 5)
+        if ready_to_write:
+            sock.sendall(packed_len + msg)
+        else:
+            raise TimeoutError("Socket send info time out")
+    except Exception as e:
+        print(f"Error sending json: {e}")

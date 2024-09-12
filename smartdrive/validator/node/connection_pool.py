@@ -20,75 +20,91 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import time
 from multiprocessing import Manager, Lock
+import socket
 
 from smartdrive.commune.models import ModuleInfo
 
 
-class ConnectionPool:
+INACTIVITY_TIMEOUT_SECONDS = 10
 
-    CONNECTION = 'Connection'
-    MODULEINFO = 'ModuleInfo'
+
+class Connection:
+    def __init__(self, module: ModuleInfo, socket: socket, last_response_time: float):
+        self.module = module
+        self.socket = socket
+        self.last_response_time = last_response_time
+
+    def __repr__(self):
+        return f"Connection(module={self.module}, socket={self.socket}, last_response_time={self.last_response_time})"
+
+
+class ConnectionPool:
 
     def __init__(self, cache_size):
         self._connections = Manager().dict()
         self._cache_size = cache_size
         self._pool_lock = Lock()
 
-    def add_connection(self, identifier, module_info, connection):
-        if len(self._connections) <= self._cache_size:
-            self._pool_lock.acquire()
+    def upsert_connection(self, identifier, module_info, socket):
+        with self._pool_lock:
+            connection = Connection(module_info, socket, time.monotonic())
 
             if identifier not in self._connections:
-                self._connections[identifier] = {ConnectionPool.MODULEINFO: module_info, ConnectionPool.CONNECTION: connection}
-                self._pool_lock.release()
+                if len(self._connections) <= self._cache_size:
+                    self._connections[identifier] = connection
+                else:
+                    print(f"Max num of connections reached {self._cache_size}")
+
             else:
-                self._pool_lock.release()
-                print(f"Connection exists already {identifier}")
+                for key, c in self._connections.items():
+                    if key == identifier:
+                        self._connections[key] = connection
+                        break
 
-        else:
-            print(f"Max num of connections reached {self._cache_size}")
+    def remove_if_exists(self, identifier):
+        with self._pool_lock:
+            if identifier in self._connections.keys():
+                removed_connection = self._connections.pop(identifier)
+                return removed_connection.socket
+            return None
 
-    def remove_connection(self, identifier):
-        self._pool_lock.acquire()
-        removed_connection = self._connections.pop(identifier, None)
-        if removed_connection:
-            print(f"Removed connection {identifier}")
-            self._pool_lock.release()
-            return removed_connection[ConnectionPool.CONNECTION]
-        self._pool_lock.release()
+    def remove_and_return_inactive_sockets(self):
+        with self._pool_lock:
+            current_time = time.monotonic()
+            connections_to_remove = [identifier for identifier, c in self._connections.items() if current_time - c.last_response_time > INACTIVITY_TIMEOUT_SECONDS]
+            sockets_to_remove = [self._connections[identifier].socket for identifier in connections_to_remove]
 
-    def get_all_connections(self):
+            for identifier in connections_to_remove:
+                del self._connections[identifier]
+            return sockets_to_remove
+
+    def get_all(self):
         with self._pool_lock:
             return list(self._connections.values())
 
-    def get_connection(self, identifier):
+    def get(self, identifier):
         with self._pool_lock:
             if identifier in self._connections:
                 return self._connections[identifier]
 
         return None
 
-    def get_validator(self, identifier: str) -> ModuleInfo | None:
-        connection = self.get_connection(identifier)
+    def get_module(self, identifier: str) -> ModuleInfo | None:
+        connection = self.get(identifier)
         validator = None
 
         if connection:
-            validator = connection.get(ConnectionPool.MODULEINFO)
+            validator = connection.module
 
         return validator
 
-    def get_identifiers(self):
-        self._pool_lock.acquire()
-        identifiers = self._connections.keys()
-        self._pool_lock.release()
-        return identifiers
-
-    def get_identifiers_connections(self):
-        self._pool_lock.acquire()
-        identifiers_connections = self._connections
-        self._pool_lock.release()
-        return identifiers_connections
+    def get_module_identifiers(self):
+        with self._pool_lock:
+            identifiers = self._connections.keys()
+            return identifiers
 
     def get_remaining_capacity(self):
-        return self._cache_size - len(self._connections)
+        with self._pool_lock:
+            return self._cache_size - len(self._connections)

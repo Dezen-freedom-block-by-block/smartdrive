@@ -35,12 +35,13 @@ from substrateinterface import Keypair
 from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.commune.request import get_filtered_modules
 from smartdrive.models.event import Event, StoreEvent, RemoveEvent
+from smartdrive.sign import sign_data
 from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.models.utils import compile_miners_info_and_chunks
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.models.models import Chunk, File, ModuleType
-from smartdrive.validator.node.util.message_code import MessageCode
-from smartdrive.validator.node.util.utils import prepare_body_tcp, send_json
+from smartdrive.validator.node.util.message import MessageCode, MessageBody, Message
+from smartdrive.validator.node.util.utils import send_json
 
 MAX_RETRIES = 3
 RETRY_DELAY = 5
@@ -77,7 +78,8 @@ def extract_sql_file(zip_filename: str) -> Optional[str]:
         return None
 
 
-def fetch_validator(action: str, connection: ConnectionInfo, params=None, timeout=60, headers: Headers = None) -> Optional[requests.Response]:
+def fetch_validator(action: str, connection: ConnectionInfo, params=None, timeout=60, headers: Headers = None) -> \
+Optional[requests.Response]:
     """
     Sends a request to a specified validator action endpoint.
 
@@ -94,7 +96,8 @@ def fetch_validator(action: str, connection: ConnectionInfo, params=None, timeou
         Optional[requests.Response]: The response object if the request is successful, otherwise None.
     """
     try:
-        response = requests.get(f"https://{connection.ip}:{connection.port}/{action}", params=params, headers=headers, timeout=timeout, verify=False)
+        response = requests.get(f"https://{connection.ip}:{connection.port}/{action}", params=params, headers=headers,
+                                timeout=timeout, verify=False)
         response.raise_for_status()
         return response
     except Exception as e:
@@ -102,7 +105,8 @@ def fetch_validator(action: str, connection: ConnectionInfo, params=None, timeou
         return None
 
 
-async def fetch_with_retries(action: str, connection: ConnectionInfo, params, timeout: int, headers: Headers, retries: int = MAX_RETRIES, delay: int = RETRY_DELAY) -> Optional[requests.Response]:
+async def fetch_with_retries(action: str, connection: ConnectionInfo, params, timeout: int, headers: Headers,
+                             retries: int = MAX_RETRIES, delay: int = RETRY_DELAY) -> Optional[requests.Response]:
     for attempt in range(retries):
         response = fetch_validator(action, connection, params=params, headers=headers, timeout=timeout)
         if response and response.status_code == 200:
@@ -112,7 +116,8 @@ async def fetch_with_retries(action: str, connection: ConnectionInfo, params, ti
     return None
 
 
-async def process_events(events: list[Event], is_proposer_validator: bool, keypair: Keypair, netuid: int, database: Database):
+async def process_events(events: list[Event], is_proposer_validator: bool, keypair: Keypair, netuid: int,
+                         database: Database):
     """
     Process a list of events. Depending on the type of event, it either stores a file or removes it.
 
@@ -166,17 +171,11 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
             database.remove_file(event.event_params.file_uuid)
 
 
-def prepare_sync_blocks(start, keypair, end = None, active_validators_manager = None, active_connections = None):
+def prepare_sync_blocks(start, keypair, end=None, active_connections=None):
     async def _prepare_sync_blocks():
-        connections = None
-        if active_connections:
-            connections = active_connections
-        elif active_validators_manager:
-            connections = active_validators_manager.get_active_validators_connections()
-
-        if not connections:
+        if not active_connections:
             return
-        await get_synced_blocks(start, connections, keypair, end)
+        await get_synced_blocks(start, active_connections, keypair, end)
 
     try:
         loop = asyncio.get_running_loop()
@@ -192,11 +191,22 @@ def prepare_sync_blocks(start, keypair, end = None, active_validators_manager = 
 async def get_synced_blocks(start: int, connections, keypair, end: int = None):
     async def _get_synced_blocks(c):
         try:
-            body = {"code": MessageCode.MESSAGE_CODE_SYNC_BLOCK.value, "start": str(start)}
+            body = MessageBody(
+                code=MessageCode.MESSAGE_CODE_SYNC_BLOCK,
+                data={"start": str(start)}
+            )
             if end:
-                body["end"] = str(end)
-            message = prepare_body_tcp(body, keypair)
-            send_json(c, message)
+                body.data["end"] = str(end)
+
+            body_sign = sign_data(body.dict(), keypair)
+
+            message = Message(
+                body=body,
+                signature_hex=body_sign.hex(),
+                public_key_hex=keypair.public_key.hex()
+            )
+
+            send_json(c.socket, message.dict())
         except Exception as e:
             print(f"Error getting synced blocks: {e}")
 

@@ -434,7 +434,7 @@ class Database:
         Returns:
             bool: True if the block and its events are successfully created, False otherwise.
         """
-        print(f"CREATING BLOCK - {block.block_number}")
+        print(f"Creating block - {block.block_number}")
         connection = None
         try:
             connection = sqlite3.connect(self._database_file_path)
