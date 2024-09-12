@@ -52,18 +52,18 @@ Validators need to run continuously to monitor and validate data, ensuring the n
 ### Launching a Validator
 1. Register the validator on the SmartDrive subnet
 ````
-comx module register <your_validator_name> <your_commune_key> --ip <your_ip_address> --port <port> --netuid <SmartDrive_netuid>  
+comx module register <your-validator-name> <your-commune-key-name> --ip <your-ip-address> --port <port> --netuid <SmartDrive-netuid>  
 ````
 
 2. Launch the validator (*at the root of the project*)
 ````
-python3 -m smartdrive.validator.validator --key <your_commune_key> --port <8001>
+python3 -m smartdrive.validator.validator --key-name <your-commune-key-name> --port <8001>
 ````
 
 3. In order for the validators to connect to each other, it is necessary to open a TCP port. Since there is no way to know via Commune which TCP port a validator is using, the system currently uses the port specified in the --port parameter plus 1.
 
 Other useful parameters:
-- --database_path: Path to the database.
+- --database-path: Path to the database.
 - --port: Default remote api port (Defaults 8001).
 - --testnet: Use testnet or not.
 
@@ -77,16 +77,16 @@ There is not a strict requirements in order to run a miner. However, as a miner,
 ### Launching a Miner
 1. Register the miner on the SmartDrive subnet
 ````
-comx module register <your_miner_name> <your_commune_key> --ip <your-ip-address> --port <port> --netuid <SmartDrive netuid>  
+comx module register <your-miner-name> <your-commune-key-name> --ip <your-ip-address> --port <port> --netuid <SmartDrive-netuid>  
 ````
 
 2. Launch the miner (*at the root of the project*)
 ````
-python3 -m smartdrive.miner.miner --key <your_commune_key> --port <8000>
+python3 -m smartdrive.miner.miner --key-name <your-commune-key-name> --port <8000>
 ````
 Other useful parameters:
-- --data_path: Path to the data.
-- --max_size: Size (in GB) of path to fill.
+- --data-path: Path to the data.
+- --max-size: Size (in GB) of path to fill.
 - --port: Default remote api port (Defaults 8000).
 - --testnet: Use testnet or not.
 
@@ -114,7 +114,7 @@ pip install -e .
 #### Store Command
 The store command allows users to initiate the process of storing data in the subnet. Upon initiating this process, a unique identifier (UUID) is generated and returned. This UUID must be saved by the user for future retrieval or removal of the data. The actual storage of the data will be completed subsequently.
 ```
-smartdrive store <file_path> --key-name <your_commune_key>
+smartdrive store <file-path> --key-name <your-commune-key-name>
 ```
 
 **IMPORTANT**: After executing the store command, save the returned UUID. You will need this UUID to retrieve or remove the stored data later.
@@ -124,7 +124,7 @@ The retrieve command allows users to fetch previously stored data using the uniq
 
 Usage:
 ```
-smartdrive retrieve <UUID> <output_path> --key-name <your_commune_key>
+smartdrive retrieve <UUID> <output-path> --key-name <your-commune-key-name>
 ```
 
 #### Remove Command
@@ -132,7 +132,7 @@ The remove command allows users to delete previously stored data from the subnet
 
 Usage:
 ```
-smartdrive remove <UUID> --key-name <your_commune_key>
+smartdrive remove <UUID> --key-name <your-commune-key-name>
 ```
 
 ## Roadmap
