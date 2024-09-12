@@ -74,7 +74,7 @@ def get_config() -> Config:
     args.database_path = os.path.expanduser(args.database_path)
 
     _config = Config(
-        key=args.key,
+        key=args.key_name,
         database_path=args.database_path,
         port=args.port,
         testnet=args.testnet,
