@@ -140,7 +140,10 @@ def retry_on_failure(retries):
                     pool.replace_broken_client()
                 except Exception as e:
                     print(f"Retrying with another commune client due to {e}...")
-                    pool.release_client(client)
+                    if client:
+                        pool.release_client(client)
+                    else:
+                        pool.replace_broken_client()
             raise Exception("Operation failed after several retries")
         return wrapper
     return decorator
