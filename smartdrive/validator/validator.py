@@ -186,7 +186,7 @@ class Validator(Module):
                     )
                     self._database.create_block(block=block)
 
-                    asyncio.create_task(asyncio.to_thread(self.node.send_block, block=block))
+                    self.node.send_block(block=block)
 
                 elapsed = time.monotonic() - start_time
                 sleep_time = max(0.0, self.BLOCK_INTERVAL_SECONDS - elapsed)

@@ -19,10 +19,12 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
+import asyncio
 import multiprocessing
+import queue
+import threading
 import traceback
-from time import sleep
+from time import sleep, time
 from typing import Union, List
 
 from communex.compat.key import classic_load_key
@@ -41,7 +43,6 @@ from smartdrive.validator.node.util.utils import send_json
 
 class Node:
     _keypair: Keypair
-    _server_process = None
     _ping_process = None
     _event_pool = None
     _connection_pool = None
@@ -57,23 +58,17 @@ class Node:
         self.initial_sync_completed = multiprocessing.Value('b', False)
         self._connection_pool = ConnectionPool(cache_size=Server.MAX_N_CONNECTIONS)
 
-        # TODO: Currently this process is not removed from memory when main app is finished. It also prevents the main process from being freed from memory.
-        # Although these variables are managed by multiprocessing.Manager(),
-        # we explicitly pass them as parameters to make it clear that they are dependencies of the server process.
-        self._server_process = multiprocessing.Process(target=self._run_server, args=(self._event_pool, self._event_pool_lock, self.initial_sync_completed, self._connection_pool,))
-        self._server_process.start()
-
-        self._ping_process = multiprocessing.Process(target=self.periodically_ping_nodes, daemon=True)
-        self._ping_process.start()
-
-    def _run_server(self, event_pool, event_pool_lock, initial_sync_completed, connection_pool: ConnectionPool):
         server = Server(
-            event_pool=event_pool,
-            event_pool_lock=event_pool_lock,
-            connection_pool=connection_pool,
-            initial_sync_completed=initial_sync_completed
+            event_pool=self._event_pool,
+            event_pool_lock=self._event_pool_lock,
+            connection_pool=self._connection_pool,
+            initial_sync_completed=self.initial_sync_completed
         )
-        server.run()
+        server.daemon = True
+        server.start()
+
+        self._ping_process = threading.Thread(target=self.periodically_ping_nodes, daemon=True)
+        self._ping_process.start()
 
     def get_connections(self) -> List[Connection]:
         return self._connection_pool.get_all()
@@ -112,11 +107,7 @@ class Node:
         return items
 
     def send_message(self, connection: Connection, message: Message):
-        try:
-            send_json(connection.socket, message.dict())
-        except Exception as e:
-            traceback.print_exc()
-            print(e)
+        threading.Thread(target=send_json, args=(connection, message,)).start()
 
     def send_block(self, block: Block):
         block_event = block_to_block_event(block)
@@ -162,7 +153,6 @@ class Node:
                     print(f"Error pinging validator: {e}")
 
             inactive_connections = self._connection_pool.remove_and_return_inactive_sockets()
-            print(f"REMOVED INACTIVED CONNECTIONS {inactive_connections}")
             for inactive_connection in inactive_connections:
                 inactive_connection.close()
 

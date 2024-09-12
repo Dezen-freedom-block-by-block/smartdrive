@@ -20,13 +20,22 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import select
 import socket
 import json
 import struct
 
 
 def send_json(sock: socket, obj: dict):
-    msg = json.dumps(obj).encode('utf-8')
-    msg_len = len(msg)
-    packed_len = struct.pack('!I', msg_len)
-    sock.sendall(packed_len + msg)
+    try:
+        msg = json.dumps(obj).encode('utf-8')
+        msg_len = len(msg)
+        packed_len = struct.pack('!I', msg_len)
+
+        ready_to_write, _, _ = select.select([], [sock], [], 5)
+        if ready_to_write:
+            sock.sendall(packed_len + msg)
+        else:
+            raise TimeoutError("Socket send info time out")
+    except Exception as e:
+        print(f"Error en send_json: {e}")

@@ -24,6 +24,7 @@ import asyncio
 import multiprocessing
 import socket
 import select
+import threading
 import time
 import traceback
 
@@ -65,7 +66,7 @@ class Server(multiprocessing.Process):
         server_socket = None
 
         try:
-            self._start_check_connections_process()
+            self._start_check_connections_thread()
             server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_socket.bind(("0.0.0.0", config_manager.config.port + 1))
@@ -73,12 +74,10 @@ class Server(multiprocessing.Process):
 
             while True:
                 client_socket, address = server_socket.accept()
-                process = multiprocessing.Process(
+                threading.Thread(
                     target=self._handle_connection,
                     args=(self._connection_pool, self._event_pool, self._event_pool_lock, self._initial_sync_completed, client_socket, address,)
-                )
-                process.start()
-                client_socket.close()  # Close the socket in the parent process
+                ).start()
 
         except Exception as e:
             print(f"Server stopped unexpectedly - PID: {self.pid} - {e} - {traceback.print_exc()}")
@@ -86,16 +85,13 @@ class Server(multiprocessing.Process):
             if server_socket:
                 server_socket.close()
 
-    def _start_check_connections_process(self):
-        # Although these variables are managed by multiprocessing.Manager(),
-        # we explicitly pass them as parameters to make it clear that they are dependencies of the server process.
-        process = multiprocessing.Process(
-            target=self._check_connections_process,
+    def _start_check_connections_thread(self):
+        threading.Thread(
+            target=self._check_connections,
             args=(self._connection_pool, self._event_pool, self._event_pool_lock, self._initial_sync_completed,)
-        )
-        process.start()
+        ).start()
 
-    def _check_connections_process(self, connection_pool: ConnectionPool, event_pool, event_pool_lock, initial_sync_completed):
+    def _check_connections(self, connection_pool: ConnectionPool, event_pool, event_pool_lock, initial_sync_completed):
         while True:
             try:
                 validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
@@ -109,10 +105,7 @@ class Server(multiprocessing.Process):
                 identifiers = connection_pool.get_module_identifiers()
                 new_validators = [validator for validator in validators if validator.ss58_address not in identifiers and validator.ss58_address != self._keypair.ss58_address]
 
-                print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
-                print(f"CHECK NEW VALIDATORS {new_validators}")
-
-                asyncio.run(self._initialize_validators(connection_pool, event_pool, event_pool_lock, initial_sync_completed, new_validators))
+                self._initialize_validators(connection_pool, event_pool, event_pool_lock, initial_sync_completed, new_validators)
 
             except Exception as e:
                 print(f"Error check connections process - {e}")
@@ -120,18 +113,16 @@ class Server(multiprocessing.Process):
             finally:
                 time.sleep(self.CONNECTION_PROCESS_TIMEOUT_SECONDS)
 
-    async def _connect_to_validator(self, validator, keypair, connection_pool, event_pool, event_pool_lock, initial_sync_completed):
+    def _connect_to_validator(self, validator, keypair, connection_pool, event_pool, event_pool_lock, initial_sync_completed):
         validator_socket = None
 
         try:
             validator_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             validator_socket.settimeout(self.CONNECTION_TIMEOUT_SECONDS)
-            print(f"TRYING TO CONNECT - {validator}")
-            await asyncio.get_event_loop().sock_connect(validator_socket, (validator.connection.ip, validator.connection.port + 1))
+            validator_socket.connect((validator.connection.ip, validator.connection.port + 1))
             # When you call settimeout(), the timeout applies to all subsequent blocking operations on the socket, such as connect(), recv(), send(), and others.
             # Since we only want to set the timeout at the connection level, it should be reset.
             validator_socket.settimeout(None)
-            print(f"CONNECTED - {validator}")
 
             body = MessageBody(
                 code=MessageCode.MESSAGE_CODE_IDENTIFIER,
@@ -150,39 +141,37 @@ class Server(multiprocessing.Process):
             client_receiver = Client(validator_socket, validator.ss58_address, connection_pool, event_pool, event_pool_lock, initial_sync_completed)
             client_receiver.start()
             print(f"Validator {validator.ss58_address} connected and added to the pool.")
-        except socket.timeout:
-            print(f"Connection to {validator.ss58_address} timed out.")
         except Exception as e:
             print(f"Error connecting to validator {validator.ss58_address}: {e}")
-        finally:
             connection_pool.remove_if_exists(validator.ss58_address)
             if validator_socket:
                 validator_socket.close()
 
-    async def _initialize_validators(self, connection_pool: ConnectionPool, event_pool, event_pool_lock, initial_sync_completed, validators):
+    def _initialize_validators(self, connection_pool: ConnectionPool, event_pool, event_pool_lock, initial_sync_completed, validators):
         try:
             if validators is None:
                 validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
 
             validators = [validator for validator in validators if validator.ss58_address != self._keypair.ss58_address]
 
-            tasks = [
-                self._connect_to_validator(
-                    validator,
-                    self._keypair,
-                    connection_pool,
-                    event_pool,
-                    event_pool_lock,
-                    initial_sync_completed
-                )
-                for validator in validators
-            ]
+            for validator in validators:
+                threading.Thread(
+                    target=self._connect_to_validator,
+                    args=(
+                        validator,
+                        self._keypair,
+                        connection_pool,
+                        event_pool,
+                        event_pool_lock,
+                        initial_sync_completed,
+                    )
+                ).start()
 
-            await asyncio.gather(*tasks, return_exceptions=True)
         except Exception as e:
             print(f"Error initializing validators: {e}")
 
     def _handle_connection(self, connection_pool: ConnectionPool, event_pool, event_pool_lock, initial_sync_completed, client_socket, address):
+        validator_connection = None
         try:
             # Wait self.IDENTIFIER_TIMEOUT_SECONDS as maximum time to get the identifier message
             ready = select.select([client_socket], [], [], self.IDENTIFIER_TIMEOUT_SECONDS)
@@ -241,4 +230,8 @@ class Server(multiprocessing.Process):
         except Exception as e:
             traceback.print_exc()
             print(f"Error handling connection: {e}")
-            client_socket.close()
+            if validator_connection:
+                connection_pool.remove_if_exists(validator_connection.ss58_address)
+
+            if client_socket:
+                client_socket.close()

@@ -22,6 +22,7 @@
 
 import asyncio
 import multiprocessing
+import threading
 import traceback
 from typing import List
 
@@ -43,7 +44,7 @@ from smartdrive.validator.node.util.utils import send_json
 from smartdrive.validator.utils import process_events, prepare_sync_blocks
 
 
-class Client(multiprocessing.Process):
+class Client(threading.Thread):
     MAX_BLOCKS_SYNC = 500
     MAX_VALIDATION_SYNC = 500
 
@@ -57,7 +58,7 @@ class Client(multiprocessing.Process):
     _synced_blocks = None
 
     def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, event_pool, event_pool_lock, initial_sync_completed):
-        multiprocessing.Process.__init__(self)
+        threading.Thread.__init__(self)
         self._client_socket = client_socket
         self._identifier = identifier
         self._connection_pool = connection_pool
@@ -69,39 +70,25 @@ class Client(multiprocessing.Process):
         self._synced_blocks = []
 
     def run(self):
-        try:
-            self._handle_client()
-        except ClientDisconnectedException:
-            print(f"Removing connection from connection pool: {self._identifier}")
-            removed_connection = self._connection_pool.remove_if_exists(self._identifier)
-            if removed_connection:
-                removed_connection.close()
-
-    def _handle_client(self):
-        try:
-            while True:
+        while True:
+            try:
                 self._receive()
-        except InvalidSignatureException:
-            print("Received invalid sign")
-        except (MessageException, MessageFormatException):
-            print(f"Received undecodable or invalid message: {self._identifier}")
-        except (ConnectionResetError, ConnectionAbortedError, ClientDisconnectedException):
-            print(f"Client disconnected: {self._identifier}")
-        except Exception as e:
-            traceback.print_exc()
-            print(f"HANDLE CLIENT EXCEPTION {e}")
-        finally:
-            self._client_socket.close()
-            raise ClientDisconnectedException(f"Lost {self._identifier}")
+            except InvalidSignatureException:
+                print("Received invalid sign")
+            except (MessageException, MessageFormatException):
+                print(f"Received undecodable or invalid message: {self._identifier}")
+            except (ConnectionResetError, ConnectionAbortedError, ClientDisconnectedException, Exception):
+                traceback.print_exc()
+                print(f"Client disconnected: {self._identifier}")
+                break
 
     def _receive(self):
         # Here the process is waiting till a new message is sent.
         json_message = packing.receive_msg(self._client_socket)
         # Although _event_pool is managed by multiprocessing.Manager(),
         # we explicitly pass it as parameters to make it clear that it is dependency of the process_message process.
-        process = multiprocessing.Process(target=self._process_message, args=(json_message, self._event_pool, self._connection_pool,))
-        process.start()
-        process.join()
+        thread = threading.Thread(target=self._process_message, args=(json_message, self._event_pool, self._connection_pool,))
+        thread.start()
 
     def _process_message(self, json_message, event_pool, connection_pool):
         message = Message(**json_message)
