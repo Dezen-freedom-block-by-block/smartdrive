@@ -32,7 +32,7 @@ def send_json(sock: socket, obj: dict):
         msg_len = len(msg)
         packed_len = struct.pack('!I', msg_len)
 
-        ready_to_write, _, _ = select.select([], [sock], [], 5)
+        _, ready_to_write, _ = select.select([], [sock], [], 5)
         if ready_to_write:
             sock.sendall(packed_len + msg)
         else:

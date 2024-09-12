@@ -21,9 +21,7 @@
 # SOFTWARE.
 
 import asyncio
-import multiprocessing
 import threading
-import traceback
 from typing import List
 
 from communex.compat.key import classic_load_key
@@ -78,7 +76,6 @@ class Client(threading.Thread):
             except (MessageException, MessageFormatException):
                 print(f"Received undecodable or invalid message: {self._identifier}")
             except (ConnectionResetError, ConnectionAbortedError, ClientDisconnectedException, Exception):
-                traceback.print_exc()
                 print(f"Client disconnected: {self._identifier}")
                 break
 
