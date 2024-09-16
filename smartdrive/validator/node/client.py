@@ -21,6 +21,7 @@
 # SOFTWARE.
 
 import asyncio
+import queue
 import threading
 from typing import List
 
@@ -66,26 +67,30 @@ class Client(threading.Thread):
         self._keypair = classic_load_key(config_manager.config.key)
         self._database = Database()
         self._synced_blocks = []
+        self._message_queue = queue.Queue()
+        threading.Thread(target=self._process_queue).start()
 
     def run(self):
         while True:
             try:
-                self._receive()
-            except InvalidSignatureException:
-                print("Received invalid sign")
-            except (MessageException, MessageFormatException):
-                print(f"Received undecodable or invalid message: {self._identifier}")
+                # Here the process is waiting till a new message is sent.
+                json_message = packing.receive_msg(self._client_socket)
+                # Although _event_pool is managed by multiprocessing.Manager(),
+                # we explicitly pass it as parameters to make it clear that it is dependency of the process_message process.
+                self._message_queue.put(json_message)
             except (ConnectionResetError, ConnectionAbortedError, ClientDisconnectedException, Exception):
                 print(f"Client disconnected: {self._identifier}")
                 break
 
-    def _receive(self):
-        # Here the process is waiting till a new message is sent.
-        json_message = packing.receive_msg(self._client_socket)
-        # Although _event_pool is managed by multiprocessing.Manager(),
-        # we explicitly pass it as parameters to make it clear that it is dependency of the process_message process.
-        thread = threading.Thread(target=self._process_message, args=(json_message, self._event_pool, self._connection_pool,))
-        thread.start()
+    def _process_queue(self):
+        while True:
+            try:
+                json_message = self._message_queue.get()
+                self._process_message(json_message, self._event_pool, self._connection_pool)
+            except InvalidSignatureException:
+                print("Received invalid sign")
+            except (MessageException, MessageFormatException):
+                print(f"Received undecodable or invalid message: {self._identifier}")
 
     def _process_message(self, json_message, event_pool, connection_pool):
         message = Message(**json_message)
