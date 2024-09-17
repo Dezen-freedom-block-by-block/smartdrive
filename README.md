@@ -72,7 +72,7 @@ python3 -m smartdrive.validator.validator --key-name <your-commune-key-name> --p
 
 Other useful parameters:
 - --database-path: Path to the database.
-- --port: Default remote api port (Defaults 8001).
+- --port: Default remote api port (Defaults to 8001).
 - --testnet: Use testnet or not.
 
 
@@ -80,7 +80,7 @@ Other useful parameters:
 The miner is the muscle of the SmartDrive subnet, playing a crucial role in securely and distributed storing user information. As an essential component of the system, miners ensure that data remains accessible and protected against loss or corruption. Thanks to the miners, the network can offer a robust decentralized storage solution, where data is efficiently distributed across multiple nodes. In addition to storing data, miners are also responsible for maintaining the integrity of the information, quickly responding to requests for data retrieval and removal. In summary, miners provide the physical and operational infrastructure that enables the SmartDrive subnet to operate with security, efficiency, and resilience.
 
 ### Hardware Requirements
-There is not a strict requirements in order to run a miner. However, as a miner, you will be rewarded in base on your service processing requests and storing the data.
+There are no strict requirements in order to run a miner. However, as a miner, you will be rewarded in base on your service processing requests and storing the data.
 
 ### Launching a Miner
 1. Register the miner on the SmartDrive subnet
