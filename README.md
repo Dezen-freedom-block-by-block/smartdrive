@@ -4,7 +4,8 @@ Welcome to the SmartDrive subnet, a pioneering initiative designed to provide se
 The subnet operates similarly to a blockchain, with validators serving as the nodes responsible for writing information into blocks, maintaining data redundancy, and ensuring synchronization across the network. Additionally, validators are tasked with rating miners based on their performance. Miners are responsible for the actual storage of information and its final retrieval, ensuring data is available when needed.
 
 ## ⚠️ Warning ⚠️
-SmartDrive is currently in an early stage where runtime errors may occur. However, the information is safe to store, as only the user who uploads it has the ability to access it. At the moment, data duplication is something our team is working on. Currently, a file is only distributed to a single miner, which means the probability of losing the information in this initial phase of the subnet is high.
+SmartDrive is currently in an early stage where runtime errors may occur. However, the information is safe to store, as only the user who uploads it has the ability to access it, though full data persistence and recovery are not yet guaranteed.
+
 ## Installation
 ### Manually, on Ubuntu 22.04
 - Install Python 3
@@ -36,6 +37,11 @@ Validators play a crucial role in maintaining the integrity and security of the 
 
 Validators need to run continuously to monitor and validate data, ensuring the network remains robust and secure. Their ongoing efforts are critical in maintaining a high standard of data integrity and availability across the SmartDrive subnet.
 
+### Truthful validators
+Truthful validators are responsible for maintaining the duplication of information across the network, sharing blocks, user events, and more.
+For a validator to vote in line with the information of the subnet, they must be a trusted validator in order to access the information of the user being voted on.
+To become a trusted validator, it is necessary to hold the stake amount of [TRUTHFUL_STAKE_AMOUNT](smartdrive/validator/constants.py).
+
 ### Hardware Requirements
 #### Minimum Requirements
 - CPU: Dual-core 2.0 GHz
@@ -60,7 +66,9 @@ comx module register <your-validator-name> <your-commune-key-name> --ip <your-ip
 python3 -m smartdrive.validator.validator --key-name <your-commune-key-name> --port <8001>
 ````
 
-3. In order for the validators to connect to each other, it is necessary to open a TCP port. Since there is no way to know via Commune which TCP port a validator is using, the system currently uses the port specified in the --port parameter plus 1.
+3. In order for the validators to connect to each other, it is necessary to open a TCP port. Since there is no way to know via any metadata associated with each Commune module which TCP port a validator is using, the system currently uses the port specified in the --port parameter plus 1. For example, if a user's --port parameter is set to 8001, they should open TCP port 8002.
+
+
 
 Other useful parameters:
 - --database-path: Path to the database.
@@ -69,7 +77,7 @@ Other useful parameters:
 
 
 ## Running a Miner
-The miner is the muscle of the SmartDrive subnet, playing a crucial role in securely and distributed storing user information. As an essential component of the system, miners ensure that data remains accessible and protected against loss or corruption. Thanks to the miners, the network can offer a robust decentralized storage solution, where data is efficiently distributed across multiple nodes. In addition to storing data, miners are also responsible for maintaining the integrity of the information, quickly responding to requests for data retrieval and removal. Their performance is continuously evaluated and rewarded, incentivizing a high level of reliability and efficiency in data storage and management. In summary, miners provide the physical and operational infrastructure that enables the SmartDrive subnet to operate with security, efficiency, and resilience.
+The miner is the muscle of the SmartDrive subnet, playing a crucial role in securely and distributed storing user information. As an essential component of the system, miners ensure that data remains accessible and protected against loss or corruption. Thanks to the miners, the network can offer a robust decentralized storage solution, where data is efficiently distributed across multiple nodes. In addition to storing data, miners are also responsible for maintaining the integrity of the information, quickly responding to requests for data retrieval and removal. In summary, miners provide the physical and operational infrastructure that enables the SmartDrive subnet to operate with security, efficiency, and resilience.
 
 ### Hardware Requirements
 There is not a strict requirements in order to run a miner. However, as a miner, you will be rewarded in base on your service processing requests and storing the data.
@@ -138,12 +146,6 @@ smartdrive remove <UUID> --key-name <your-commune-key-name>
 ## Roadmap
 ### 🚀 Initial launch
 We launched the subnet in an initial launch to gauge the community's opinion and support. In this initial launch, the foundation of our subnet will begin to take shape, showcasing its potential and possibilities to the entire community.
-
-### First phase
-In the first phase, we will focus on improving the security of information verification between validators and miners. To achieve this, we will implement Zero-Knowledge Proofs, which will ensure that a miner possesses a file without the validator needing to know anything about it.
-
-### Second phase
-As part of the second phase, we will focus on optimizing the transmission of information and its duplication. This way, the way the subnet handles information will be much faster and more secure.
 
 ### ✨ More incoming!
 Stay tuned!.
