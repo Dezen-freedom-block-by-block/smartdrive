@@ -72,15 +72,17 @@ class File:
         user_owner_ss58address (Ss58Address): The SS58 address of the user who owns the file.
         file_uuid (Optional[str]): The UUID of the file.
         chunks (List[Chunk]): A list of chunks that make up the file.
+        file_size_bytes: The size of the file in bytes.
     """
-    def __init__(self, user_owner_ss58address: Ss58Address, total_chunks: int, file_uuid: Optional[str], chunks: List[Chunk]):
+    def __init__(self, user_owner_ss58address: Ss58Address, total_chunks: int, file_uuid: Optional[str], chunks: List[Chunk], file_size_bytes: Optional[int] = None):
         self.user_owner_ss58address = user_owner_ss58address
         self.total_chunks = total_chunks
         self.file_uuid = file_uuid
         self.chunks = chunks
+        self.file_size_bytes = file_size_bytes
 
     def __repr__(self):
-        return f"File(file_uuid={self.file_uuid}, user_owner_ss58address={self.user_owner_ss58address}, chunks={self.chunks})"
+        return f"File(file_uuid={self.file_uuid}, user_owner_ss58address={self.user_owner_ss58address}, chunks={self.chunks}, file_size_bytes={self.file_size_bytes})"
 
 
 class ModuleType(Enum):

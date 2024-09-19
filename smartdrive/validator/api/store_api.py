@@ -32,7 +32,7 @@ from communex.compat.key import classic_load_key
 from communex.types import Ss58Address
 
 from smartdrive.commune.errors import CommuneNetworkUnreachable
-from smartdrive.utils import MAX_FILE_SIZE
+from smartdrive.utils import MAX_FILE_SIZE, calculate_storage_capacity, format_size
 from smartdrive.sign import sign_data
 from smartdrive.validator.api.exceptions import RedundancyException, FileTooLargeException, NoMinersInNetworkException, \
     NoValidMinerResponseException, UnexpectedErrorException, HTTPRedundancyException, \
@@ -90,10 +90,20 @@ class StoreAPI:
         user_ss58_address = get_ss58_address_from_public_key(user_public_key)
         input_signed_params = request.headers.get("X-Signature")
         file_bytes = await file.read()
+        file_size = len(file_bytes)
+        total_stake = request.state.total_stake
 
         # TODO: Change in the future
-        if len(file_bytes) > MAX_FILE_SIZE:
+        if file_size > MAX_FILE_SIZE:
             raise FileTooLargeException
+
+        total_size_stored_by_user = self._database.get_total_file_size_by_user(user_ss58_address=user_ss58_address)
+        available_storage_of_user = calculate_storage_capacity(total_stake)
+        if total_size_stored_by_user + file_size > available_storage_of_user:
+            raise FileTooLargeException(
+                f"Storage limit exceeded. You have used {format_size(total_size_stored_by_user)} out of {format_size(available_storage_of_user)}. "
+                f"The file you are trying to upload is {format_size(file_size)}."
+            )
 
         try:
             miners = get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
@@ -286,7 +296,7 @@ async def store_new_file(
             event_params=event_params,
             event_signed_params=signed_params.hex(),
             user_ss58_address=user_ss58_address,
-            input_params=StoreInputParams(file=calculate_hash(file_bytes)),
+            input_params=StoreInputParams(file=calculate_hash(file_bytes), file_size_bytes=len(file_bytes)),
             input_signed_params=input_signed_params
         )
 

@@ -63,6 +63,7 @@ class Database:
                         uuid TEXT PRIMARY KEY,
                         user_ss58_address INTEGER,
                         total_chunks INTEGER,
+                        file_size_bytes BIGINT,
                         removed INTEGER DEFAULT 0
                     )
                 '''
@@ -175,9 +176,9 @@ class Database:
                 connection.execute('BEGIN TRANSACTION')
 
                 cursor.execute('''
-                    INSERT INTO file (uuid, user_ss58_address, total_chunks)
-                    VALUES (?, ?, ?)
-                ''', (file.file_uuid, file.user_owner_ss58address, file.total_chunks))
+                    INSERT INTO file (uuid, user_ss58_address, total_chunks, file_size_bytes)
+                    VALUES (?, ?, ?, ?)
+                ''', (file.file_uuid, file.user_owner_ss58address, file.total_chunks, file.file_size_bytes))
 
                 for chunk in file.chunks:
                     cursor.execute('''
@@ -230,6 +231,45 @@ class Database:
             if connection:
                 connection.close()
         return result
+
+    def get_total_file_size_by_user(self, user_ss58_address: str) -> int:
+        """
+        Get the total size of all files owned by a user.
+
+        This function calculates the total file size in bytes for a user
+        identified by their SS58 address.
+
+        Params:
+            user_ss58_address: The SS58 address of the user.
+
+        Returns:
+            total_size: The total file size in bytes for the given user.
+        """
+        connection = None
+        try:
+            connection = sqlite3.connect(self._database_file_path)
+            cursor = connection.cursor()
+            cursor.execute(
+                """
+                SELECT SUM(file_size_bytes) 
+                FROM file 
+                WHERE user_ss58_address = ? 
+                  AND removed = 0
+                """,
+                (user_ss58_address,)
+            )
+            result = cursor.fetchone()
+            if result and result[0] is not None:
+                total_size = result[0]
+            else:
+                total_size = 0
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            total_size = 0
+        finally:
+            if connection:
+                connection.close()
+        return total_size
 
     def get_chunks(self, file_uuid: str) -> List[MinerWithChunk]:
         """
@@ -516,12 +556,14 @@ class Database:
                 SELECT 
                     b.id AS block_id, b.signed_block, b.proposer_ss58_address,
                     e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.event_signed_params, e.user_ss58_address, e.file, e.input_signed_params,
-                    c.uuid AS chunk_uuid, c.miner_ss58_address, c.chunk_index
+                    c.uuid AS chunk_uuid, c.miner_ss58_address, c.chunk_index,
+                    f.file_size_bytes
                 FROM block b
                 LEFT JOIN events e ON b.id = e.block_id
                 LEFT JOIN chunk c ON c.event_uuid = e.uuid
+                LEFT JOIN file f ON f.uuid = c.file_uuid
                 WHERE b.id BETWEEN ? AND ?
-                ORDER BY b.id, e.uuid, c.uuid
+                ORDER BY b.id, e.uuid, c.uuid, f.uuid
             '''
 
             cursor.execute(query, (start, end))
@@ -682,7 +724,7 @@ class Database:
                 event_params=StoreParams(**event_params),
                 event_signed_params=row['event_signed_params'],
                 user_ss58_address=row['user_ss58_address'],
-                input_params=StoreInputParams(file=row['file']),
+                input_params=StoreInputParams(file=row['file'], file_size_bytes=row['file_size_bytes']),
                 input_signed_params=row['input_signed_params']
             )
         elif event_type == Action.REMOVE.value:

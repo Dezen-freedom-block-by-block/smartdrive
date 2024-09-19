@@ -30,12 +30,14 @@ from typing import Awaitable, Callable
 
 from substrateinterface import Keypair
 from communex.compat.key import classic_load_key
+from communex.balance import from_nano
 
 from smartdrive.commune.connection_pool import get_staketo
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.request import get_filtered_modules
 from smartdrive.commune.utils import get_ss58_address_from_public_key, calculate_hash
 from smartdrive.sign import verify_data_signature
+from smartdrive.utils import MINIMUM_STAKE
 from smartdrive.validator.api.endpoints import PING_ENDPOINT
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.models.models import ModuleType
@@ -99,10 +101,14 @@ class APIMiddleware(BaseHTTPMiddleware):
         except CommuneNetworkUnreachable:
             return _error_response(404, "Currently the Commune network is unreachable")
 
-        non_self_addresses = {address for address in staketo_modules.keys() if address != str(ss58_address)}
         validator_addresses = {validator.ss58_address for validator in validators}
-        if not non_self_addresses & validator_addresses:
-            return _error_response(401, "You must stake to at least one active validator in the subnet")
+        active_stakes = {address: from_nano(stake) for address, stake in staketo_modules.items() if address in validator_addresses and address != str(ss58_address)}
+        total_stake = sum(active_stakes.values())
+
+        if total_stake < MINIMUM_STAKE:
+            return _error_response(401, f"You must stake at least {MINIMUM_STAKE} COMAI in total to active validators")
+
+        request.state.total_stake = total_stake
 
         signature = request.headers.get('X-Signature')
 
@@ -137,7 +143,7 @@ class APIMiddleware(BaseHTTPMiddleware):
 
         if "file" in body:
             file_bytes = eval(body["file"])
-            signed_body = {"file": calculate_hash(file_bytes)}
+            signed_body = {"file": calculate_hash(file_bytes), "file_size_bytes": len(file_bytes)}
             is_verified_signature = verify_data_signature(signed_body, signature, ss58_address)
         else:
             is_verified_signature = verify_data_signature(body, signature, ss58_address)

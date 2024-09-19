@@ -92,7 +92,7 @@ async def validate(miners: list[ModuleInfo], database: Database, key: Keypair) -
     miners_to_store = _determine_miners_to_store(validation_events_with_expiration, validation_events_expired, miners)
     if miners_to_store:
         file_data = generate_data(size_mb=5)
-        input_params = {"file": calculate_hash(file_data)}
+        input_params = {"file": calculate_hash(file_data), "file_size_bytes": len(file_data)}
         input_signed_params = sign_data(input_params, key)
 
         _, validations_events_per_validator = await store_new_file(

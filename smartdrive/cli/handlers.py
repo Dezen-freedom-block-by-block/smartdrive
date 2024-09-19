@@ -44,7 +44,7 @@ from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_active_validators, EXTENDED_PING_TIMEOUT
 from smartdrive.models.event import StoreInputParams, RetrieveInputParams, RemoveInputParams
-from smartdrive.utils import MAX_FILE_SIZE
+from smartdrive.utils import MAX_FILE_SIZE, format_size
 from smartdrive.sign import sign_data
 from smartdrive.commune.utils import calculate_hash
 
@@ -83,7 +83,7 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
 
     # TODO: Change in the future
     if os.path.getsize(file_path) > MAX_FILE_SIZE:
-        print("Error: File size exceeds the maximum limit of 500 MB")
+        print(f"Error: File size exceeds the maximum limit of {format_size(MAX_FILE_SIZE)}")
         return
 
     key = _get_key(key_name)
@@ -106,7 +106,7 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
         spinner = Spinner("Signing request")
         spinner.start()
 
-        input_params = StoreInputParams(file=calculate_hash(compressed_data))
+        input_params = StoreInputParams(file=calculate_hash(compressed_data), file_size_bytes=len(compressed_data))
         signed_data = sign_data(input_params.dict(), key)
 
         spinner.stop_with_message("¡Done!")
