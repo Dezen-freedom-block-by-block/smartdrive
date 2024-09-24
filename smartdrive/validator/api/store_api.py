@@ -265,7 +265,7 @@ async def store_new_file(
                     sub_chunk_start=sub_chunk_start,
                     sub_chunk_end=sub_chunk_end,
                     sub_chunk_encoded=sub_chunk_encoded,
-                    file_uuid=file_uuid,
+                    file_uuid=f"{int(time.time())}_{str(uuid.uuid4())}" if validating else file_uuid,
                     user_owner_ss58_address=user_ss58_address
                 )
 

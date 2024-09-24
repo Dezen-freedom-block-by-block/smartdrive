@@ -89,8 +89,29 @@ async def validate(miners: list[ModuleInfo], database: Database, key: Keypair) -
                 miners_ss58_address_in_validation_events_not_expired.append(validation_event.miner_ss58_address)
                 validation_events_not_expired.append(validation_event)
 
+    # Check if any miner has both expired and non-expired validations
+    miners_with_expired_and_non_expired_validations = set(
+        validation_event.miner_ss58_address for validation_event in validation_events_expired
+    ).intersection(
+        miners_ss58_address_in_validation_events_not_expired
+    )
+
+    # Remove expired validations
+    if validation_events_expired:
+        expired_events_to_remove = [
+            event for event in validation_events_expired
+            if event.miner_ss58_address in miners_with_expired_and_non_expired_validations or not miners_with_expired_and_non_expired_validations
+        ]
+        await _remove_expired_validations(
+            validation_events_expired=expired_events_to_remove,
+            miners=miners,
+            database=database,
+            keypair=key
+        )
+
+    # Handle creating new validation events if there are no conflicts with expired validations
     miners_to_store = _determine_miners_to_store(validation_events_with_expiration, validation_events_expired, miners)
-    if miners_to_store:
+    if miners_to_store and not miners_with_expired_and_non_expired_validations:
         file_data = generate_data(size_mb=5)
         input_params = {"file": calculate_hash(file_data), "file_size_bytes": len(file_data)}
         input_signed_params = sign_data(input_params, key)
@@ -116,14 +137,7 @@ async def validate(miners: list[ModuleInfo], database: Database, key: Keypair) -
                     miners_ss58_address_in_validation_events_not_expired.append(validation_event.miner_ss58_address)
                     validation_events_not_expired.append(validation_event)
 
-    if validation_events_expired:
-        await _remove_expired_validations(
-            validation_events_expired=validation_events_expired,
-            miners=miners,
-            database=database,
-            keypair=key
-        )
-
+    # Validate miners using the non-expired validations
     result_miners = {}
     if validation_events_not_expired:
         result_miners = await _validate_miners(
