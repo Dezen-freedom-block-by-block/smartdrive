@@ -23,14 +23,15 @@
 import io
 import sys
 import os
-import lzma
 import random
 import asyncio
+import traceback
+import zipfile
 from pathlib import Path
 from getpass import getpass
-import py7zr
 import urllib3
 import requests
+import zstd
 from substrateinterface import Keypair
 from nacl.exceptions import CryptoError
 
@@ -39,6 +40,7 @@ from communex.compat.key import is_encrypted, classic_load_key
 import smartdrive
 from smartdrive.cli.errors import NoValidatorsAvailableException
 from smartdrive.cli.spinner import Spinner
+from smartdrive.cli.utils import decrypt_and_decompress, compress_and_encrypt
 from smartdrive.commune.connection_pool import initialize_commune_connection_pool
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.module._protocol import create_headers
@@ -93,12 +95,7 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
     spinner.start()
 
     try:
-        data = io.BytesIO()
-        with py7zr.SevenZipFile(data, 'w', password=key.private_key.hex()) as archive:
-            archive.writeall(file_path, arcname=Path(file_path).name)  # Use the file name only
-
-        data.seek(0)
-        compressed_data = data.getvalue()
+        compressed_data = compress_and_encrypt(file_path, key.private_key)
 
         spinner.stop_with_message("¡Done!")
 
@@ -121,7 +118,7 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
         response = requests.post(
             url=f"{validator_url}/store",
             headers=headers,
-            files={"file": data},
+            files={"file": io.BytesIO(compressed_data)},
             verify=False
         )
 
@@ -195,22 +192,15 @@ def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testn
         spinner = Spinner("Decompressing")
         spinner.start()
 
-        data = io.BytesIO(response.content)
-
         try:
-            with py7zr.SevenZipFile(data, 'r', password=key.private_key.hex()) as archive:
-                archive.extractall(path=file_path)
-                filename = archive.getnames()
-
-            if not file_path.endswith('/'):
-                file_path += '/'
+            filename = decrypt_and_decompress(response.content, key.private_key[:32], file_path)
 
             spinner.stop_with_message("¡Done!")
-            print(f"Data downloaded successfully in {file_path}{filename[0]}")
+            print(f"Data downloaded and decompressed successfully in {file_path}{filename}")
 
-        except lzma.LZMAError:
+        except zstd.Error:
             spinner.stop_with_message("Error: Decompression failed.")
-            print("Error: Decompression failed. The data is corrupted or the key is incorrect.")
+            print("Error: Decompression failed. The data is corrupted or the format is incorrect.")
             return
 
     except NoValidatorsAvailableException:
