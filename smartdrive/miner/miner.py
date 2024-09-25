@@ -276,12 +276,13 @@ if __name__ == "__main__":
     initialize_commune_connection_pool(config.testnet, num_connections=1, max_pool_size=1)
 
     key = classic_load_key(config.key_name)
-    registered_modules = get_modules(config.netuid)
 
-    if key.ss58_address not in list(map(lambda module: module.ss58_address, registered_modules)):
-        raise Exception(f"Your key: {key.ss58_address} is not registered.")
+    async def main():
+        registered_modules = await get_modules(config.netuid)
 
-    async def run_tasks():
+        if key.ss58_address not in list(map(lambda module: module.ss58_address, registered_modules)):
+            raise Exception(f"Your key: {key.ss58_address} is not registered.")
+
         await miner.run_server(config)
 
-    asyncio.run(run_tasks())
+    asyncio.run(main())

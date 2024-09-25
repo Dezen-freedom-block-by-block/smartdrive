@@ -160,7 +160,7 @@ async def process_events(events: list[Event], is_proposer_validator: bool, keypa
 
                 # If it is the events being processed by the validator when it is creating a block it should raise the
                 # exception and cancel the block creation.
-                miners = get_filtered_modules(netuid, ModuleType.MINER)
+                miners = await get_filtered_modules(netuid, ModuleType.MINER)
 
                 miners_info_with_chunk = compile_miners_info_and_chunks(miners, chunks)
 

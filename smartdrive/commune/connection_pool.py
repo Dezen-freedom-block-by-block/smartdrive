@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import threading
+import asyncio
 from queue import Queue, Empty
 from typing import Dict, List
 from functools import wraps
@@ -44,37 +44,6 @@ TIMEOUT = 30
 
 class TimeoutException(Exception):
     pass
-
-
-class ThreadWithReturnValue(threading.Thread):
-    def __init__(self, target=None, args=()):
-        super().__init__(target=target, args=args)
-        self._return = None
-        self._exception = None
-
-    def run(self):
-        try:
-            if self._target:
-                self._return = self._target(*self._args)
-        except Exception as e:
-            self._exception = e
-
-    def join(self, *args, **kwargs):
-        super().join(*args, **kwargs)
-        if self._exception:
-            raise self._exception
-        return self._return
-
-
-def _run_with_timeout(target, args=(), timeout=TIMEOUT):
-    thread = ThreadWithReturnValue(target=target, args=args)
-    thread.start()
-    thread.join(timeout)
-    if thread.is_alive():
-        raise TimeoutException("Operation timed out")
-    if thread._exception:
-        raise thread._exception
-    return thread._return
 
 
 class ConnectionPool:
@@ -127,12 +96,12 @@ class ConnectionPool:
 def retry_on_failure(retries):
     def decorator(func):
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        async def wrapper(*args, **kwargs):
             pool = comx_pool
             for i in range(retries):
                 client = pool.get_client()
                 try:
-                    result = func(client, *args, **kwargs)
+                    result = await func(client, *args, **kwargs)
                     pool.release_client(client)
                     return result
                 except (WebSocketException, TimeoutException) as e:
@@ -144,19 +113,24 @@ def retry_on_failure(retries):
                         pool.release_client(client)
                     else:
                         pool.replace_broken_client()
+                    await asyncio.sleep(1)
             raise Exception("Operation failed after several retries")
         return wrapper
     return decorator
 
 
 @retry_on_failure(retries=RETRIES)
-def _get_staketo_with_timeout(client, ss58_address, netuid, timeout=TIMEOUT):
-    return _run_with_timeout(client.get_staketo, (ss58_address, netuid), timeout)
-
-
-def get_staketo(ss58_address: Ss58Address, netuid: int, timeout=TIMEOUT) -> Dict[str, int]:
+async def _get_staketo_with_timeout(client, ss58_address, netuid, timeout=TIMEOUT):
+    loop = asyncio.get_running_loop()
     try:
-        result = _get_staketo_with_timeout(ss58_address=ss58_address, netuid=netuid, timeout=timeout)
+        return await asyncio.wait_for(loop.run_in_executor(None, client.get_staketo,  ss58_address, netuid), timeout=timeout)
+    except asyncio.TimeoutError:
+        raise TimeoutException("Operation timed out")
+
+
+async def get_staketo(ss58_address: Ss58Address, netuid: int, timeout=TIMEOUT) -> Dict[str, int]:
+    try:
+        result = await _get_staketo_with_timeout(ss58_address=ss58_address, netuid=netuid, timeout=timeout)
         if result is not None:
             return result
     except Exception as e:
@@ -165,25 +139,32 @@ def get_staketo(ss58_address: Ss58Address, netuid: int, timeout=TIMEOUT) -> Dict
 
 
 @retry_on_failure(retries=RETRIES)
-def _vote_with_timeout(client, key, uids, weights, netuid, timeout=TIMEOUT):
-    return _run_with_timeout(client.vote, (key, uids, weights, netuid), timeout=timeout)
+async def _vote_with_timeout(client, key, uids, weights, netuid, timeout=TIMEOUT):
+    loop = asyncio.get_running_loop()
+    try:
+        return await asyncio.wait_for(loop.run_in_executor(None, client.vote, key, uids, weights, netuid), timeout=timeout)
+    except asyncio.TimeoutError:
+        raise TimeoutException("Operation timed out")
 
 
-def vote(key: Keypair, uids: List[int], weights: List[int], netuid: int, timeout=TIMEOUT):
+async def vote(key: Keypair, uids: List[int], weights: List[int], netuid: int, timeout=TIMEOUT):
     print(f"Voting uids: {uids} - weights: {weights}")
     try:
-        vote_thread = threading.Thread(target=_vote_with_timeout, args=(key, uids, weights, netuid, timeout))
-        vote_thread.start()
+        await _vote_with_timeout(key=key, uids=uids, weights=weights, netuid=netuid, timeout=timeout)
     except Exception as e:
         print(f"Error in vote: {e}")
 
 
 @retry_on_failure(retries=RETRIES)
-def _get_modules_with_timeout(client, queries, timeout=TIMEOUT):
-    return _run_with_timeout(client.query_batch_map, (queries,), timeout=timeout)
+async def _get_modules_with_timeout(client, queries, timeout=TIMEOUT):
+    loop = asyncio.get_running_loop()
+    try:
+        return await asyncio.wait_for(loop.run_in_executor(None, client.query_batch_map, queries), timeout=timeout)
+    except asyncio.TimeoutError:
+        raise TimeoutException("Operation timed out")
 
 
-def get_modules(netuid: int, timeout=TIMEOUT) -> List[ModuleInfo]:
+async def get_modules(netuid: int, timeout=TIMEOUT) -> List[ModuleInfo]:
     queries = {
         "SubspaceModule": [
             ("Keys", [netuid]),
@@ -194,7 +175,7 @@ def get_modules(netuid: int, timeout=TIMEOUT) -> List[ModuleInfo]:
         ]
     }
     try:
-        result = _get_modules_with_timeout(queries=queries, timeout=timeout)
+        result = await _get_modules_with_timeout(queries=queries, timeout=timeout)
         if result is not None:
             keys_map = result["Keys"]
             address_map = result["Address"]
@@ -222,4 +203,6 @@ comx_pool: ConnectionPool | None = None
 
 def initialize_commune_connection_pool(testnet, max_pool_size=POOL_SIZE, num_connections=DEFAULT_NUM_CONNECTIONS):
     global comx_pool
-    comx_pool = ConnectionPool(testnet=testnet, max_pool_size=max_pool_size, num_connections=num_connections)
+
+    if not comx_pool:
+        comx_pool = ConnectionPool(testnet=testnet, max_pool_size=max_pool_size, num_connections=num_connections)

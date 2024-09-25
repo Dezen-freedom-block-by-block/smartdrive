@@ -140,7 +140,7 @@ class Validator(Module):
 
                 # Since the list of active validators never includes the current validator, we need to locate our own
                 # validator within the complete list.
-                all_validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
+                all_validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
                 own_validator = next((v for v in all_validators if v.ss58_address == self._key.ss58_address), None)
 
                 is_own_validator_truthful = own_validator and own_validator.stake >= TRUTHFUL_STAKE_AMOUNT
@@ -199,7 +199,7 @@ class Validator(Module):
 
     async def validate_vote_task(self):
         miners = [
-            miner for miner in get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
+            miner for miner in await get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
             if miner.ss58_address != self._key.ss58_address
         ]
 
@@ -224,19 +224,24 @@ if __name__ == "__main__":
     initialize_commune_connection_pool(config_manager.config.testnet)
 
     key = classic_load_key(config_manager.config.key)
-    registered_modules = get_modules(config_manager.config.netuid)
-    if key.ss58_address not in [module.ss58_address for module in registered_modules]:
-        raise Exception(f"Your key: {key.ss58_address} is not registered.")
 
-    validator = Validator()
+    async def main():
+        registered_modules = await get_modules(config_manager.config.netuid)
 
-    async def run_tasks():
-        # Initial delay to allow active validators to load before request them
-        await asyncio.sleep(VALIDATOR_INACTIVITY_TIMEOUT_SECONDS)
+        if key.ss58_address not in [module.ss58_address for module in registered_modules]:
+            raise Exception(f"Your key: {key.ss58_address} is not registered.")
 
-        await asyncio.gather(
-            validator.api.run_server(),
-            validator.create_blocks()
-        )
+        validator = Validator()
 
-    asyncio.run(run_tasks())
+        async def run_tasks():
+            # Initial delay to allow active validators to load before request them
+            await asyncio.sleep(VALIDATOR_INACTIVITY_TIMEOUT_SECONDS)
+
+            await asyncio.gather(
+                validator.api.run_server(),
+                validator.create_blocks()
+            )
+
+        await run_tasks()
+
+    asyncio.run(main())

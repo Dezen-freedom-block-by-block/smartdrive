@@ -36,7 +36,7 @@ EXTENDED_PING_TIMEOUT = 60
 CALL_TIMEOUT = 10
 
 
-def get_filtered_modules(netuid: int, module_type: ModuleType) -> List[ModuleInfo]:
+async def get_filtered_modules(netuid: int, module_type: ModuleType) -> List[ModuleInfo]:
     """
     Retrieve a list of miners or validators.
 
@@ -54,7 +54,7 @@ def get_filtered_modules(netuid: int, module_type: ModuleType) -> List[ModuleInf
     Raises:
         CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
-    modules = get_modules(netuid)
+    modules = await get_modules(netuid)
     result = []
 
     for module in modules:
@@ -84,7 +84,7 @@ async def get_active_validators(key: Keypair, netuid: int, timeout=PING_TIMEOUT)
     Raises:
         CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
-    validators = get_filtered_modules(netuid, ModuleType.VALIDATOR)
+    validators = await get_filtered_modules(netuid, ModuleType.VALIDATOR)
 
     async def _get_active_validators(validator):
         ping_response = await execute_miner_request(key, validator.connection, validator.ss58_address, "ping", timeout=timeout)

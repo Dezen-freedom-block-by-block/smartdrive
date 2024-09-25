@@ -90,7 +90,7 @@ class RetrieveAPI:
             raise FileDoesNotExistException
 
         try:
-            miners = get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
+            miners = await get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
         except CommuneNetworkUnreachable:
             raise HTTPCommuneNetworkUnreachable
 

@@ -25,7 +25,6 @@ import multiprocessing
 import socket
 import select
 import threading
-import time
 import traceback
 
 from communex.compat.key import classic_load_key
@@ -66,7 +65,7 @@ class Server(multiprocessing.Process):
         server_socket = None
 
         try:
-            self._start_check_connections_thread()
+            threading.Thread(target=self._run_check_connections).start()
             server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_socket.bind(("0.0.0.0", config_manager.config.port + 1))
@@ -74,10 +73,7 @@ class Server(multiprocessing.Process):
 
             while True:
                 client_socket, address = server_socket.accept()
-                threading.Thread(
-                    target=self._handle_connection,
-                    args=(self._connection_pool, self._event_pool, self._event_pool_lock, self._initial_sync_completed, client_socket, address,)
-                ).start()
+                threading.Thread(target=self._run_handle_connection, args=(client_socket, address,)).start()
 
         except Exception as e:
             print(f"Server stopped unexpectedly - PID: {self.pid} - {e} - {traceback.print_exc()}")
@@ -85,35 +81,39 @@ class Server(multiprocessing.Process):
             if server_socket:
                 server_socket.close()
 
-    def _start_check_connections_thread(self):
-        threading.Thread(
-            target=self._check_connections,
-            args=(self._connection_pool, self._event_pool, self._event_pool_lock, self._initial_sync_completed,)
-        ).start()
+    def _run_handle_connection(self, client_socket, address):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(self._handle_connection(client_socket, address))
 
-    def _check_connections(self, connection_pool: ConnectionPool, event_pool, event_pool_lock, initial_sync_completed):
+    def _run_check_connections(self):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(self._check_connections())
+
+    async def _check_connections(self):
         while True:
             try:
-                validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
+                validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
 
                 active_ss58_addresses = {validator.ss58_address for validator in validators}
-                to_remove = [ss58_address for ss58_address in connection_pool.get_module_identifiers() if ss58_address not in active_ss58_addresses]
+                to_remove = [ss58_address for ss58_address in self._connection_pool.get_module_identifiers() if ss58_address not in active_ss58_addresses]
                 for ss58_address in to_remove:
-                    removed_connection = connection_pool.remove_if_exists(ss58_address)
+                    removed_connection = self._connection_pool.remove_if_exists(ss58_address)
                     if removed_connection:
                         removed_connection.close()
-                identifiers = connection_pool.get_module_identifiers()
+                identifiers = self._connection_pool.get_module_identifiers()
                 new_validators = [validator for validator in validators if validator.ss58_address not in identifiers and validator.ss58_address != self._keypair.ss58_address]
 
-                self._initialize_validators(connection_pool, event_pool, event_pool_lock, initial_sync_completed, new_validators)
+                await self._initialize_validators(new_validators)
 
             except Exception as e:
                 print(f"Error check connections process - {e}")
 
             finally:
-                time.sleep(self.CONNECTION_PROCESS_TIMEOUT_SECONDS)
+                await asyncio.sleep(self.CONNECTION_PROCESS_TIMEOUT_SECONDS)
 
-    def _connect_to_validator(self, validator, keypair, connection_pool, event_pool, event_pool_lock, initial_sync_completed):
+    def _connect_to_validator(self, validator):
         validator_socket = None
 
         try:
@@ -126,7 +126,7 @@ class Server(multiprocessing.Process):
 
             body = MessageBody(
                 code=MessageCode.MESSAGE_CODE_IDENTIFIER,
-                data={"ss58_address": keypair.ss58_address}
+                data={"ss58_address": self._keypair.ss58_address}
             )
 
             body_sign = sign_data(body.dict(), self._keypair)
@@ -134,23 +134,23 @@ class Server(multiprocessing.Process):
             message = Message(
                 body=body,
                 signature_hex=body_sign.hex(),
-                public_key_hex=keypair.public_key.hex()
+                public_key_hex=self._keypair.public_key.hex()
             )
             send_json(validator_socket, message.dict())
-            connection_pool.upsert_connection(validator.ss58_address, validator, validator_socket)
-            client_receiver = Client(validator_socket, validator.ss58_address, connection_pool, event_pool, event_pool_lock, initial_sync_completed)
+            self._connection_pool.upsert_connection(validator.ss58_address, validator, validator_socket)
+            client_receiver = Client(validator_socket, validator.ss58_address, self._connection_pool, self._event_pool, self._event_pool_lock, self._initial_sync_completed)
             client_receiver.start()
             print(f"Validator {validator.ss58_address} connected and added to the pool.")
         except Exception as e:
             print(f"Error connecting to validator {validator.ss58_address}: {e}")
-            connection_pool.remove_if_exists(validator.ss58_address)
+            self._connection_pool.remove_if_exists(validator.ss58_address)
             if validator_socket:
                 validator_socket.close()
 
-    def _initialize_validators(self, connection_pool: ConnectionPool, event_pool, event_pool_lock, initial_sync_completed, validators):
+    async def _initialize_validators(self, validators):
         try:
             if validators is None:
-                validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
+                validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
 
             validators = [validator for validator in validators if validator.ss58_address != self._keypair.ss58_address]
 
@@ -159,18 +159,13 @@ class Server(multiprocessing.Process):
                     target=self._connect_to_validator,
                     args=(
                         validator,
-                        self._keypair,
-                        connection_pool,
-                        event_pool,
-                        event_pool_lock,
-                        initial_sync_completed,
                     )
                 ).start()
 
         except Exception as e:
             print(f"Error initializing validators: {e}")
 
-    def _handle_connection(self, connection_pool: ConnectionPool, event_pool, event_pool_lock, initial_sync_completed, client_socket, address):
+    async def _handle_connection(self, client_socket, address):
         validator_connection = None
         try:
             # Wait self.IDENTIFIER_TIMEOUT_SECONDS as maximum time to get the identifier message
@@ -194,25 +189,25 @@ class Server(multiprocessing.Process):
 
                 # Replacing the incoming connection because the one currently in place maybe is outdated.
                 # TODO: Study if it is possible check if a connection is not outdated. It we can check that it won't be necessary replace the actual connection.
-                removed_connection = connection_pool.remove_if_exists(connection_identifier)
+                removed_connection = self._connection_pool.remove_if_exists(connection_identifier)
                 if removed_connection:
                     removed_connection.close()
 
-                if connection_pool.get_remaining_capacity() == 0:
+                if self._connection_pool.get_remaining_capacity() == 0:
                     print(f"Connection pool is full.")
                     client_socket.close()
                     return
 
-                validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
+                validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
 
                 if validators:
                     validator_connection = next((validator for validator in validators if validator.ss58_address == connection_identifier), None)
 
                     if validator_connection:
-                        if connection_pool.get_remaining_capacity() > 0:
-                            connection_pool.upsert_connection(validator_connection.ss58_address, validator_connection, client_socket)
+                        if self._connection_pool.get_remaining_capacity() > 0:
+                            self._connection_pool.upsert_connection(validator_connection.ss58_address, validator_connection, client_socket)
                             print(f"Connection added {validator_connection}")
-                            client_receiver = Client(client_socket, connection_identifier, connection_pool, event_pool, event_pool_lock, initial_sync_completed)
+                            client_receiver = Client(client_socket, connection_identifier, self._connection_pool, self._event_pool, self._event_pool_lock, self._initial_sync_completed)
                             client_receiver.start()
                         else:
                             print(f"No space available in the connection pool for connection {connection_identifier}.")
@@ -231,7 +226,7 @@ class Server(multiprocessing.Process):
             traceback.print_exc()
             print(f"Error handling connection: {e}")
             if validator_connection:
-                connection_pool.remove_if_exists(validator_connection.ss58_address)
+                self._connection_pool.remove_if_exists(validator_connection.ss58_address)
 
             if client_socket:
                 client_socket.close()

@@ -78,7 +78,7 @@ async def set_weights(score_dict: dict[int, float], netuid: int, key: Keypair):
     uids = list(weighted_scores.keys())
     weights = list(weighted_scores.values())
 
-    vote(key, uids, weights, netuid)
+    await vote(key, uids, weights, netuid)
 
 
 def _cut_to_max_allowed_uids(score_dict: dict[int, float]) -> dict[int, float]:
