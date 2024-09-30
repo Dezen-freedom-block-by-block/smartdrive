@@ -25,10 +25,10 @@ import multiprocessing
 import socket
 import select
 import threading
-import traceback
 
 from communex.compat.key import classic_load_key
 
+from smartdrive.logging_config import logger
 from smartdrive.commune.request import get_filtered_modules
 from smartdrive.sign import verify_data_signature, sign_data
 from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_from_public_key
@@ -75,8 +75,8 @@ class Server(multiprocessing.Process):
                 client_socket, address = server_socket.accept()
                 threading.Thread(target=self._run_handle_connection, args=(client_socket, address,)).start()
 
-        except Exception as e:
-            print(f"Server stopped unexpectedly - PID: {self.pid} - {e} - {traceback.print_exc()}")
+        except Exception:
+            logger.error(f"Server stopped unexpectedly - PID: {self.pid}", exc_info=True)
         finally:
             if server_socket:
                 server_socket.close()
@@ -107,8 +107,8 @@ class Server(multiprocessing.Process):
 
                 await self._initialize_validators(new_validators)
 
-            except Exception as e:
-                print(f"Error check connections process - {e}")
+            except Exception:
+                logger.error("Error check connections process", exc_info=True)
 
             finally:
                 await asyncio.sleep(self.CONNECTION_PROCESS_TIMEOUT_SECONDS)
@@ -140,9 +140,9 @@ class Server(multiprocessing.Process):
             self._connection_pool.upsert_connection(validator.ss58_address, validator, validator_socket)
             client_receiver = Client(validator_socket, validator.ss58_address, self._connection_pool, self._event_pool, self._event_pool_lock, self._initial_sync_completed)
             client_receiver.start()
-            print(f"Validator {validator.ss58_address} connected and added to the pool.")
+            logger.debug(f"Validator {validator.ss58_address} connected and added to the pool.")
         except Exception as e:
-            print(f"Error connecting to validator {validator.ss58_address}: {e}")
+            logger.debug(f"Error connecting to validator {validator.ss58_address}: {e}")
             self._connection_pool.remove_if_exists(validator.ss58_address)
             if validator_socket:
                 validator_socket.close()
@@ -162,8 +162,8 @@ class Server(multiprocessing.Process):
                     )
                 ).start()
 
-        except Exception as e:
-            print(f"Error initializing validators: {e}")
+        except Exception:
+            logger.error("Error discovering", exc_info=True)
 
     async def _handle_connection(self, client_socket, address):
         validator_connection = None
@@ -172,7 +172,7 @@ class Server(multiprocessing.Process):
             ready = select.select([client_socket], [], [], self.IDENTIFIER_TIMEOUT_SECONDS)
             if ready[0]:
                 identification_message = packing.receive_msg(client_socket)
-                print(f"Identification message received: {identification_message}")
+                logger.debug(f"Identification message received: {identification_message}")
 
                 signature_hex = identification_message["signature_hex"]
                 public_key_hex = identification_message["public_key_hex"]
@@ -181,11 +181,10 @@ class Server(multiprocessing.Process):
                 is_verified_signature = verify_data_signature(identification_message["body"], signature_hex, ss58_address)
 
                 if not is_verified_signature:
-                    print("Connection signature is not valid.")
+                    logger.debug("Connection signature is not valid.")
                     client_socket.close()
 
                 connection_identifier = identification_message["body"]["data"]["ss58_address"]
-                print(f"Connection reached {connection_identifier}")
 
                 # Replacing the incoming connection because the one currently in place maybe is outdated.
                 # TODO: Study if it is possible check if a connection is not outdated. It we can check that it won't be necessary replace the actual connection.
@@ -194,7 +193,7 @@ class Server(multiprocessing.Process):
                     removed_connection.close()
 
                 if self._connection_pool.get_remaining_capacity() == 0:
-                    print("Connection pool is full.")
+                    logger.debug("Connection pool is full.")
                     client_socket.close()
                     return
 
@@ -206,25 +205,25 @@ class Server(multiprocessing.Process):
                     if validator_connection:
                         if self._connection_pool.get_remaining_capacity() > 0:
                             self._connection_pool.upsert_connection(validator_connection.ss58_address, validator_connection, client_socket)
-                            print(f"Connection added {validator_connection}")
+                            logger.debug(f"Connection added {validator_connection}")
                             client_receiver = Client(client_socket, connection_identifier, self._connection_pool, self._event_pool, self._event_pool_lock, self._initial_sync_completed)
                             client_receiver.start()
                         else:
-                            print(f"No space available in the connection pool for connection {connection_identifier}.")
+                            logger.debug(f"No space available in the connection pool for connection {connection_identifier}.")
                             client_socket.close()
                     else:
-                        print(f"Looks like connection {connection_identifier} is not a valid validator.")
+                        logger.info(f"Looks like connection {connection_identifier} is not a valid validator.")
                         client_socket.close()
                 else:
-                    print("No active validators in subnet.")
+                    logger.debug("No active validators in subnet.")
                     client_socket.close()
             else:
-                print(f"No identification received from {address} within timeout.")
+                logger.debug(f"No identification received from {address} within timeout.")
                 client_socket.close()
 
-        except Exception as e:
-            traceback.print_exc()
-            print(f"Error handling connection: {e}")
+        except Exception:
+            logger.error("Error handling connection", exc_info=True)
+
             if validator_connection:
                 self._connection_pool.remove_if_exists(validator_connection.ss58_address)
 

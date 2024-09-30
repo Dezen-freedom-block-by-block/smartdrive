@@ -25,6 +25,8 @@ import socket
 import json
 import struct
 
+from smartdrive.logging_config import logger
+
 
 def send_json(sock: socket, obj: dict):
     try:
@@ -37,5 +39,5 @@ def send_json(sock: socket, obj: dict):
             sock.sendall(packed_len + msg)
         else:
             raise TimeoutError("Socket send info time out")
-    except Exception as e:
-        print(f"Error sending json: {e}")
+    except Exception:
+        logger.error("Error sending json", exc_info=True)

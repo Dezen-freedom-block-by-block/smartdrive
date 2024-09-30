@@ -29,13 +29,14 @@ from pathlib import Path
 from getpass import getpass
 import urllib3
 import requests
-import zstd
+import zstandard as zstd
 from substrateinterface import Keypair
 from nacl.exceptions import CryptoError
 
 from communex.compat.key import is_encrypted, classic_load_key
 
 import smartdrive
+from smartdrive.logging_config import logger
 from smartdrive.cli.errors import NoValidatorsAvailableException
 from smartdrive.cli.spinner import Spinner
 from smartdrive.cli.utils import decrypt_and_decompress, compress_and_encrypt
@@ -78,12 +79,12 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
     file_path = os.path.expanduser(file_path)
 
     if not Path(file_path).is_file():
-        print(f"Error: File {file_path} does not exist or is a directory.")
+        logger.error(f"File {file_path} does not exist or is a directory.")
         return
 
     # TODO: Change in the future
     if os.path.getsize(file_path) > MAX_FILE_SIZE:
-        print(f"Error: File size exceeds the maximum limit of {format_size(MAX_FILE_SIZE)}")
+        logger.error(f"Error: File size exceeds the maximum limit of {format_size(MAX_FILE_SIZE)}")
         return
 
     key = _get_key(key_name)
@@ -126,14 +127,14 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
         try:
             message = response.json()
         except ValueError:
-            print(f"Error: Unable to parse response JSON - {response.text}")
+            logger.error(f"Error: Unable to parse response JSON - {response.text}")
             return
 
         uuid = message.get('uuid')
         if uuid:
-            print(f"Your data will be stored soon. Your file UUID is: {uuid}")
+            logger.info(f"Your data will be stored soon. Your file UUID is: {uuid}")
         else:
-            print("Your data will be stored soon, but no file UUID was returned.")
+            logger.info("Your data will be stored soon, but no file UUID was returned.")
 
     except NoValidatorsAvailableException:
         spinner.stop_with_message("Error: No validators available")
@@ -194,11 +195,11 @@ def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testn
             filename = decrypt_and_decompress(response.content, key.private_key[:32], file_path)
 
             spinner.stop_with_message("¡Done!")
-            print(f"Data downloaded and decompressed successfully in {file_path}{filename}")
+            logger.info(f"Data downloaded and decompressed successfully in {file_path}{filename}")
 
         except zstd.Error:
             spinner.stop_with_message("Error: Decompression failed.")
-            print("Error: Decompression failed. The data is corrupted or the format is incorrect.")
+            logger.error("Error: Decompression failed. The data is corrupted or the format is incorrect.")
             return
 
     except NoValidatorsAvailableException:
@@ -249,7 +250,7 @@ def remove_handler(file_uuid: str, key_name: str = None, testnet: bool = False):
         response.raise_for_status()
         spinner.stop_with_message("¡Done!")
 
-        print(f"File {file_uuid} will be removed.")
+        logger.info(f"File {file_uuid} will be removed.")
 
     except NoValidatorsAvailableException:
         spinner.stop_with_message("Error: No validators available")
@@ -284,10 +285,10 @@ def _get_key(key_name: str) -> Keypair:
     try:
         key = classic_load_key(key_name, password)
     except CryptoError:
-        print("Error: Decryption failed. Ciphertext failed verification.")
+        logger.error("Error: Decryption failed. Ciphertext failed verification.")
         exit(1)
     except FileNotFoundError:
-        print("Error: Key not found.")
+        logger.error("Error: Key not found.")
         exit(1)
 
     return key

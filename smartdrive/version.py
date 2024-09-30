@@ -19,7 +19,6 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
-
 import os
 import re
 import subprocess
@@ -27,6 +26,8 @@ from subprocess import run, Popen
 from pathlib import Path
 import tomli
 import requests
+
+from smartdrive.logging_config import logger
 
 
 def get_version() -> str:
@@ -84,7 +85,7 @@ def check_version(extra_args: [str] = None):
 
     # If version in GitHub is greater, update module.
     if version_str_to_num(__version__) < version_str_to_num(latest_version) and latest_version is not None:
-        print(f"Updating to the latest version ({latest_version})...")
+        logger.info(f"Updating to the latest version ({latest_version})...")
         subprocess.run(["git", "reset", "--hard"], cwd=root_directory)
         run(["git", "pull"], cwd=root_directory)
         run(["pip", "install", "-e", "."], cwd=root_directory)
@@ -117,4 +118,4 @@ def get_latest_version() -> str:
         return version_match.group(1)
 
     else:
-        print(f"Failed to fetch file content. Status code: {response.status_code}")
+        logger.error(f"Failed to fetch file content. Status code: {response.status_code}")

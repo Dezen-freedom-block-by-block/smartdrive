@@ -26,6 +26,8 @@ import shutil
 
 from fastapi import HTTPException
 
+from smartdrive.logging_config import logger
+
 
 def get_directory_size(dir_path: str) -> int:
     """
@@ -51,8 +53,8 @@ def get_directory_size(dir_path: str) -> int:
             for f in filenames:
                 fp = os.path.join(dirpath, f)
                 total_size += os.path.getsize(fp)
-    except OSError as e:
-        print(f"An error occurred calculating total size: {e}")
+    except OSError:
+        logger.error("An error occurred calculating total size", exc_info=True)
 
     return total_size
 
@@ -97,6 +99,6 @@ def has_enough_space(file_size: int, max_size_gb: float, dir_path: str) -> bool:
         # Check if there is enough space to add the file
         return (current_size + file_size <= max_size_bytes) and (file_size <= free)
 
-    except OSError as e:
-        print(f"An error occurred calculating total size: {e}")
+    except OSError:
+        logger.error("An error occurred calculating total size", exc_info=True)
         return False

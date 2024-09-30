@@ -21,10 +21,7 @@
 #  SOFTWARE.
 
 import asyncio
-import os
 import random
-import tempfile
-import zipfile
 from typing import Optional
 import requests
 
@@ -32,6 +29,7 @@ from communex.types import Ss58Address
 from starlette.datastructures import Headers
 from substrateinterface import Keypair
 
+from smartdrive.logging_config import logger
 from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.commune.request import get_filtered_modules
 from smartdrive.models.event import Event, StoreEvent, RemoveEvent
@@ -45,37 +43,6 @@ from smartdrive.validator.node.util.utils import send_json
 
 MAX_RETRIES = 3
 RETRY_DELAY = 5
-
-
-def extract_sql_file(zip_filename: str) -> Optional[str]:
-    """
-    Extracts the SQL file from the given ZIP archive and stores it in a temporary file.
-
-    Params:
-        zip_filename (str): The path to the ZIP file that contains the SQL file.
-
-    Returns:
-        Optional[str]: The path to the temporary SQL file if extraction is successful, or None if an error occurs.
-    """
-    try:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with zipfile.ZipFile(zip_filename, 'r') as zip_ref:
-                zip_ref.extractall(temp_dir)
-
-            sql_files = [f for f in os.listdir(temp_dir) if f.endswith('.sql')]
-            if not sql_files:
-                print("No SQL files found in the ZIP archive.")
-                return None
-
-            sql_file_path = os.path.join(temp_dir, sql_files[0])
-            temp_sql_file = tempfile.NamedTemporaryFile(delete=False, suffix='.sql')
-            temp_sql_file.close()
-            os.rename(sql_file_path, temp_sql_file.name)
-            return temp_sql_file.name
-
-    except Exception as e:
-        print(f"Error during database import - {e}")
-        return None
 
 
 def fetch_validator(action: str, connection: ConnectionInfo, params=None, timeout=60, headers: Headers = None) -> Optional[requests.Response]:
@@ -99,20 +66,9 @@ def fetch_validator(action: str, connection: ConnectionInfo, params=None, timeou
                                 timeout=timeout, verify=False)
         response.raise_for_status()
         return response
-    except Exception as e:
-        print(f"Error fetching action {action} with connection {connection.ip}:{connection.port} - {e}")
+    except Exception:
+        logger.error(f"Error fetching action {action} with connection {connection.ip}:{connection.port}", exc_info=True)
         return None
-
-
-async def fetch_with_retries(action: str, connection: ConnectionInfo, params, timeout: int, headers: Headers,
-                             retries: int = MAX_RETRIES, delay: int = RETRY_DELAY) -> Optional[requests.Response]:
-    for attempt in range(retries):
-        response = fetch_validator(action, connection, params=params, headers=headers, timeout=timeout)
-        if response and response.status_code == 200:
-            return response
-        print(f"Failed to fetch {action} on attempt {attempt + 1}/{retries}. Retrying...")
-        await asyncio.sleep(delay)
-    return None
 
 
 async def process_events(events: list[Event], is_proposer_validator: bool, keypair: Keypair, netuid: int,
@@ -207,8 +163,8 @@ async def get_synced_blocks(start: int, connections, keypair, end: int = None):
             )
 
             send_json(c.socket, message.dict())
-        except Exception as e:
-            print(f"Error getting synced blocks: {e}")
+        except Exception:
+            logger.error("Error getting synced blocks", exc_info=True)
 
     connection = random.choice(connections)
     await _get_synced_blocks(connection)

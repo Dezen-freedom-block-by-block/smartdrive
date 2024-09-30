@@ -21,13 +21,13 @@
 #  SOFTWARE.
 import multiprocessing
 import threading
-import traceback
 from time import sleep
 from typing import Union, List
 
 from communex.compat.key import classic_load_key
 from substrateinterface import Keypair
 
+from smartdrive.logging_config import logger
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.models.block import Block, block_to_block_event
 from smartdrive.models.event import MessageEvent, StoreEvent, RemoveEvent
@@ -146,9 +146,8 @@ class Node:
                     )
 
                     self.send_message(c, message)
-                except Exception as e:
-                    traceback.print_exc()
-                    print(f"Error pinging validator: {e}")
+                except Exception:
+                    logger.debug("Error pinging validator", exc_info=True)
 
             inactive_connections = self._connection_pool.remove_and_return_inactive_sockets()
             for inactive_connection in inactive_connections:

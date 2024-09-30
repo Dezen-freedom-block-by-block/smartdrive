@@ -27,6 +27,7 @@ from typing import List, Optional
 from communex.types import Ss58Address
 from substrateinterface import Keypair
 
+from smartdrive.logging_config import logger
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.commune.utils import calculate_hash
 from smartdrive.models.event import ValidationEvent
@@ -63,7 +64,7 @@ async def validate(miners: list[ModuleInfo], database: Database, key: Keypair) -
         CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
     if not miners:
-        print("Skipping validation, there is not any miner.")
+        logger.info("Skipping validation, there is not any miner.")
         return
 
     validation_events_expired, validation_events_not_expired = [], []

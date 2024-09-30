@@ -19,11 +19,11 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
-
 import os
 import sqlite3
 from typing import List, Optional, Union
 
+from smartdrive.logging_config import logger
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.models.event import StoreEvent, Action, StoreParams, StoreInputParams, RemoveEvent, RemoveInputParams, \
     EventParams, UserEvent, ChunkParams, ValidationEvent
@@ -125,8 +125,8 @@ class Database:
                     _create_table_if_not_exists(cursor, 'validation', create_validation_table)
                     connection.commit()
 
-                except sqlite3.Error as e:
-                    print(f"Database error: {e}")
+                except sqlite3.Error:
+                    logger.error("Database error", exc_info=True)
                     self._delete_database()
                     raise
 
@@ -190,8 +190,8 @@ class Database:
 
             return True
 
-        except sqlite3.Error as e:
-            print(f"Database error: {e}")
+        except sqlite3.Error:
+            logger.error("Database error", exc_info=True)
             return False
 
     def get_file(self, user_ss58_address: str, file_uuid: str) -> File | None:
@@ -224,8 +224,8 @@ class Database:
                 result = File(user_owner_ss58address=row[1], total_chunks=row[2], file_uuid=row[0], chunks=[])
             else:
                 result = None
-        except sqlite3.Error as e:
-            print(f"Database error: {e}")
+        except sqlite3.Error:
+            logger.error("Database error", exc_info=True)
             result = None
         finally:
             if connection:
@@ -263,8 +263,8 @@ class Database:
                 total_size = result[0]
             else:
                 total_size = 0
-        except sqlite3.Error as e:
-            print(f"Database error: {e}")
+        except sqlite3.Error:
+            logger.error("Database error", exc_info=True)
             total_size = 0
         finally:
             if connection:
@@ -301,8 +301,8 @@ class Database:
                 )
                 for row in rows
             ]
-        except sqlite3.Error as e:
-            print(f"Database error: {e}")
+        except sqlite3.Error:
+            logger.error("Database error", exc_info=True)
             return []
         finally:
             if connection:
@@ -351,8 +351,8 @@ class Database:
                 )
                 validation_events.append(validation_event)
 
-        except sqlite3.Error as e:
-            print(f"Database error: {e}")
+        except sqlite3.Error:
+            logger.error("Database error", exc_info=True)
             return []
         finally:
             if connection:
@@ -404,8 +404,8 @@ class Database:
                 )
                 validation_events.append(validation_event)
 
-        except sqlite3.Error as e:
-            print(f"Database error: {e}")
+        except sqlite3.Error:
+            logger.error("Database error", exc_info=True)
 
         finally:
             if connection:
@@ -436,8 +436,8 @@ class Database:
                 cursor.execute("UPDATE file SET removed = 1 WHERE uuid = ?", (file_uuid,))
                 cursor.execute("DELETE FROM validation WHERE file_uuid = ?", (file_uuid,))
                 connection.commit()
-        except sqlite3.Error as e:
-            print(f"Database error: {e}")
+        except sqlite3.Error:
+            logger.error("Database error", exc_info=True)
             return False
 
         return True
@@ -457,8 +457,8 @@ class Database:
             cursor.execute("SELECT id FROM block ORDER BY id DESC LIMIT 1")
             result = cursor.fetchone()
             return result[0] if result else None
-        except sqlite3.Error as e:
-            print(f"Database error: {e}")
+        except sqlite3.Error:
+            logger.error("Database error", exc_info=True)
             return None
         finally:
             if connection:
@@ -474,7 +474,8 @@ class Database:
         Returns:
             bool: True if the block and its events are successfully created, False otherwise.
         """
-        print(f"Creating block - {block.block_number}")
+        logger.info(f"Creating block - {block.block_number}")
+
         connection = None
         try:
             connection = sqlite3.connect(self._database_file_path)
@@ -492,10 +493,10 @@ class Database:
 
                 connection.commit()
             return True
-        except sqlite3.Error as e:
+        except sqlite3.Error:
             if connection:
                 connection.rollback()
-            print(f"Database error: {e}")
+            logger.error("Database error", exc_info=True)
             return False
         finally:
             if connection:
@@ -598,8 +599,8 @@ class Database:
 
             return list(blocks.values())
 
-        except sqlite3.Error as e:
-            print(f"Database error: {e}")
+        except sqlite3.Error:
+            logger.error("Database error", exc_info=True)
             return None
         finally:
             if connection:
@@ -634,10 +635,10 @@ class Database:
 
                 connection.commit()
             return True
-        except sqlite3.Error as e:
+        except sqlite3.Error:
             if connection:
                 connection.rollback()
-            print(f"Database error: {e}")
+            logger.error("Database error", exc_info=True)
             return False
         finally:
             if connection:
@@ -690,8 +691,8 @@ class Database:
 
             return validation_events
 
-        except sqlite3.Error as e:
-            print(f"Database error: {e}")
+        except sqlite3.Error:
+            logger.error("Database error", exc_info=True)
             return None
         finally:
             if connection:

@@ -37,6 +37,7 @@ from communex.module.module import Module
 from communex.module._rate_limiters.limiters import IpLimiterParams
 
 import smartdrive
+from smartdrive.logging_config import logger
 from smartdrive.commune.connection_pool import initialize_commune_connection_pool
 from smartdrive.commune.request import get_modules
 from smartdrive.miner.middleware.miner_middleware import MinerMiddleware
@@ -165,7 +166,7 @@ class Miner(Module):
 
             return {"id": file_uuid}
         except Exception as e:
-            print(f"Error store - {e}")
+            logger.error("Error store", exc_info=True)
             raise HTTPException(status_code=409, detail=f"Error: {e}")
 
     async def remove(self, request: Request) -> dict:
@@ -230,7 +231,7 @@ class Miner(Module):
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="Chunk not found")
         except Exception as e:
-            print(e)
+            logger.error("Error retrieving", exc_info=True)
             raise HTTPException(status_code=409, detail=f"Error: {e}")
 
     async def validation(self, request: Request) -> dict:

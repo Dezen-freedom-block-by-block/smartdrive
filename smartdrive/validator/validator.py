@@ -19,7 +19,6 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
-
 import os
 import argparse
 import time
@@ -31,6 +30,7 @@ from communex.types import Ss58Address
 from substrateinterface import Keypair
 
 import smartdrive
+from smartdrive.logging_config import logger
 from smartdrive.commune.connection_pool import initialize_commune_connection_pool
 from smartdrive.models.block import Block, MAX_EVENTS_PER_BLOCK
 from smartdrive.validator.config import Config, config_manager
@@ -118,12 +118,12 @@ class Validator(Module):
 
             try:
                 if not first_validation_vote_launched or start_time - last_validation_time >= self.VALIDATION_VOTE_INTERVAL_SECONDS:
-                    print("Starting validation and voting task")
+                    logger.info("Starting validation and voting task")
                     asyncio.create_task(self.validate_vote_task())
                     first_validation_vote_launched = True
                     last_validation_time = start_time
-            except Exception as e:
-                print(f"Error validating - {e}")
+            except Exception:
+                logger.error("Error validating", exc_info=True)
 
             try:
                 # Retrieving all active validators is crucial, so we attempt it an optimal number of times.
@@ -190,11 +190,11 @@ class Validator(Module):
 
                 elapsed = time.monotonic() - start_time
                 sleep_time = max(0.0, self.BLOCK_INTERVAL_SECONDS - elapsed)
-                print(f"Sleeping for {sleep_time:.2f} seconds before trying to create the next block.")
+                logger.info(f"Sleeping for {sleep_time:.2f} seconds before trying to create the next block.")
                 await asyncio.sleep(sleep_time)
 
-            except Exception as e:
-                print(f"Error creating blocks - {e}")
+            except Exception:
+                logger.error("Error creating blocks", exc_info=True)
                 await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS)
 
     async def validate_vote_task(self):

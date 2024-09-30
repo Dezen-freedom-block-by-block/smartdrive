@@ -19,11 +19,11 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
-
 import time
 from multiprocessing import Manager, Lock
 import socket
 
+from smartdrive.logging_config import logger
 from smartdrive.commune.models import ModuleInfo
 
 
@@ -55,7 +55,7 @@ class ConnectionPool:
                 if len(self._connections) <= self._cache_size:
                     self._connections[identifier] = connection
                 else:
-                    print(f"Max num of connections reached {self._cache_size}")
+                    logger.error("fMax num of connections reached {self._cache_size}")
 
             else:
                 for key, c in self._connections.items():

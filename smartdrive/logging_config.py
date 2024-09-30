@@ -20,5 +20,12 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 
-# TODO: change stake amount
-TRUTHFUL_STAKE_AMOUNT = 1_000_000
+import logging
+
+logger = logging.getLogger('smartdrive')
+logger.setLevel(logging.DEBUG)
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(levelname)s: %(message)s')
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)

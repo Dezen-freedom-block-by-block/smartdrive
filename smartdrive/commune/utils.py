@@ -5,6 +5,7 @@ from typing import List, Optional
 from communex.types import Ss58Address
 from substrateinterface.utils.ss58 import is_valid_ss58_address, ss58_encode
 
+from smartdrive.logging_config import logger
 from smartdrive.commune.models import ModuleInfo, ConnectionInfo
 from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 
@@ -57,8 +58,8 @@ def _get_ip_port(address_string: str) -> Optional[ConnectionInfo]:
             return ConnectionInfo(extracted_address[0], int(extracted_address[1]))
         return None
 
-    except Exception as e:
-        print(f"Error extracting IP and port: {e}")
+    except Exception:
+        logger.error("Error extracting IP and port", exc_info=True)
         return None
 
 

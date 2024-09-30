@@ -28,6 +28,7 @@ from typing import List
 from communex.compat.key import classic_load_key
 
 import smartdrive
+from smartdrive.logging_config import logger
 from smartdrive.models.event import parse_event, MessageEvent, Action, Event, ValidationEvent
 from smartdrive.sign import verify_data_signature, sign_data
 from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_from_public_key
@@ -79,7 +80,7 @@ class Client(threading.Thread):
                 # we explicitly pass it as parameters to make it clear that it is dependency of the process_message process.
                 self._message_queue.put(json_message)
             except (ConnectionResetError, ConnectionAbortedError, ClientDisconnectedException, Exception):
-                print(f"Client disconnected: {self._identifier}")
+                logger.error(f"Client disconnected: {self._identifier}")
                 break
 
     def _process_queue(self):
@@ -88,9 +89,9 @@ class Client(threading.Thread):
                 json_message = self._message_queue.get()
                 self._process_message(json_message, self._event_pool, self._connection_pool)
             except InvalidSignatureException:
-                print("Received invalid sign")
+                logger.error("Received invalid sign")
             except (MessageException, MessageFormatException):
-                print(f"Received undecodable or invalid message: {self._identifier}")
+                logger.error(f"Received undecodable or invalid message: {self._identifier}")
 
     def _process_message(self, json_message, event_pool, connection_pool):
         message = Message(**json_message)
@@ -120,7 +121,7 @@ class Client(threading.Thread):
                             signature_hex=block.signed_block,
                             ss58_address=block.proposer_ss58_address
                     ):
-                        print(f"Block {block.block_number} not verified")
+                        logger.error(f"Block {block.block_number} not verified")
                         return
 
                     remove_invalid_block_events(block)
@@ -218,7 +219,7 @@ class Client(threading.Thread):
                             block = Block(**block)
 
                             if not are_all_block_events_valid(block):
-                                print(f"Invalid blocks {block}")
+                                logger.error(f"Invalid blocks {block}")
                                 self._synced_blocks = []
                                 return
 
@@ -238,7 +239,7 @@ class Client(threading.Thread):
             raise e
 
         except Exception as e:
-            print(e)
+            logger.error("Can not process message", exc_info=True)
             raise MessageFormatException('%s' % e)
 
     def _run_process_events(self, processed_events):

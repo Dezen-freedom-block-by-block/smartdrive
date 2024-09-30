@@ -32,6 +32,7 @@ from communex.client import CommuneClient
 from communex.types import Ss58Address
 from substrateinterface import Keypair
 
+from smartdrive.logging_config import logger
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.commune.utils import _get_ip_port
@@ -104,11 +105,11 @@ def retry_on_failure(retries):
                     result = await func(client, *args, **kwargs)
                     pool.release_client(client)
                     return result
-                except (WebSocketException, TimeoutException) as e:
-                    print(f"Replacing broken commune client... {e}")
+                except (WebSocketException, TimeoutException):
+                    logger.debug("Replacing broken commune client", exc_info=True)
                     pool.replace_broken_client()
-                except Exception as e:
-                    print(f"Retrying with another commune client due to {e}...")
+                except Exception:
+                    logger.debug("Retrying with another commune client due t", exc_info=True)
                     if client:
                         pool.release_client(client)
                     else:
@@ -133,8 +134,8 @@ async def get_staketo(ss58_address: Ss58Address, netuid: int, timeout=TIMEOUT) -
         result = await _get_staketo_with_timeout(ss58_address=ss58_address, netuid=netuid, timeout=timeout)
         if result is not None:
             return result
-    except Exception as e:
-        print(f"Error in get_staketo: {e}")
+    except Exception:
+        logger.error("Can not fetch module's related stakes", exc_info=True)
     raise CommuneNetworkUnreachable()
 
 
@@ -148,11 +149,11 @@ async def _vote_with_timeout(client, key, uids, weights, netuid, timeout=TIMEOUT
 
 
 async def vote(key: Keypair, uids: List[int], weights: List[int], netuid: int, timeout=TIMEOUT):
-    print(f"Voting uids: {uids} - weights: {weights}")
+    logger.info(f"Voting uids: {uids} - weights: {weights}")
     try:
         await _vote_with_timeout(key=key, uids=uids, weights=weights, netuid=netuid, timeout=timeout)
-    except Exception as e:
-        print(f"Error in vote: {e}")
+    except Exception:
+        logger.error("Error voting", exc_info=True)
 
 
 @retry_on_failure(retries=RETRIES)
@@ -193,8 +194,8 @@ async def get_modules(netuid: int, timeout=TIMEOUT) -> List[ModuleInfo]:
                             ModuleInfo(uid, ss58_address, connection, result["Incentive"][netuid][uid], result["Dividends"][netuid][uid], total_stake)
                         )
             return modules_info
-    except Exception as e:
-        print(f"Error in get_modules: {e}")
+    except Exception:
+        logger.error("Error getting modules", exc_info=True)
     raise CommuneNetworkUnreachable()
 
 
