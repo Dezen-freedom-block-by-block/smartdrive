@@ -29,7 +29,11 @@ Before making your first commit, make sure you have the following tools installe
 
 To ensure code quality, we use Git hooks to run `flake8` before every commit. Follow these steps to install the pre-commit hook:
 
-1. After cloning the repository, run the following script to install the Git hook:
+1. **Assign execution permissions to the script** (only needed once after cloning the repository):
 
-   ```bash
-   ./scripts/install-hooks.sh
+    ```bash
+    chmod +x ./scripts/install-hooks.sh
+   
+2. **Run the script**:
+    ```bash
+    ./scripts/install-hooks.sh
