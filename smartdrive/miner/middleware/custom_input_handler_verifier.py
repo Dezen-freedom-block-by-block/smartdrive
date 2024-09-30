@@ -1,24 +1,24 @@
-# MIT License
+#  MIT License
 #
-# Copyright (c) 2024 Dezen | freedom block by block
+#  Copyright (c) 2024 Dezen | freedom block by block
 #
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
+#  Permission is hereby granted, free of charge, to any person obtaining a copy
+#  of this software and associated documentation files (the "Software"), to deal
+#  in the Software without restriction, including without limitation the rights
+#  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#  copies of the Software, and to permit persons to whom the Software is
+#  furnished to do so, subject to the following conditions:
 #
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
+#  The above copyright notice and this permission notice shall be included in all
+#  copies or substantial portions of the Software.
 #
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
+#  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+#  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#  SOFTWARE.
 
 import json
 from datetime import datetime, timezone
@@ -55,11 +55,11 @@ class CustomInputHandlerVerifier(InputHandlerVerifier):
 
         match await self._check_inputs(request, body, self.module_key):
             case (False, error):
-                return error
+                return error  # noqa F821
             case (True, _):
                 pass
 
-        body_dict = await self._get_signed_body(request)  
+        body_dict = await self._get_signed_body(request)
         timestamp = body_dict['params'].get("timestamp", None)
         legacy_timestamp = request.headers.get("X-Timestamp", None)
         try:
@@ -103,7 +103,6 @@ class CustomInputHandlerVerifier(InputHandlerVerifier):
             log_reffusal(key.decode(), reason)
             return (False, json_error(400, reason))
 
-
         legacy_verified = False
         signed_body = await self._get_signed_body(request)
         stamped_body = json.dumps(signed_body).encode()
@@ -134,25 +133,25 @@ class CustomInputHandlerVerifier(InputHandlerVerifier):
 
         match self._get_headers_dict(request.headers, required_headers, optional_headers):
             case (False, error):
-                return (False, error)
+                return (False, error)  # noqa F821
             case (True, headers_dict):
                 pass
 
-        match await self._check_signature(headers_dict, request, module_key):
+        match await self._check_signature(headers_dict, request, module_key):  # noqa F821
             case (False, error):
-                return (False, error)
+                return (False, error)  # noqa F821
             case (True, _):
                 pass
 
         match self._check_key_registered(
             self.subnets_whitelist,
-            headers_dict,
+            headers_dict,  # noqa F821
             self.blockchain_cache,
             self.host_key,
             self.use_testnet,
         ):
             case (False, error):
-                return (False, error)
+                return (False, error)  # noqa F821
             case (True, _):
                 pass
 

@@ -26,6 +26,7 @@ import os
 
 multiprocessing.set_start_method("fork")
 
+
 class Config:
     def __init__(self, key: str, database_path: str, port: int, testnet: bool, netuid: int):
         self.key: str = key

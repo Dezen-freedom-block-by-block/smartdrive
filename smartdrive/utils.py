@@ -1,30 +1,30 @@
-# MIT License
+#  MIT License
 #
-# Copyright (c) 2024 Dezen | freedom block by block
+#  Copyright (c) 2024 Dezen | freedom block by block
 #
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
+#  Permission is hereby granted, free of charge, to any person obtaining a copy
+#  of this software and associated documentation files (the "Software"), to deal
+#  in the Software without restriction, including without limitation the rights
+#  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#  copies of the Software, and to permit persons to whom the Software is
+#  furnished to do so, subject to the following conditions:
 #
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
+#  The above copyright notice and this permission notice shall be included in all
+#  copies or substantial portions of the Software.
 #
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
+#  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+#  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#  SOFTWARE.
 
-MAX_FILE_SIZE = 500 * 1024 * 1024 # 500 MB
-INITIAL_STORAGE = 50 * 1024 * 1024 # 50 MB
-MAXIMUM_STORAGE = 2 * 1024 * 1024 * 1024 # 2 GB
-ADDITIONAL_STORAGE_PER_COMAI = 0.1 * 1024 * 1024 # 0.1 MB
-MINIMUM_STAKE = 1 # 1 COMAI
+MAX_FILE_SIZE = 500 * 1024 * 1024  # 500 MB
+INITIAL_STORAGE = 50 * 1024 * 1024  # 50 MB
+MAXIMUM_STORAGE = 2 * 1024 * 1024 * 1024  # 2 GB
+ADDITIONAL_STORAGE_PER_COMAI = 0.1 * 1024 * 1024  # 0.1 MB
+MINIMUM_STAKE = 1  # 1 COMAI
 
 
 def calculate_storage_capacity(stake: float) -> int:
@@ -49,6 +49,7 @@ def calculate_storage_capacity(stake: float) -> int:
 
     # Limit the total storage to MAXIMUM_STORAGE in bytes
     return int(min(total_storage_bytes, MAXIMUM_STORAGE))
+
 
 def format_size(size_in_bytes: int) -> str:
     """

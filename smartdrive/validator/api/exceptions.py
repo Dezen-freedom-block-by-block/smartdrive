@@ -60,7 +60,7 @@ class CommuneNetworkUnreachable(HTTPException):
 class NoMinersInNetworkException(HTTPException):
     def __init__(self, detail: str = "Currently there are no miners in the SmartDrive network"):
         super().__init__(status_code=503, detail=detail)
-        
+
 
 class NoValidMinerResponseException(HTTPException):
     def __init__(self, detail: str = "No miner answered with a valid response"):
