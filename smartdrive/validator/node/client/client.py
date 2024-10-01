@@ -23,61 +23,61 @@
 import asyncio
 import queue
 import threading
-from typing import List
+from _socket import SocketType
+from multiprocessing import Value
 
 from communex.compat.key import classic_load_key
+from communex.types import Ss58Address
+from substrateinterface import Keypair
 
 import smartdrive
+import smartdrive.validator.node.connection.utils.utils
 from smartdrive.logging_config import logger
-from smartdrive.models.event import parse_event, MessageEvent, Action, Event, ValidationEvent
+from smartdrive.models.event import parse_event, MessageEvent, Action, ValidationEvent
 from smartdrive.sign import verify_data_signature, sign_data
 from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.models.block import BlockEvent, block_event_to_block, Block
-from smartdrive.validator.node.connection_pool import ConnectionPool
-from smartdrive.validator.node.util import packing
-from smartdrive.validator.node.util.authority import are_all_block_events_valid, remove_invalid_block_events
+from smartdrive.validator.node.connection.connection_pool import ConnectionPool
+from smartdrive.validator.node.event.event_pool import EventPool
+from smartdrive.validator.node.util.block_integrity import are_all_block_events_valid, remove_invalid_block_events
 from smartdrive.validator.node.util.exceptions import MessageException, ClientDisconnectedException, MessageFormatException, InvalidSignatureException
 from smartdrive.validator.node.util.message import MessageCode, Message, MessageBody
-from smartdrive.validator.node.util.utils import send_json
 from smartdrive.validator.utils import process_events, prepare_sync_blocks
+from smartdrive.validator.node.connection.utils.utils import send_message, receive_msg
 
 
 class Client(threading.Thread):
     MAX_BLOCKS_SYNC = 500
     MAX_VALIDATION_SYNC = 500
 
-    _client_socket = None
-    _identifier: str = None
-    _connection_pool = None
-    _event_pool = None
-    _keypair = None
-    _database = None
-    _initial_sync_completed = None
-    _synced_blocks = None
+    _client_socket: SocketType = None
+    _identifier: Ss58Address = None
+    _connection_pool: ConnectionPool = None
+    _event_pool: EventPool = None
+    _keypair: Keypair = None
+    _database: Database = None
+    _message_queue: queue.Queue = None
+    _initial_sync_completed: Value = None
 
-    def __init__(self, client_socket, identifier, connection_pool: ConnectionPool, event_pool, event_pool_lock, initial_sync_completed):
+    def __init__(self, client_socket: SocketType, identifier: Ss58Address, connection_pool: ConnectionPool, event_pool: EventPool, initial_sync_completed: Value):
         threading.Thread.__init__(self)
         self._client_socket = client_socket
         self._identifier = identifier
         self._connection_pool = connection_pool
         self._event_pool = event_pool
-        self._event_pool_lock = event_pool_lock
         self._initial_sync_completed = initial_sync_completed
         self._keypair = classic_load_key(config_manager.config.key)
         self._database = Database()
-        self._synced_blocks = []
         self._message_queue = queue.Queue()
         threading.Thread(target=self._process_queue).start()
 
     def run(self):
         while True:
             try:
-                # Here the process is waiting till a new message is sent.
-                json_message = packing.receive_msg(self._client_socket)
-                # Although _event_pool is managed by multiprocessing.Manager(),
-                # we explicitly pass it as parameters to make it clear that it is dependency of the process_message process.
+                # Here the process is waiting till a new message is received
+                json_message = receive_msg(self._client_socket)
                 self._message_queue.put(json_message)
             except (ConnectionResetError, ConnectionAbortedError, ClientDisconnectedException, Exception):
                 logger.error(f"Client disconnected: {self._identifier}")
@@ -93,7 +93,7 @@ class Client(threading.Thread):
             except (MessageException, MessageFormatException):
                 logger.error(f"Received undecodable or invalid message: {self._identifier}")
 
-    def _process_message(self, json_message, event_pool, connection_pool):
+    def _process_message(self, json_message, event_pool: EventPool, connection_pool: ConnectionPool):
         message = Message(**json_message)
 
         try:
@@ -126,14 +126,12 @@ class Client(threading.Thread):
 
                     remove_invalid_block_events(block)
 
-                    # TODO: Check when a validator creates a block (it is not a proposer) and just enters to validate
-                    #  the proposer and creates another block, in this case, the blocks will be repeated
                     local_block_number = self._database.get_last_block_number() or 0
                     if block.block_number - 1 != local_block_number:
                         prepare_sync_blocks(start=local_block_number + 1, end=block.block_number, active_connections=connection_pool.get_all(), keypair=self._keypair)
                     else:
                         self._run_process_events(block.events)
-                        self._remove_events(block.events, event_pool)
+                        event_pool.remove_multiple(block.events)
                         self._database.create_block(block)
 
                         if not self._initial_sync_completed.value:
@@ -142,8 +140,7 @@ class Client(threading.Thread):
                 elif message.body.code == MessageCode.MESSAGE_CODE_EVENT:
                     message_event = MessageEvent.from_json(message.body.data["event"], Action(message.body.data["event_action"]))
                     event = parse_event(message_event)
-                    if not any(e.uuid == event.uuid for e in event_pool):
-                        event_pool.append(event)
+                    event_pool.append(event)
 
                 elif message.body.code == MessageCode.MESSAGE_CODE_PING:
                     body = MessageBody(
@@ -156,12 +153,10 @@ class Client(threading.Thread):
                         signature_hex=body_sign.hex(),
                         public_key_hex=self._keypair.public_key.hex()
                     )
-                    send_json(self._client_socket, message.dict())
+                    send_message(self._client_socket, message)
 
                 elif message.body.code == MessageCode.MESSAGE_CODE_PONG:
-                    connection = self._connection_pool.get(self._identifier)
-                    if connection:
-                        connection_pool.upsert_connection(connection.module.ss58_address, connection.module, connection.socket)
+                    self._connection_pool.update_last_response_time(self._identifier)
 
                 elif message.body.code == MessageCode.MESSAGE_CODE_SYNC_BLOCK:
                     start = int(message.body.data['start'])
@@ -188,10 +183,10 @@ class Client(threading.Thread):
                                     signature_hex=body_sign.hex(),
                                     public_key_hex=self._keypair.public_key.hex()
                                 )
-                                send_json(self._client_socket, message.dict())
+                                send_message(self._client_socket, message)
 
                         # Send event pool too
-                        for event in event_pool:
+                        for event in event_pool.get_all():
                             message_event = MessageEvent.from_json(event.dict(), event.get_event_action())
                             body = MessageBody(
                                 code=MessageCode.MESSAGE_CODE_EVENT,
@@ -203,7 +198,7 @@ class Client(threading.Thread):
                                 signature_hex=body_sign.hex(),
                                 public_key_hex=self._keypair.public_key.hex()
                             )
-                            send_json(self._client_socket, message.dict())
+                            send_message(self._client_socket, message)
 
                 elif message.body.code == MessageCode.MESSAGE_CODE_SYNC_BLOCK_RESPONSE:
                     if message.body.data["blocks"]:
@@ -219,15 +214,14 @@ class Client(threading.Thread):
                             block = Block(**block)
 
                             if not are_all_block_events_valid(block):
-                                logger.error(f"Invalid blocks {block}")
-                                self._synced_blocks = []
+                                logger.error(f"Invalid events in {block}")
                                 return
 
                             blocks.append(block)
 
                         for block in blocks:
                             self._run_process_events(block.events)
-                            self._remove_events(block.events, event_pool)
+                            event_pool.remove_multiple(block.events)
                             self._database.create_block(block)
 
                 elif message.body.code == MessageCode.MESSAGE_CODE_VALIDATION_EVENTS:
@@ -261,9 +255,3 @@ class Client(threading.Thread):
             asyncio.create_task(run_process_events(processed_events))
         else:
             asyncio.run(run_process_events(processed_events))
-
-    def _remove_events(self, events: List[Event], event_pool):
-        uuids_to_remove = {event.uuid for event in events}
-        with self._event_pool_lock:
-            updated_event_pool = [event for event in event_pool if event.uuid not in uuids_to_remove]
-            event_pool[:] = updated_event_pool

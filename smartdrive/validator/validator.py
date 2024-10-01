@@ -19,6 +19,7 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
+
 import os
 import argparse
 import time
@@ -32,15 +33,17 @@ from substrateinterface import Keypair
 import smartdrive
 from smartdrive.logging_config import logger
 from smartdrive.commune.connection_pool import initialize_commune_connection_pool
-from smartdrive.models.block import Block, MAX_EVENTS_PER_BLOCK
+from smartdrive.models.block import Block, MAX_EVENTS_PER_BLOCK, block_to_block_event
 from smartdrive.validator.config import Config, config_manager
 from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 from smartdrive.validator.database.database import Database
+from smartdrive.validator.node.connection.utils.utils import send_message
 from smartdrive.validator.node.node import Node
 from smartdrive.validator.api.api import API
 from smartdrive.validator.evaluation.evaluation import score_miners, set_weights
-from smartdrive.validator.node.connection_pool import INACTIVITY_TIMEOUT_SECONDS as VALIDATOR_INACTIVITY_TIMEOUT_SECONDS
+from smartdrive.validator.node.connection.connection_pool import INACTIVITY_TIMEOUT_SECONDS as VALIDATOR_INACTIVITY_TIMEOUT_SECONDS
 from smartdrive.validator.models.models import ModuleType
+from smartdrive.validator.node.util.message import MessageBody, MessageCode, Message
 from smartdrive.validator.validation import validate
 from smartdrive.validator.utils import process_events, prepare_sync_blocks
 from smartdrive.sign import sign_data
@@ -186,7 +189,19 @@ class Validator(Module):
                     )
                     self._database.create_block(block=block)
 
-                    self.node.send_block(block=block)
+                    block_event = block_to_block_event(block)
+                    body = MessageBody(
+                        code=MessageCode.MESSAGE_CODE_BLOCK,
+                        data=block_event.dict()
+                    )
+                    body_sign = sign_data(body.dict(), self._key)
+                    message = Message(
+                        body=body,
+                        signature_hex=body_sign.hex(),
+                        public_key_hex=self._key.public_key.hex()
+                    )
+                    for connection in self.node.get_connections():
+                        send_message(connection, message)
 
                 elapsed = time.monotonic() - start_time
                 sleep_time = max(0.0, self.BLOCK_INTERVAL_SECONDS - elapsed)

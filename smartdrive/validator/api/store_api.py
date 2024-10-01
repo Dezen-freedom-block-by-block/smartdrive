@@ -151,7 +151,7 @@ class StoreAPI:
                 )
                 self._node.send_message(active_connection, message)
 
-        self._node.add_event(store_event)
+        self._node.distribute_event(store_event)
 
         return {"uuid": store_event.event_params.file_uuid}
 

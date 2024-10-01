@@ -19,25 +19,3 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
-
-import select
-import socket
-import json
-import struct
-
-from smartdrive.logging_config import logger
-
-
-def send_json(sock: socket, obj: dict):
-    try:
-        msg = json.dumps(obj).encode('utf-8')
-        msg_len = len(msg)
-        packed_len = struct.pack('!I', msg_len)
-
-        _, ready_to_write, _ = select.select([], [sock], [], 5)
-        if ready_to_write:
-            sock.sendall(packed_len + msg)
-        else:
-            raise TimeoutError("Socket send info time out")
-    except Exception:
-        logger.error("Error sending json", exc_info=True)

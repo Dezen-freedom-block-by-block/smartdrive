@@ -19,27 +19,3 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
-
-class MessageException(Exception):
-    def __init__(self, msg):
-        super().__init__(msg)
-
-
-class ClientDisconnectedException(Exception):
-    def __init__(self, msg):
-        super().__init__(msg)
-
-
-class MessageFormatException(Exception):
-    def __init__(self, msg):
-        super().__init__(msg)
-
-
-class InvalidSignatureException(Exception):
-    def __init__(self):
-        super().__init__()
-
-
-class ConnectionPoolMaxSizeReached(Exception):
-    def __init__(self, message):
-        super().__init__(message)

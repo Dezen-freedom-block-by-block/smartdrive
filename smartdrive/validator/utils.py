@@ -22,7 +22,7 @@
 
 import asyncio
 import random
-from typing import Optional
+from typing import Optional, Union
 import requests
 
 from communex.types import Ss58Address
@@ -32,14 +32,14 @@ from substrateinterface import Keypair
 from smartdrive.logging_config import logger
 from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.commune.request import get_filtered_modules
-from smartdrive.models.event import Event, StoreEvent, RemoveEvent
+from smartdrive.models.event import StoreEvent, RemoveEvent
 from smartdrive.sign import sign_data
 from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.models.utils import compile_miners_info_and_chunks
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.models.models import Chunk, File, ModuleType
+from smartdrive.validator.node.connection.utils.utils import send_message
 from smartdrive.validator.node.util.message import MessageCode, MessageBody, Message
-from smartdrive.validator.node.util.utils import send_json
 
 MAX_RETRIES = 3
 RETRY_DELAY = 5
@@ -71,13 +71,12 @@ def fetch_validator(action: str, connection: ConnectionInfo, params=None, timeou
         return None
 
 
-async def process_events(events: list[Event], is_proposer_validator: bool, keypair: Keypair, netuid: int,
-                         database: Database):
+async def process_events(events: list[Union[StoreEvent, RemoveEvent]], is_proposer_validator: bool, keypair: Keypair, netuid: int, database: Database):
     """
     Process a list of events. Depending on the type of event, it either stores a file or removes it.
 
     Params:
-        events (list[Event]): A list of events to process.
+        events (list[Union[StoreEvent, RemoveEvent]]): A list of events to process.
         is_proposer_validator (bool): Flag indicating if the current node is the proposer validator.
         keypair (Keypair): The keypair used for signing data.
         netuid (int): The network UID.
@@ -162,7 +161,7 @@ async def get_synced_blocks(start: int, connections, keypair, end: int = None):
                 public_key_hex=keypair.public_key.hex()
             )
 
-            send_json(c.socket, message.dict())
+            send_message(c.socket, message)
         except Exception:
             logger.error("Error getting synced blocks", exc_info=True)
 
