@@ -42,6 +42,7 @@ from smartdrive.commune.connection_pool import initialize_commune_connection_poo
 from smartdrive.commune.request import get_modules
 from smartdrive.miner.middleware.miner_middleware import MinerMiddleware
 from smartdrive.miner.utils import has_enough_space, get_directory_size, parse_body
+from smartdrive.utils import DEFAULT_MINER_PATH
 
 
 def get_config() -> Namespace:
@@ -63,17 +64,17 @@ def get_config() -> Namespace:
     # Create parser and add all params.
     parser = argparse.ArgumentParser(description="Configure the miner.")
     parser.add_argument("--key-name", required=True, help="Name of key.")
-    parser.add_argument("--data-path", default="~/smartdrive-data", required=False, help="Path to the data.")
+    parser.add_argument("--data-path", default=DEFAULT_MINER_PATH, required=False, help="Path to the data.")
     parser.add_argument("--max-size", type=float, default=100, required=False, help="Size (in GB) of path to fill.")
     parser.add_argument("--port", type=int, default=8000, required=False, help="Default api port.")
     parser.add_argument("--testnet", action='store_true', help="Use testnet or not.")
 
     config = parser.parse_args()
+    config.data_path = os.path.expanduser(config.data_path)
 
     if config.data_path:
         os.makedirs(config.data_path, exist_ok=True)
 
-    config.data_path = os.path.expanduser(config.data_path)
     config.netuid = smartdrive.TESTNET_NETUID if config.testnet else smartdrive.NETUID
 
     return config

@@ -91,3 +91,19 @@ def calculate_hash(data: bytes) -> str:
     sha256 = hashlib.sha256()
     sha256.update(data)
     return sha256.hexdigest()
+
+
+def calculate_hash_stream(file_stream) -> str:
+    """
+    Calculates the SHA-256 hash of the given file stream by reading it in chunks.
+
+    Params:
+        file_stream (file-like object): The file stream to hash.
+
+    Returns:
+        str: The hexadecimal representation of the SHA-256 hash of the input data.
+    """
+    sha256 = hashlib.sha256()
+    for chunk in iter(lambda: file_stream.read(8192), b''):
+        sha256.update(chunk)
+    return sha256.hexdigest()

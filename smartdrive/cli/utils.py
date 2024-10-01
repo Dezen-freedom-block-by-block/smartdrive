@@ -26,6 +26,8 @@ import zstandard as zstd
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 
+from smartdrive.utils import DEFAULT_CLIENT_PATH
+
 
 def encrypt_with_aes(data, aes_key):
     iv = get_random_bytes(16)
@@ -51,11 +53,35 @@ def compress_file_with_zstd(file_path):
     return compressed_io.read()
 
 
-def compress_and_encrypt(file_path, private_key_bytes):
+def compress_encrypt_and_save(file_path, private_key_bytes):
     aes_key = private_key_bytes[:32]
     compressed_data = compress_file_with_zstd(file_path)
     encrypted_data = encrypt_with_aes(compressed_data, aes_key)
-    return encrypted_data
+
+    original_filename = os.path.basename(file_path)
+    data_path = os.path.expanduser(DEFAULT_CLIENT_PATH)
+    if not os.path.exists(data_path):
+        os.makedirs(data_path, exist_ok=True)
+
+    output_file_path = os.path.join(data_path, original_filename)
+    with open(output_file_path, 'wb') as f_out:
+        f_out.write(encrypted_data)
+
+    return output_file_path
+
+
+def stream_file_with_signature(file_path, keypair):
+    chunk_size = 8192  # 8KB
+    with open(file_path, 'rb') as file:
+        while True:
+            chunk = file.read(chunk_size)
+            if not chunk:
+                break
+
+            signature = keypair.sign(chunk)
+
+            yield chunk
+            yield signature
 
 
 def decrypt_with_aes(encrypted_data, aes_key):

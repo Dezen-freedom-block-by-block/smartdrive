@@ -26,6 +26,10 @@ MAXIMUM_STORAGE = 2 * 1024 * 1024 * 1024  # 2 GB
 ADDITIONAL_STORAGE_PER_COMAI = 0.1 * 1024 * 1024  # 0.1 MB
 MINIMUM_STAKE = 1  # 1 COMAI
 
+DEFAULT_MINER_PATH = "~/.smartdrive/miner"
+DEFAULT_VALIDATOR_PATH = "~/.smartdrive/validator"
+DEFAULT_CLIENT_PATH = "~/.smartdrive/client"
+
 
 def calculate_storage_capacity(stake: float) -> int:
     """

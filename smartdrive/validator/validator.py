@@ -33,6 +33,7 @@ import smartdrive
 from smartdrive.logging_config import logger
 from smartdrive.commune.connection_pool import initialize_commune_connection_pool
 from smartdrive.models.block import Block, MAX_EVENTS_PER_BLOCK
+from smartdrive.utils import DEFAULT_VALIDATOR_PATH
 from smartdrive.validator.config import Config, config_manager
 from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 from smartdrive.validator.database.database import Database
@@ -55,23 +56,19 @@ def get_config() -> Config:
     Returns:
         Config: Config object created from parser arguments.
     """
-    path = os.path.abspath(__file__)
-    db_path = os.path.join(os.path.dirname(path), "database")
-
     # Create parser and add all params.
     parser = argparse.ArgumentParser(description="Configure the validator.")
     parser.add_argument("--key-name", required=True, help="Name of key.")
-    parser.add_argument("--database-path", default=db_path, required=False, help="Path to the database.")
+    parser.add_argument("--database-path", default=DEFAULT_VALIDATOR_PATH, required=False, help="Path to the database.")
     parser.add_argument("--port", type=int, default=8001, required=False, help="Default remote API port.")
     parser.add_argument("--testnet", action='store_true', help="Use testnet or not.")
 
     args = parser.parse_args()
     args.netuid = smartdrive.TESTNET_NETUID if args.testnet else smartdrive.NETUID
+    args.database_path = os.path.expanduser(args.database_path)
 
     if args.database_path:
         os.makedirs(args.database_path, exist_ok=True)
-
-    args.database_path = os.path.expanduser(args.database_path)
 
     _config = Config(
         key=args.key_name,

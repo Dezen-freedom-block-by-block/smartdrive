@@ -21,6 +21,8 @@
 #  SOFTWARE.
 
 PING_ENDPOINT = "/method/ping"
+STORE_REQUEST_ENDPOINT = "/store/request"
+STORE_REQUEST_PERMISSION_ENDPOINT = "/store/check-permission"
 STORE_ENDPOINT = "/store"
 RETRIEVE_ENDPOINT = "/retrieve"
 REMOVE_ENDPOINT = "/remove"

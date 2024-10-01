@@ -67,6 +67,14 @@ class StoreAPI:
         self._key = classic_load_key(config_manager.config.key)
         self._database = Database()
 
+    async def store_request_endpoint(self, request: Request):
+        # TODO: CREATE STORAGEREQUESTEVENT
+        return {"uuid": ""}
+
+    async def store_request_permission_endpoint(self, request: Request):
+        # TODO: CHECK IF USER HAS PERMISSION TO STORE FROM DATABASE
+        return {}
+
     async def store_endpoint(self, request: Request, file: UploadFile = Form(...)):
         """
         Stores a file across multiple active miners.

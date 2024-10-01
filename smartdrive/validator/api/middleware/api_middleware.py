@@ -35,7 +35,7 @@ from communex.balance import from_nano
 from smartdrive.commune.connection_pool import get_staketo
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.request import get_filtered_modules
-from smartdrive.commune.utils import get_ss58_address_from_public_key, calculate_hash
+from smartdrive.commune.utils import get_ss58_address_from_public_key
 from smartdrive.sign import verify_data_signature
 from smartdrive.utils import MINIMUM_STAKE
 from smartdrive.validator.api.endpoints import PING_ENDPOINT
@@ -111,21 +111,12 @@ class APIMiddleware(BaseHTTPMiddleware):
         request.state.total_stake = total_stake
 
         signature = request.headers.get('X-Signature')
-
+        body = {}
         if request.method == "GET" or request.method == "DELETE":
             body = dict(request.query_params)
         else:
             content_type = request.headers.get("Content-Type")
-            if content_type and "multipart/form-data" in content_type:
-                body_bytes = await request.body()
-                request._body = body_bytes
-                form = await request.form()
-                body = {key: form[key] for key in form}
-                if "file" in form:
-                    file = form["file"]
-                    body["file"] = str(await file.read())
-                request._body = body_bytes
-            elif content_type and "application/json" in content_type:
+            if content_type and "application/json" in content_type:
                 body_bytes = await request.body()
                 if body_bytes:
                     try:
@@ -134,20 +125,14 @@ class APIMiddleware(BaseHTTPMiddleware):
                         return _error_response(401, "Invalid JSON")
                 else:
                     body = {}
-            else:
+            elif content_type and "application/octet-stream" not in content_type:
                 body_bytes = await request.body()
                 try:
                     body = {key: value[0] if isinstance(value, list) else value for key, value in parse_qs(body_bytes.decode("utf-8")).items()}
                 except UnicodeDecodeError:
                     body = body_bytes
 
-        if "file" in body:
-            file_bytes = eval(body["file"])
-            signed_body = {"file": calculate_hash(file_bytes), "file_size_bytes": len(file_bytes)}
-            is_verified_signature = verify_data_signature(signed_body, signature, ss58_address)
-        else:
-            is_verified_signature = verify_data_signature(body, signature, ss58_address)
-
+        is_verified_signature = verify_data_signature(body, signature, ss58_address)
         if not is_verified_signature:
             return _error_response(401, "Valid X-Signature not provided on headers")
 

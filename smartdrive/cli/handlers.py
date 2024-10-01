@@ -20,11 +20,11 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 
-import io
 import sys
 import os
 import random
 import asyncio
+import time
 from pathlib import Path
 from getpass import getpass
 import urllib3
@@ -39,15 +39,14 @@ import smartdrive
 from smartdrive.logging_config import logger
 from smartdrive.cli.errors import NoValidatorsAvailableException
 from smartdrive.cli.spinner import Spinner
-from smartdrive.cli.utils import decrypt_and_decompress, compress_and_encrypt
+from smartdrive.cli.utils import decrypt_and_decompress, compress_encrypt_and_save, stream_file_with_signature
 from smartdrive.commune.connection_pool import initialize_commune_connection_pool
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_active_validators, EXTENDED_PING_TIMEOUT
 from smartdrive.models.event import StoreInputParams, RetrieveInputParams, RemoveInputParams
-from smartdrive.utils import MAX_FILE_SIZE, format_size
 from smartdrive.sign import sign_data
-from smartdrive.commune.utils import calculate_hash
+from smartdrive.commune.utils import calculate_hash_stream
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -82,59 +81,44 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
         logger.error(f"File {file_path} does not exist or is a directory.")
         return
 
-    # TODO: Change in the future
-    if os.path.getsize(file_path) > MAX_FILE_SIZE:
-        logger.error(f"Error: File size exceeds the maximum limit of {format_size(MAX_FILE_SIZE)}")
-        return
-
     key = _get_key(key_name)
 
     # Step 1: Compress the file
-    spinner = Spinner("Compressing")
+    spinner = Spinner("Compressing file")
     spinner.start()
 
     try:
-        compressed_data = compress_and_encrypt(file_path, key.private_key)
+        temp_file_path = compress_encrypt_and_save(file_path, key.private_key)
+        spinner.stop_with_message("Done!")
 
-        spinner.stop_with_message("¡Done!")
+        with open(temp_file_path, 'rb') as temp_file:
+            file_hash = calculate_hash_stream(temp_file)
+            file_size_bytes = os.path.getsize(temp_file_path)
 
-        # Step 2: Sign the request
-        spinner = Spinner("Signing request")
-        spinner.start()
-
-        input_params = StoreInputParams(file=calculate_hash(compressed_data), file_size_bytes=len(compressed_data))
+        input_params = StoreInputParams(file=file_hash, file_size_bytes=file_size_bytes)
         signed_data = sign_data(input_params.dict(), key)
 
-        spinner.stop_with_message("¡Done!")
-
         # Step 3: Send the request
-        spinner = Spinner("Sending request")
+        spinner = Spinner("Sending store request")
         spinner.start()
 
         validator_url = _get_validator_url(key, testnet)
         headers = create_headers(signed_data, key, show_content_type=False)
 
         response = requests.post(
-            url=f"{validator_url}/store",
+            url=f"{validator_url}/store/request",
             headers=headers,
-            files={"file": io.BytesIO(compressed_data)},
+            json={"file": file_hash, "file_size_bytes": str(file_size_bytes)},
             verify=False
         )
 
         response.raise_for_status()
-        spinner.stop_with_message("¡Done!")
+        message = response.json()
+        store_request_event_uuid = message.get("store_request_event_uuid")
+        spinner.stop_with_message("Done!")
 
-        try:
-            message = response.json()
-        except ValueError:
-            logger.error(f"Error: Unable to parse response JSON - {response.text}")
-            return
-
-        uuid = message.get('uuid')
-        if uuid:
-            logger.info(f"Your data will be stored soon. Your file UUID is: {uuid}")
-        else:
-            logger.info("Your data will be stored soon, but no file UUID was returned.")
+        if store_request_event_uuid:
+            _check_permission_store(temp_file_path, file_hash, file_size_bytes, store_request_event_uuid, key, testnet)
 
     except NoValidatorsAvailableException:
         spinner.stop_with_message("Error: No validators available")
@@ -185,7 +169,7 @@ def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testn
         response = requests.get(f"{validator_url}/retrieve", params=input_params.dict(), headers=headers, verify=False)
 
         response.raise_for_status()
-        spinner.stop_with_message("¡Done!")
+        spinner.stop_with_message("Done!")
 
         # Step 2: Decompress and storing the file
         spinner = Spinner("Decompressing")
@@ -194,7 +178,7 @@ def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testn
         try:
             filename = decrypt_and_decompress(response.content, key.private_key[:32], file_path)
 
-            spinner.stop_with_message("¡Done!")
+            spinner.stop_with_message("Done!")
             logger.info(f"Data downloaded and decompressed successfully in {file_path}{filename}")
 
         except zstd.Error:
@@ -248,7 +232,7 @@ def remove_handler(file_uuid: str, key_name: str = None, testnet: bool = False):
         response = requests.delete(f"{validator_url}/remove", params=input_params.dict(), headers=headers, verify=False)
 
         response.raise_for_status()
-        spinner.stop_with_message("¡Done!")
+        spinner.stop_with_message("Done!")
 
         logger.info(f"File {file_uuid} will be removed.")
 
@@ -318,3 +302,68 @@ def _get_validator_url(key: Keypair, testnet: bool = False) -> str:
 
     validator = random.choice(validators)
     return f"https://{validator.connection.ip}:{validator.connection.port}"
+
+
+def _check_permission_store(file_path: str, file_hash: str, file_size_bytes: int, store_request_event_uuid: str, key: Keypair, testnet: bool) -> bool:
+    spinner = Spinner("Checking permission to store")
+    spinner.start()
+
+    for i in range(3):
+        time.sleep(10)
+
+        validator_url = _get_validator_url(key, testnet)
+        headers = create_headers(b'', key, show_content_type=False)
+
+        response = requests.get(
+            url=f"{validator_url}/store/check-permission",
+            headers=headers,
+            params=store_request_event_uuid,
+            verify=False,
+        )
+
+        response.raise_for_status()
+
+        if response.status_code == requests.codes.ok:
+            spinner.stop_with_message("Done!")
+            return _store_file(file_path=file_path, file_hash=file_hash, file_size_bytes=file_size_bytes, keypair=key, testnet=testnet)
+
+
+def _store_file(file_path: str, file_hash: str, file_size_bytes: int, keypair: Keypair, testnet: bool) -> bool:
+    spinner = Spinner("Sending file")
+    spinner.start()
+    input_params = StoreInputParams(file=file_hash, file_size_bytes=file_size_bytes)
+    signed_data = sign_data(input_params.dict(), keypair)
+
+    validator_url = _get_validator_url(keypair, testnet)
+    headers = create_headers(signed_data, keypair, show_content_type=False)
+    headers["X-File-Hash"] = file_hash
+    headers["X-File-Size"] = str(file_size_bytes)
+
+    response = requests.post(
+        url=f"{validator_url}/store",
+        headers=headers,
+        data=stream_file_with_signature(file_path=file_path, keypair=keypair),
+        verify=False,
+        stream=True
+    )
+
+    response.raise_for_status()
+
+    if os.path.exists(file_path):
+        os.remove(file_path)
+
+    spinner.stop_with_message("Done!")
+
+    try:
+        message = response.json()
+    except ValueError:
+        logger.error(f"Error: Unable to parse response JSON - {response.text}")
+        return False
+
+    uuid = message.get("uuid")
+    if uuid:
+        logger.info(f"Your data will be stored soon. Your file UUID is: {uuid}")
+    else:
+        logger.info("Your data will be stored soon, but no file UUID was returned.")
+
+    return response.status_code == requests.codes.ok
