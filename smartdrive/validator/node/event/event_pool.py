@@ -31,10 +31,10 @@ from smartdrive.validator.node.connection.utils.lock_proxy_wrapper import LockPr
 class EventPool:
 
     def __init__(self, manager: Manager):
-        self._events: ListProxy[Union[StoreEvent, RemoveEvent]] = manager.list()
+        self._events: ListProxy = manager.list()
         self._lock: LockProxyWrapper = manager.Lock()
 
-    def get_all(self) -> ListProxy[StoreEvent | RemoveEvent]:
+    def get_all(self) -> ListProxy:
         return self._events
 
     def append(self, event: Union[StoreEvent, RemoveEvent]):

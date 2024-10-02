@@ -32,7 +32,7 @@ from smartdrive.models.event import MessageEvent, StoreEvent, RemoveEvent
 from smartdrive.sign import sign_data
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.node.connection.connection_pool import ConnectionPool, Connection
-from smartdrive.validator.node.connection.connection_manager import ConnectionManager
+from smartdrive.validator.node.connection.peer_manager import PeerManager
 from smartdrive.validator.node.event.event_pool import EventPool
 from smartdrive.validator.node.util.message import MessageCode, Message, MessageBody
 from smartdrive.validator.node.connection.utils.utils import send_message
@@ -49,10 +49,10 @@ class Node:
 
         manager = multiprocessing.Manager()
         self._event_pool = EventPool(manager)
-        self._connection_pool = ConnectionPool(manager=manager, cache_size=ConnectionManager.MAX_N_CONNECTIONS)
+        self._connection_pool = ConnectionPool(manager=manager, cache_size=PeerManager.MAX_N_CONNECTIONS)
         self.initial_sync_completed = Value('b', False)
 
-        connection_manager = ConnectionManager(
+        connection_manager = PeerManager(
             event_pool=self._event_pool,
             connection_pool=self._connection_pool,
             initial_sync_completed=self.initial_sync_completed
@@ -87,7 +87,7 @@ class Node:
                 public_key_hex=self._keypair.public_key.hex()
             )
 
-            send_message(connection, message)
+            send_message(connection.socket, message)
 
     def consume_events(self, count: int) -> List[Union[StoreEvent, RemoveEvent]]:
         return self._event_pool.consume_events(count)

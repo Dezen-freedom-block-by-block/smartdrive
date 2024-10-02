@@ -106,10 +106,10 @@ def retry_on_failure(retries):
                     pool.release_client(client)
                     return result
                 except (WebSocketException, TimeoutException):
-                    logger.debug("Replacing broken commune client", exc_info=True)
+                    logger.debug("Replacing broken commune client")
                     pool.replace_broken_client()
                 except Exception:
-                    logger.debug("Retrying with another commune client due t", exc_info=True)
+                    logger.debug("Retrying with another commune client")
                     if client:
                         pool.release_client(client)
                     else:

@@ -32,6 +32,8 @@ from smartdrive.commune.models import ModuleInfo
 from smartdrive.validator.node.connection.utils.lock_proxy_wrapper import LockProxyWrapper
 from smartdrive.validator.node.util.exceptions import ConnectionPoolMaxSizeReached
 
+# Warning: PING_INTERVAL_SECONDS should always be considerably less than INACTIVITY_TIMEOUT_SECONDS
+PING_INTERVAL_SECONDS = 5
 INACTIVITY_TIMEOUT_SECONDS = 10
 
 
@@ -60,7 +62,8 @@ class ConnectionPool:
         return None
 
     def get_all(self) -> list[Connection]:
-        return list(self._connections.items())
+        # Ignore the warning, the values method is returning the values not a list[tuple[_KT, _VT]]
+        return self._connections.values()
 
     def get_module(self, identifier: Ss58Address) -> Optional[ModuleInfo]:
         connection = self.get(identifier)
@@ -88,18 +91,16 @@ class ConnectionPool:
                     raise ConnectionPoolMaxSizeReached(f"Max num of connections reached {self._cache_size}")
 
             else:
-                self.update(identifier, module_info, socket)
-
-    def update(self, identifier: Ss58Address, module_info: ModuleInfo, socket: SocketType):
-        with self._lock:
-            if identifier in self._connections:
-                connection = Connection(module_info, socket, time.monotonic())
                 self._connections[identifier] = connection
 
     def update_last_response_time(self, identifier):
         with self._lock:
             if identifier in self._connections:
-                self._connections[identifier].last_response_time = time.monotonic()
+                # The manager do not keep track on attributes but object instead
+                _time = time.monotonic()
+                connection = self._connections[identifier]
+                connection.last_response_time = _time
+                self._connections[identifier] = connection
 
     def remove(self, identifier: Ss58Address) -> Optional[SocketType]:
         connection = self._connections.pop(identifier, None)
@@ -117,7 +118,8 @@ class ConnectionPool:
     def remove_if_inactive(self, identifier: Ss58Address) -> Optional[SocketType]:
         with self._lock:
             connection = self._connections.get(identifier)
-            if connection and connection.last_response_time > INACTIVITY_TIMEOUT_SECONDS:
+            current_time = time.monotonic()
+            if connection and current_time - connection.last_response_time > INACTIVITY_TIMEOUT_SECONDS:
                 return self._connections.pop(identifier).socket
             return None
 

@@ -45,6 +45,7 @@ from smartdrive.models.event import StoreEvent, StoreParams, StoreInputParams, C
 from smartdrive.validator.models.models import MinerWithChunk, ModuleType
 from smartdrive.commune.request import execute_miner_request, get_filtered_modules
 from smartdrive.commune.models import ModuleInfo
+from smartdrive.validator.node.connection.utils.utils import send_message
 from smartdrive.validator.node.node import Node
 from smartdrive.validator.node.util.message import MessageCode, Message, MessageBody
 from smartdrive.validator.utils import get_file_expiration
@@ -125,7 +126,7 @@ class StoreAPI:
             )
         except RedundancyException as redundancy_exception:
             raise HTTPRedundancyException(redundancy_exception.message)
-        except Exception:  # TODO: Do not capture bare exceptions
+        except Exception:
             raise UnexpectedErrorException
 
         if not store_event:
@@ -149,7 +150,7 @@ class StoreAPI:
                     signature_hex=body_sign.hex(),
                     public_key_hex=self._key.public_key.hex()
                 )
-                self._node.send_message(active_connection, message)
+                send_message(active_connection.socket, message)
 
         self._node.distribute_event(store_event)
 
@@ -296,7 +297,7 @@ async def store_new_file(
             event_params=event_params,
             event_signed_params=signed_params.hex(),
             user_ss58_address=user_ss58_address,
-            input_params=StoreInputParams(file=calculate_hash(file_bytes), file_size_bytes=len(file_bytes)),
+            input_params=StoreInputParams(file_hash=calculate_hash(file_bytes), file_size_bytes=len(file_bytes)),
             input_signed_params=input_signed_params
         )
 

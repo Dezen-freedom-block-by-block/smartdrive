@@ -40,16 +40,16 @@ from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.evaluation.evaluation import MAX_ALLOWED_UIDS
 from smartdrive.validator.models.models import ModuleType
-from smartdrive.validator.node.client.client import Client
-from smartdrive.validator.node.connection.connection_pool import ConnectionPool
-from smartdrive.validator.node.connection.utils.utils import connect_to_module
+from smartdrive.validator.node.connection.peer import Peer
+from smartdrive.validator.node.connection.connection_pool import ConnectionPool, PING_INTERVAL_SECONDS
+from smartdrive.validator.node.connection.utils.utils import connect_to_peer
 from smartdrive.validator.node.event.event_pool import EventPool
 from smartdrive.validator.node.util.exceptions import ConnectionPoolMaxSizeReached
 from smartdrive.validator.node.util.message import MessageBody, Message, MessageCode
 from smartdrive.validator.node.connection.utils.utils import send_message
 
 
-class ConnectionManager(multiprocessing.Process):
+class PeerManager(multiprocessing.Process):
     MAX_N_CONNECTIONS = MAX_ALLOWED_UIDS - 1
     IDENTIFIER_TIMEOUT_SECONDS = 5
     CONNECTION_PROCESS_TIMEOUT_SECONDS = 10
@@ -67,84 +67,87 @@ class ConnectionManager(multiprocessing.Process):
         self._keypair = classic_load_key(config_manager.config.key)
 
     def run(self):
-        server_socket = None
+        listening_socket = None
 
         try:
             threading.Thread(target=self._discovery).start()
             threading.Thread(target=self._periodically_ping_nodes).start()
 
-            server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            server_socket.bind(("0.0.0.0", config_manager.config.port + 1))
-            server_socket.listen(self.MAX_N_CONNECTIONS)
+            listening_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            listening_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listening_socket.bind(("0.0.0.0", config_manager.config.port + 1))
+            listening_socket.listen(self.MAX_N_CONNECTIONS)
 
             while True:
-                client_socket, address = server_socket.accept()
-                threading.Thread(target=self._handle_connection, args=(client_socket, address,)).start()
+                peer_socket, address = listening_socket.accept()
+                threading.Thread(target=self._handle_connection, args=(peer_socket, address,)).start()
 
         except Exception:
-            logger.error(f"Server stopped unexpectedly - PID: {self.pid}", exc_info=True)
+            logger.error(f"Peer manager stopped unexpectedly - PID: {self.pid}", exc_info=True)
 
         finally:
-            if server_socket:
-                server_socket.close()
+            if listening_socket:
+                listening_socket.close()
 
-    def _handle_connection(self, client_socket, address):
+    def _handle_connection(self, peer_socket, peer_address):
         async def handle_connection():
             validator_connection = None
             try:
                 # Wait self.IDENTIFIER_TIMEOUT_SECONDS as maximum time to get the identifier message
-                ready = select.select([client_socket], [], [], self.IDENTIFIER_TIMEOUT_SECONDS)
-                if ready[0]:
+                ready = select.select([peer_socket], [], [], self.IDENTIFIER_TIMEOUT_SECONDS)
+                if not ready[0]:
+                    logger.debug(f"Timeout: No identification from {peer_address}")
+                    peer_socket.close()
+                    return
 
-                    identification_message = smartdrive.validator.node.connection.utils.utils.receive_msg(client_socket)
-                    logger.debug(f"Identification message received: {identification_message}")
+                identification_message = smartdrive.validator.node.connection.utils.utils.receive_msg(peer_socket)
 
-                    signature_hex = identification_message["signature_hex"]
-                    public_key_hex = identification_message["public_key_hex"]
-                    ss58_address = get_ss58_address_from_public_key(public_key_hex)
+                signature_hex = identification_message["signature_hex"]
+                public_key_hex = identification_message["public_key_hex"]
+                ss58_address = get_ss58_address_from_public_key(public_key_hex)
 
-                    is_verified_signature = verify_data_signature(identification_message["body"], signature_hex, ss58_address)
-                    if not is_verified_signature:
-                        logger.debug("Connection signature is not valid.")
-                        client_socket.close()
-                        return
+                logger.debug(f"Identification message received {ss58_address}")
 
-                    inactive_connection = self._connection_pool.remove_if_inactive(ss58_address)
-                    if not inactive_connection:
-                        logger.debug(f"Current connection with {ss58_address} is active.")
-                        client_socket.close()
-                        return
+                is_verified_signature = verify_data_signature(identification_message["body"], signature_hex, ss58_address)
+                if not is_verified_signature:
+                    logger.debug(f"Invalid signature for {ss58_address}")
+                    peer_socket.close()
+                    return
 
-                    # When the connection is inactive, we terminate it even though it is not the method's responsibility
-                    inactive_connection.close()
+                inactive_connection = self._connection_pool.remove_if_inactive(ss58_address)
+                if not inactive_connection:
+                    logger.debug(f"Peer {ss58_address} is already active")
+                    peer_socket.close()
+                    return
 
-                    validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
-                    if validators:
+                # When the connection is inactive, we terminate it even though it is not the method's responsibility
+                inactive_connection.close()
 
-                        validator_connection = next((validator for validator in validators if validator.ss58_address == ss58_address), None)
-                        if validator_connection:
+                validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
+                if not validators:
+                    logger.debug("No active validators found")
+                    peer_socket.close()
+                    return
 
-                            # TODO: Check that the connection related to the validator modules is the same as address
+                validator_connection = next((validator for validator in validators if validator.ss58_address == ss58_address), None)
+                if not validator_connection:
+                    logger.info(f"Validator {ss58_address} is not valid")
+                    peer_socket.close()
+                    return
 
-                            try:
-                                self._connection_pool.update_or_append(validator_connection.ss58_address, validator_connection, client_socket)
-                                logger.debug(f"Connection {ss58_address} upserted.")
-                                client_receiver = Client(client_socket, ss58_address, self._connection_pool, self._event_pool, self._initial_sync_completed)
-                                client_receiver.start()
-                            except ConnectionPoolMaxSizeReached:
-                                logger.debug(f"No space available in the connection pool for connection {ss58_address}.", exc_info=True)
-                                client_socket.close()
+                # Check that the connection related to the validator modules is the same as address
+                if peer_address[0] != validator_connection.connection.ip:
+                    logger.info(f"Validator {ss58_address} connected from wrong address {peer_address}")
+                    peer_socket.close()
+                    return
 
-                        else:
-                            logger.info(f"Looks like connection {ss58_address} is not a valid validator.")
-                            client_socket.close()
-                    else:
-                        logger.debug("No active validators in subnet.")
-                        client_socket.close()
-                else:
-                    logger.debug(f"No identification received from {address} within timeout.")
-                    client_socket.close()
+                try:
+                    self._connection_pool.update_or_append(validator_connection.ss58_address, validator_connection, peer_socket)
+                    Peer(peer_socket, ss58_address, self._connection_pool, self._event_pool, self._initial_sync_completed).start()
+                    logger.debug(f"Peer {ss58_address} connected from {peer_address}")
+                except ConnectionPoolMaxSizeReached:
+                    logger.debug(f"Connection pool full for {ss58_address}", exc_info=True)
+                    peer_socket.close()
 
             except Exception:
                 logger.error("Error handling connection", exc_info=True)
@@ -152,8 +155,8 @@ class ConnectionManager(multiprocessing.Process):
                 if validator_connection:
                     self._connection_pool.remove(validator_connection.ss58_address)
 
-                if client_socket:
-                    client_socket.close()
+                if peer_socket:
+                    peer_socket.close()
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -177,7 +180,7 @@ class ConnectionManager(multiprocessing.Process):
                         if validator.ss58_address not in connected_ss58_addresses and validator.ss58_address != self._keypair.ss58_address
                     ]
                     for validator in new_registered_validators:
-                        threading.Thread(target=self._connect_to_validator, args=(validator,)).start()
+                        threading.Thread(target=self._connect_to_peer, args=(validator,)).start()
 
                 except Exception:
                     logger.error("Error discovering new validators", exc_info=True)
@@ -207,33 +210,30 @@ class ConnectionManager(multiprocessing.Process):
                         public_key_hex=self._keypair.public_key.hex()
                     )
 
-                    send_message(connection, message)
+                    send_message(connection.socket, message)
 
                 except Exception:
-                    logger.debug("Error pinging validator", exc_info=True)
+                    logger.debug("Error pinging node")
 
             inactive_connections = self._connection_pool.remove_inactive()
             for inactive_connection in inactive_connections:
                 inactive_connection.close()
 
-            sleep(5)
+            sleep(PING_INTERVAL_SECONDS)
 
-    def _connect_to_validator(self, validator: ModuleInfo):
-        validator_socket = None
+    def _connect_to_peer(self, validator: ModuleInfo):
+        peer_socket = None
 
         try:
-            validator_socket = connect_to_module(self._keypair, validator)
-            self._connection_pool.update_or_append(validator.ss58_address, validator, validator_socket)
-
-            client_receiver = Client(validator_socket, validator.ss58_address, self._connection_pool, self._event_pool, self._initial_sync_completed)
-            client_receiver.start()
-
-            logger.debug(f"Validator {validator.ss58_address} connected and added to the pool.")
+            peer_socket = connect_to_peer(self._keypair, validator)
+            self._connection_pool.update_or_append(validator.ss58_address, validator, peer_socket)
+            Peer(peer_socket, validator.ss58_address, self._connection_pool, self._event_pool, self._initial_sync_completed).start()
+            logger.debug(f"Peer {validator.ss58_address} connected and added to the pool")
 
         except Exception:
-            logger.debug(f"Error connecting to validator {validator.ss58_address}", exc_info=True)
+            logger.debug(f"Error connecting to peer {validator.ss58_address}")
 
             self._connection_pool.remove(validator.ss58_address)
 
-            if validator_socket:
-                validator_socket.close()
+            if peer_socket:
+                peer_socket.close()

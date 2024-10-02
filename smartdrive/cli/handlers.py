@@ -102,7 +102,7 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
         spinner = Spinner("Signing request")
         spinner.start()
 
-        input_params = StoreInputParams(file=calculate_hash(compressed_data), file_size_bytes=len(compressed_data))
+        input_params = StoreInputParams(file_hash=calculate_hash(compressed_data), file_size_bytes=len(compressed_data))
         signed_data = sign_data(input_params.dict(), key)
 
         spinner.stop_with_message("¡Done!")

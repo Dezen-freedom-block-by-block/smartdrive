@@ -43,3 +43,8 @@ class InvalidSignatureException(Exception):
 class ConnectionPoolMaxSizeReached(Exception):
     def __init__(self, message):
         super().__init__(message)
+
+
+class BlockIntegrityException(Exception):
+    def __init__(self, message):
+        super().__init__(message)

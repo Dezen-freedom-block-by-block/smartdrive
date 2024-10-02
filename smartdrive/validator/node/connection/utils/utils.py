@@ -20,22 +20,12 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 
-#  MIT License
-#
-#
-#  Permission is hereby granted, free of charge, to any person obtaining a copy
-#  of this software and associated documentation files (the "Software"), to deal
-#  in the Software without restriction, including without limitation the rights
-#  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-#  copies of the Software, and to permit persons to whom the Software is
-#  furnished to do so, subject to the following conditions:
-#
-#
 import json
 import select
 import socket
 import struct
 import threading
+from _socket import SocketType
 
 from substrateinterface import Keypair
 
@@ -48,15 +38,15 @@ from smartdrive.validator.node.util.message import MessageBody, MessageCode, Mes
 CONNECTION_TIMEOUT_SECONDS = 5
 
 
-def connect_to_module(keypair: Keypair, validator: ModuleInfo) -> socket:
-    module_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+def connect_to_peer(keypair: Keypair, module_info: ModuleInfo) -> SocketType:
+    peer_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    module_socket.settimeout(CONNECTION_TIMEOUT_SECONDS)
-    module_socket.connect((validator.connection.ip, validator.connection.port + 1))
+    peer_socket.settimeout(CONNECTION_TIMEOUT_SECONDS)
+    peer_socket.connect((module_info.connection.ip, module_info.connection.port + 1))
 
     # When you call settimeout(), the timeout applies to all subsequent blocking operations on the socket, such as connect(), recv(), send(), and others.
     # Since we only want to set the timeout at the connection level, it should be reset.
-    module_socket.settimeout(None)
+    peer_socket.settimeout(None)
 
     body = MessageBody(
         code=MessageCode.MESSAGE_CODE_IDENTIFIER
@@ -70,13 +60,13 @@ def connect_to_module(keypair: Keypair, validator: ModuleInfo) -> socket:
         public_key_hex=keypair.public_key.hex()
     )
 
-    _send_json(module_socket, message.dict())
+    _send_json(peer_socket, message.dict())
 
-    return module_socket
+    return peer_socket
 
 
-def send_message(connection, message: Message):
-    threading.Thread(target=_send_json, args=(connection.socket, message.dict(),)).start()
+def send_message(socket: SocketType, message: Message):
+    threading.Thread(target=_send_json, args=(socket, message.dict(),)).start()
 
 
 def receive_msg(sock):
@@ -95,7 +85,7 @@ def receive_msg(sock):
     return obj
 
 
-def _send_json(sock: socket, obj: dict):
+def _send_json(sock: SocketType, obj: dict):
     try:
         msg = json.dumps(obj).encode('utf-8')
         msg_len = len(msg)
@@ -107,8 +97,11 @@ def _send_json(sock: socket, obj: dict):
         else:
             raise TimeoutError("Socket send info time out")
 
+    except (BrokenPipeError, TimeoutError):
+        pass
+
     except Exception:
-        logger.error("Error sending json", exc_info=True)
+        logger.debug("Error sending json", exc_info=True)
 
 
 def _recv_all(sock, length):

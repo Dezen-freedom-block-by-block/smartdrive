@@ -31,9 +31,13 @@ from communex.types import Ss58Address
 from substrateinterface import Keypair
 
 import smartdrive
+from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.logging_config import logger
 from smartdrive.commune.connection_pool import initialize_commune_connection_pool
 from smartdrive.models.block import Block, MAX_EVENTS_PER_BLOCK, block_to_block_event
+from smartdrive.models.event import RemoveEvent
+from smartdrive.models.utils import compile_miners_info_and_chunks
+from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.config import Config, config_manager
 from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 from smartdrive.validator.database.database import Database
@@ -45,7 +49,7 @@ from smartdrive.validator.node.connection.connection_pool import INACTIVITY_TIME
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.node.util.message import MessageBody, MessageCode, Message
 from smartdrive.validator.validation import validate
-from smartdrive.validator.utils import process_events, prepare_sync_blocks
+from smartdrive.validator.utils import prepare_sync_blocks
 from smartdrive.sign import sign_data
 from smartdrive.commune.request import get_filtered_modules, get_modules
 from smartdrive.commune.utils import filter_truthful_validators
@@ -172,13 +176,6 @@ class Validator(Module):
                             continue
 
                     block_events = self.node.consume_events(count=MAX_EVENTS_PER_BLOCK)
-                    await process_events(
-                        events=block_events,
-                        is_proposer_validator=True,
-                        keypair=self._key,
-                        netuid=config_manager.config.netuid,
-                        database=self._database
-                    )
 
                     signed_block = sign_data({"block_number": new_block_number, "events": [event.dict() for event in block_events]}, self._key)
                     block = Block(
@@ -187,7 +184,7 @@ class Validator(Module):
                         signed_block=signed_block.hex(),
                         proposer_ss58_address=Ss58Address(self._key.ss58_address)
                     )
-                    self._database.create_block(block=block)
+                    self._database.create_block(block)
 
                     block_event = block_to_block_event(block)
                     body = MessageBody(
@@ -201,7 +198,18 @@ class Validator(Module):
                         public_key_hex=self._key.public_key.hex()
                     )
                     for connection in self.node.get_connections():
-                        send_message(connection, message)
+                        send_message(connection.socket, message)
+
+                    for event in block_events:
+                        if isinstance(event, RemoveEvent):
+                            chunks = self._database.get_chunks(file_uuid=event.event_params.file_uuid)
+                            miners = await get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
+                            miners_info_with_chunk = compile_miners_info_and_chunks(miners, chunks)
+
+                            for miner in miners_info_with_chunk:
+                                connection = ConnectionInfo(miner["connection"]["ip"], miner["connection"]["port"])
+                                miner_info = ModuleInfo(miner["uid"], miner["ss58_address"], connection)
+                                await remove_chunk_request(self._key, event.user_ss58_address, miner_info, miner["chunk_uuid"])
 
                 elapsed = time.monotonic() - start_time
                 sleep_time = max(0.0, self.BLOCK_INTERVAL_SECONDS - elapsed)
