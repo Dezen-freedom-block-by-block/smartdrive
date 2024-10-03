@@ -30,15 +30,12 @@ from typing import Awaitable, Callable
 
 from substrateinterface import Keypair
 from communex.compat.key import classic_load_key
-from communex.balance import from_nano
-
-from smartdrive.commune.connection_pool import get_staketo
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.request import get_filtered_modules
 from smartdrive.commune.utils import get_ss58_address_from_public_key
 from smartdrive.sign import verify_data_signature
-from smartdrive.utils import MINIMUM_STAKE
-from smartdrive.validator.api.endpoints import PING_ENDPOINT
+from smartdrive.utils import MINIMUM_STAKE, get_stake_from_user
+from smartdrive.validator.api.endpoints import PING_ENDPOINT, STORE_ENDPOINT, STORE_REQUEST_ENDPOINT
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.models.models import ModuleType
 
@@ -95,20 +92,17 @@ class APIMiddleware(BaseHTTPMiddleware):
         if not ss58_address:
             return _error_response(401, "Not a valid public key provided")
 
-        try:
-            staketo_modules = await get_staketo(ss58_address, config_manager.config.netuid)
-            validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
-        except CommuneNetworkUnreachable:
-            return _error_response(404, "Currently the Commune network is unreachable")
+        if request.url.path in [STORE_REQUEST_ENDPOINT, STORE_ENDPOINT]:
+            try:
+                validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
+            except CommuneNetworkUnreachable:
+                return _error_response(404, "Currently the Commune network is unreachable")
 
-        validator_addresses = {validator.ss58_address for validator in validators}
-        active_stakes = {address: from_nano(stake) for address, stake in staketo_modules.items() if address in validator_addresses and address != str(ss58_address)}
-        total_stake = sum(active_stakes.values())
+            total_stake = await get_stake_from_user(user_ss58_address=ss58_address, validators=validators)
+            if total_stake < MINIMUM_STAKE:
+                return _error_response(401, f"You must stake at least {MINIMUM_STAKE} COMAI in total to active validators")
 
-        if total_stake < MINIMUM_STAKE:
-            return _error_response(401, f"You must stake at least {MINIMUM_STAKE} COMAI in total to active validators")
-
-        request.state.total_stake = total_stake
+            request.state.total_stake = total_stake
 
         signature = request.headers.get('X-Signature')
         body = {}

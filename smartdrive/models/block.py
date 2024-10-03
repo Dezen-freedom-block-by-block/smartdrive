@@ -25,7 +25,7 @@ from pydantic import BaseModel
 
 from communex.types import Ss58Address
 
-from smartdrive.models.event import MessageEvent, parse_event, StoreEvent, RemoveEvent
+from smartdrive.models.event import MessageEvent, parse_event, StoreEvent, RemoveEvent, StoreRequestEvent
 
 # TODO: REPLACE THIS WITH bytes
 MAX_EVENTS_PER_BLOCK = 100
@@ -33,7 +33,7 @@ MAX_EVENTS_PER_BLOCK = 100
 
 class Block(BaseModel):
     block_number: int
-    events: list[Union[StoreEvent, RemoveEvent]]
+    events: list[Union[StoreEvent, RemoveEvent, StoreRequestEvent]]
     signed_block: str
     proposer_ss58_address: Ss58Address
 

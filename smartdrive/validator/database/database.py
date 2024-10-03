@@ -21,15 +21,17 @@
 #  SOFTWARE.
 import os
 import sqlite3
+import time
 from typing import List, Optional, Union
 
 from smartdrive.logging_config import logger
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.models.event import StoreEvent, Action, StoreParams, StoreInputParams, RemoveEvent, RemoveInputParams, \
-    EventParams, UserEvent, ChunkParams, ValidationEvent
+    EventParams, UserEvent, ChunkParams, ValidationEvent, StoreRequestEvent
 from smartdrive.models.block import Block
+from smartdrive.utils import calculate_storage_capacity, get_stake_from_user
 from smartdrive.validator.config import config_manager
-from smartdrive.validator.models.models import MinerWithChunk, File
+from smartdrive.validator.models.models import MinerWithChunk, File, Chunk
 
 from communex.types import Ss58Address
 
@@ -97,6 +99,9 @@ class Database:
                         event_signed_params TEXT NOT NULL,
                         user_ss58_address TEXT,
                         file TEXT,
+                        file_size_bytes BIGINT,
+                        expiration_at INTEGER,
+                        approved BOOLEAN,
                         input_signed_params TEXT,
                         block_id INTEGER NOT NULL,
                         FOREIGN KEY (block_id) REFERENCES block(id) ON DELETE CASCADE
@@ -232,7 +237,105 @@ class Database:
                 connection.close()
         return result
 
-    def get_total_file_size_by_user(self, user_ss58_address: str) -> int:
+    def get_files_by_user(self, user_ss58_address: str) -> list[File]:
+        """
+        Get all files and their associated chunks from the database for a specific user
+        identified by their SS58 address.
+
+        This function retrieves all files that belong to a specific user (identified by their SS58 address)
+        from the database, excluding those that have been marked as removed, along with their associated chunks.
+
+        Params:
+            user_ss58_address: The SS58 address of the user who owns the files.
+
+        Returns:
+            A list of File objects with associated chunks if any files exist, an empty list otherwise.
+
+        Raises:
+            None explicitly, but logs an error message if an SQLite error occurs.
+        """
+        connection = None
+        try:
+            connection = sqlite3.connect(self._database_file_path)
+            cursor = connection.cursor()
+
+            # Obtener los archivos del usuario que no han sido eliminados
+            cursor.execute(
+                "SELECT uuid, user_ss58_address, total_chunks, file_size_bytes FROM file WHERE file.user_ss58_address = ? AND removed = 0",
+                (f'{user_ss58_address}',)
+            )
+            file_rows = cursor.fetchall()
+
+            files = []
+            for file_row in file_rows:
+                file_uuid = file_row[0]
+
+                # Obtener los chunks asociados al archivo actual
+                cursor.execute(
+                    "SELECT uuid, chunk_index, miner_ss58_address FROM chunk WHERE file_uuid = ?",
+                    (file_uuid,)
+                )
+                chunk_rows = cursor.fetchall()
+
+                # Crear una lista de chunks asociados a este archivo
+                chunks = [
+                    Chunk(chunk_uuid=row[0], chunk_index=row[1], miner_ss58_address=row[2], file_uuid=file_uuid)
+                    for row in chunk_rows
+                ]
+
+                # Crear el objeto File con los chunks asociados
+                file = File(
+                    user_owner_ss58address=file_row[1],
+                    total_chunks=file_row[2],
+                    file_uuid=file_row[0],
+                    file_size_bytes=file_row[3],
+                    chunks=chunks
+                )
+
+                files.append(file)
+
+            result = files
+
+        except sqlite3.Error:
+            logger.error("Database error", exc_info=True)
+            result = []
+        finally:
+            if connection:
+                connection.close()
+
+        return result
+
+    def get_unique_user_ss58_addresses(self) -> list[str]:
+        """
+        Get all unique user_ss58_address from the database.
+
+        This function retrieves all distinct user SS58 addresses from the 'file' table
+        in the database where the 'removed' flag is 0.
+
+        Returns:
+            List of unique user_ss58_address if successful, empty list otherwise.
+
+        Raises:
+            None explicitly, but logs an error message if an SQLite error occurs.
+        """
+        connection = None
+        try:
+            connection = sqlite3.connect(self._database_file_path)
+            cursor = connection.cursor()
+            cursor.execute(
+                "SELECT DISTINCT user_ss58_address FROM file WHERE removed = 0"
+            )
+            rows = cursor.fetchall()
+            result = [row[0] for row in rows]
+        except sqlite3.Error:
+            logger.error("Database error", exc_info=True)
+            result = []
+        finally:
+            if connection:
+                connection.close()
+        return result
+
+    def get_total_file_size_by_user(self, user_ss58_address: str, only_files: bool = False) -> int:
         """
         Get the total size of all files owned by a user.
 
@@ -249,15 +352,48 @@ class Database:
         try:
             connection = sqlite3.connect(self._database_file_path)
             cursor = connection.cursor()
-            cursor.execute(
-                """
-                SELECT SUM(file_size_bytes)
-                FROM file
-                WHERE user_ss58_address = ?
-                AND removed = 0
-                """,
-                (user_ss58_address,)
-            )
+            if only_files:
+                cursor.execute(
+                    """
+                    SELECT SUM(file_size_bytes)
+                    FROM file
+                    WHERE user_ss58_address = ?
+                    AND removed = 0
+                    """,
+                    (user_ss58_address,)
+                )
+            else:
+                cursor.execute(
+                    """
+                        WITH active_events AS (
+                        SELECT
+                            COALESCE(SUM(e.file_size_bytes), 0) AS active_event_size
+                        FROM
+                            events e
+                        LEFT JOIN
+                            file f
+                        ON
+                            e.file_uuid = f.uuid
+                        WHERE
+                            e.user_ss58_address = ?
+                            AND e.event_type = ?
+                            AND e.expiration_at > ?
+                            AND f.uuid IS NULL
+                    ),
+                    final_files AS (
+                        SELECT
+                            COALESCE(SUM(file_size_bytes), 0) AS file_size
+                        FROM
+                            file
+                        WHERE
+                            user_ss58_address = ?
+                            AND removed = 0
+                    )
+                    SELECT
+                        (SELECT file_size FROM final_files) + (SELECT active_event_size FROM active_events) AS total_storage_used;
+                    """,
+                    (user_ss58_address, Action.STORE_REQUEST.value, int(time.time()), user_ss58_address,)
+                )
             result = cursor.fetchone()
             if result and result[0] is not None:
                 total_size = result[0]
@@ -359,6 +495,50 @@ class Database:
                 connection.close()
 
         return validation_events
+
+    def get_store_request_event_approvement(self, store_request_event_uuid: str) -> Union[bool, None]:
+        """
+        Retrieve a StoreRequestEvent from the database based on the given UUID.
+
+        This function attempts to retrieve a storage request event from a database using the provided event UUID.
+        If the event is found in the database, it is returned as a `StoreRequestEvent` object. If the event is not found
+        or a database error occurs, the function returns `None`.
+
+        Args:
+            store_request_event_uuid (str): The UUID of the storage request event to be retrieved.
+
+        Returns:
+            Union[StoreRequestEvent, None]:
+                - An instance of `StoreRequestEvent` containing the event details if found.
+                - `None` if the event is not found or if a database error occurs.
+
+        Raises:
+            sqlite3.Error: If a database error occurs during the execution of the query.
+        """
+        connection = None
+        try:
+            connection = sqlite3.connect(self._database_file_path)
+            cursor = connection.cursor()
+
+            query = """
+                    SELECT approved
+                    FROM events
+                    WHERE uuid = ? AND event_type = ? AND expiration_at > ?
+                """
+
+            cursor.execute(query, (store_request_event_uuid, Action.STORE_REQUEST.value, int(time.time()),))
+            row = cursor.fetchone()
+            if row:
+                return row[0] == 1
+            else:
+                return None
+
+        except sqlite3.Error:
+            logger.error("Database error", exc_info=True)
+            return None
+        finally:
+            if connection:
+                connection.close()
 
     def get_validation_events_with_expiration(self) -> List[ValidationEvent]:
         """
@@ -464,12 +644,14 @@ class Database:
             if connection:
                 connection.close()
 
-    def create_block(self, block: Block) -> bool:
+    async def create_block(self, block: Block, is_proposer: bool, validators: [ModuleInfo] = None) -> bool:
         """
         Creates a block in the database with its associated events.
 
         Parameters:
             block (Block): The block to be created in the database.
+            is_proposer (bool): A flag indicating if the current validator is the proposer of the block.
+            validators ([ModuleInfo], optional): A list of validator modules.
 
         Returns:
             bool: True if the block and its events are successfully created, False otherwise.
@@ -489,7 +671,7 @@ class Database:
 
                 # Insert events
                 for event in block.events:
-                    self._insert_event(cursor, event, block.block_number)
+                    await self._insert_event(cursor, event, block.block_number, is_proposer, validators)
 
                 connection.commit()
             return True
@@ -502,7 +684,7 @@ class Database:
             if connection:
                 connection.close()
 
-    def _insert_event(self, cursor, event: Union[StoreEvent, RemoveEvent], block_id: int):
+    async def _insert_event(self, cursor, event: Union[StoreEvent, RemoveEvent, StoreRequestEvent], block_id: int, is_proposer: bool, validators: [ModuleInfo] = None):
         """
         Inserts an event into the database.
 
@@ -520,6 +702,9 @@ class Database:
         user_ss58_address = None
         input_signed_params = None
         file = None
+        file_size_bytes = None
+        expiration_at = None
+        approved = None
 
         if isinstance(event, UserEvent):
             user_ss58_address = event.user_ss58_address
@@ -529,12 +714,24 @@ class Database:
         if isinstance(event, StoreEvent):
             file = event.input_params.file
 
+        if isinstance(event, StoreRequestEvent):
+            file = event.input_params.file
+            file_size_bytes = event.input_params.file_size_bytes
+            expiration_at = event.event_params.expiration_at
+            approved = event.event_params.approved
+
+            if is_proposer:
+                total_stake = await get_stake_from_user(user_ss58_address=event.user_ss58_address, validators=validators)
+                total_size_stored_by_user = self.get_total_file_size_by_user(user_ss58_address=event.user_ss58_address)
+                available_storage_of_user = calculate_storage_capacity(total_stake)
+                approved = total_size_stored_by_user <= available_storage_of_user
+
         cursor.execute(
             '''
-            INSERT INTO events (uuid, validator_ss58_address, event_type, file_uuid, event_signed_params, user_ss58_address, file, input_signed_params, block_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO events (uuid, validator_ss58_address, event_type, file_uuid, event_signed_params, user_ss58_address, file, input_signed_params, block_id, file_size_bytes, expiration_at, approved)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
-            (event.uuid, validator_ss58_address, event_type, file_uuid, event_signed_params, user_ss58_address, file, input_signed_params, block_id)
+            (event.uuid, validator_ss58_address, event_type, file_uuid, event_signed_params, user_ss58_address, file, input_signed_params, block_id, file_size_bytes, expiration_at, approved)
         )
 
     def get_blocks(self, start: int, end: int) -> Optional[List[Block]]:

@@ -26,6 +26,7 @@ import time
 import uuid
 from typing import Optional, Tuple, List
 from fastapi import Form, UploadFile, Request
+from starlette.responses import JSONResponse
 from substrateinterface import Keypair
 
 from communex.compat.key import classic_load_key
@@ -36,12 +37,13 @@ from smartdrive.utils import MAX_FILE_SIZE, calculate_storage_capacity, format_s
 from smartdrive.sign import sign_data
 from smartdrive.validator.api.exceptions import RedundancyException, FileTooLargeException, NoMinersInNetworkException, \
     NoValidMinerResponseException, UnexpectedErrorException, HTTPRedundancyException, \
-    CommuneNetworkUnreachable as HTTPCommuneNetworkUnreachable
+    CommuneNetworkUnreachable as HTTPCommuneNetworkUnreachable, StoreRequestNotApprovedException
 from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
-from smartdrive.models.event import StoreEvent, StoreParams, StoreInputParams, ChunkParams, ValidationEvent
+from smartdrive.models.event import StoreEvent, StoreParams, StoreInputParams, ChunkParams, ValidationEvent, \
+    StoreRequestEvent, StoreRequestInputParams, StoreRequestParams
 from smartdrive.validator.models.models import MinerWithChunk, ModuleType
 from smartdrive.commune.request import execute_miner_request, get_filtered_modules
 from smartdrive.commune.models import ModuleInfo
@@ -55,6 +57,7 @@ MIN_MINERS_REPLICATION_FOR_CHUNK = 2
 MAX_MINERS_FOR_FILE = 10
 MAX_ENCODED_RANGE = 50
 MINER_STORE_TIMEOUT_SECONDS = 60
+TIME_EXPIRATION_STORE_REQUEST_EVENT_SECONDS = 5 * 60  # 5 minutes
 
 
 class StoreAPI:
@@ -68,12 +71,77 @@ class StoreAPI:
         self._database = Database()
 
     async def store_request_endpoint(self, request: Request):
-        # TODO: CREATE STORAGEREQUESTEVENT
-        return {"uuid": ""}
+        """
+        Handle a storage request event and register it in the system.
 
-    async def store_request_permission_endpoint(self, request: Request):
-        # TODO: CHECK IF USER HAS PERMISSION TO STORE FROM DATABASE
-        return {}
+        This endpoint handles a request to store a file on the SmartDrive network. It creates and registers a
+        `StoreRequestEvent` with an expiration time (typically 5 minutes). This event will be later processed to
+        decide if the file can be stored based on factors such as available storage space.
+
+        Args:
+            request (Request): The incoming request object containing the necessary headers.
+
+        Returns:
+            dict:
+                - A dictionary containing the UUID of the created store request event (`store_request_event_uuid`).
+
+        Raises:
+            Exception: If any unexpected error occurs during the process.
+
+        """
+        user_public_key = request.headers.get("X-Key")
+        user_ss58_address = get_ss58_address_from_public_key(user_public_key)
+        input_signed_params = request.headers.get("X-Signature")
+        file = request.headers.get("X-File-Hash")
+        file_size_bytes = request.headers.get("X-File-Size")
+
+        event_params = StoreRequestParams(file_uuid=f"{int(time.time())}_{str(uuid.uuid4())}", expiration_at=int(time.time()) + TIME_EXPIRATION_STORE_REQUEST_EVENT_SECONDS, approved=None)  # Expires in 5 minutes
+        signed_params = sign_data(event_params.dict(), self._key)
+
+        event = StoreRequestEvent(
+            uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
+            validator_ss58_address=Ss58Address(self._key.ss58_address),
+            event_params=event_params,
+            event_signed_params=signed_params.hex(),
+            user_ss58_address=user_ss58_address,
+            input_params=StoreRequestInputParams(file=file, file_size_bytes=file_size_bytes),
+            input_signed_params=input_signed_params
+        )
+
+        self._node.add_event(event)
+
+        return {"store_request_event_uuid": event.uuid}
+
+    async def store_request_permission_endpoint(self, store_request_event_uuid: str):
+        """
+        Check if the store request event has been approved by the validator and return the appropriate response.
+
+        This endpoint validates whether a specific storage request event (identified by `store_request_event_uuid`)
+        has been approved or not by the validator. The check is done by querying the database for the approval status
+        and responding accordingly.
+
+        Args:
+            store_request_event_uuid (str): The UUID of the storage request event that needs to be checked.
+
+        Returns:
+            JSONResponse:
+                - Returns a 200 status code if the event is approved.
+                - Raises a `StoreRequestNotApprovedException` if the event is not approved or approval is pending.
+
+        Raises:
+            StoreRequestNotApprovedException:
+                - Raised when the event is either not yet approved or has been explicitly denied.
+        """
+        approved = self._database.get_store_request_event_approvement(store_request_event_uuid)
+
+        if approved is True:
+            return JSONResponse(content=None, status_code=200)
+
+        elif approved is None:
+            raise StoreRequestNotApprovedException("Store request is still pending approval", status_code=202)
+
+        else:
+            raise StoreRequestNotApprovedException
 
     async def store_endpoint(self, request: Request, file: UploadFile = Form(...)):
         """

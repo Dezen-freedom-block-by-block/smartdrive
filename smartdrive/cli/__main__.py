@@ -23,6 +23,7 @@
 import typer
 
 from smartdrive.cli.handlers import store_handler, retrieve_handler, remove_handler
+from smartdrive.commune.connection_pool import initialize_commune_connection_pool
 
 app = typer.Typer()
 
@@ -37,6 +38,7 @@ def store(file_path: str, key_name: str = None, testnet: bool = False):
         key_name (str, optional): An optional key for encryption. If not provided, it will be requested.
         testnet (bool, optional): Flag to indicate if the testnet should be used.
     """
+    initialize_commune_connection_pool(testnet=testnet, max_pool_size=1, num_connections=1)
     store_handler(file_path, key_name, testnet)
 
 
@@ -51,6 +53,7 @@ def retrieve(file_uuid: str, file_path: str, key_name: str = None, testnet: bool
         key_name (str, optional): An optional key for decryption. If not provided, it will be requested.
         testnet (bool, optional): Flag to indicate if the testnet should be used.
     """
+    initialize_commune_connection_pool(testnet=testnet, max_pool_size=1, num_connections=1)
     retrieve_handler(file_uuid, file_path, key_name, testnet)
 
 
@@ -64,6 +67,7 @@ def remove(file_uuid: str, key_name: str = None, testnet: bool = False):
         key_name (str, optional): An optional key for decryption. If not provided, it will be requested.
         testnet (bool, optional): Flag to indicate if the testnet should be used.
     """
+    initialize_commune_connection_pool(testnet=testnet, max_pool_size=1, num_connections=1)
     remove_handler(file_uuid, key_name, testnet)
 
 

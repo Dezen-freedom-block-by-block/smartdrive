@@ -134,7 +134,7 @@ class Client(threading.Thread):
                     else:
                         self._run_process_events(block.events)
                         self._remove_events(block.events, event_pool)
-                        self._database.create_block(block)
+                        self._run_create_block(block)
 
                         if not self._initial_sync_completed.value:
                             self._initial_sync_completed.value = True
@@ -228,7 +228,7 @@ class Client(threading.Thread):
                         for block in blocks:
                             self._run_process_events(block.events)
                             self._remove_events(block.events, event_pool)
-                            self._database.create_block(block)
+                            self._run_create_block(block)
 
                 elif message.body.code == MessageCode.MESSAGE_CODE_VALIDATION_EVENTS:
                     validation_events = [ValidationEvent(**validation_event) for validation_event in message.body.data["list"]]
@@ -267,3 +267,17 @@ class Client(threading.Thread):
         with self._event_pool_lock:
             updated_event_pool = [event for event in event_pool if event.uuid not in uuids_to_remove]
             event_pool[:] = updated_event_pool
+
+    def _run_create_block(self, block: Block, is_proposer: bool = False):
+        async def run_create_block(block: Block, is_proposer: bool):
+            await self._database.create_block(block=block, is_proposer=is_proposer)
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            asyncio.create_task(run_create_block(block=block, is_proposer=is_proposer))
+        else:
+            asyncio.run(run_create_block(block=block, is_proposer=is_proposer))

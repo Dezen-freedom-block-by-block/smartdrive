@@ -19,12 +19,11 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
-
+import subprocess
 import sys
 import os
 import random
 import asyncio
-import time
 from pathlib import Path
 from getpass import getpass
 import urllib3
@@ -39,8 +38,7 @@ import smartdrive
 from smartdrive.logging_config import logger
 from smartdrive.cli.errors import NoValidatorsAvailableException
 from smartdrive.cli.spinner import Spinner
-from smartdrive.cli.utils import decrypt_and_decompress, compress_encrypt_and_save, stream_file_with_signature
-from smartdrive.commune.connection_pool import initialize_commune_connection_pool
+from smartdrive.cli.utils import decrypt_and_decompress, compress_encrypt_and_save
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_active_validators, EXTENDED_PING_TIMEOUT
@@ -49,8 +47,6 @@ from smartdrive.sign import sign_data
 from smartdrive.commune.utils import calculate_hash_stream
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-initialize_commune_connection_pool(testnet=False, max_pool_size=1, num_connections=1)
 
 
 def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
@@ -99,26 +95,34 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
         signed_data = sign_data(input_params.dict(), key)
 
         # Step 3: Send the request
-        spinner = Spinner("Sending store request")
+        spinner = Spinner("Sending request")
         spinner.start()
 
         validator_url = _get_validator_url(key, testnet)
         headers = create_headers(signed_data, key, show_content_type=False)
+        headers["X-File-Hash"] = file_hash
+        headers["X-File-Size"] = str(file_size_bytes)
 
         response = requests.post(
             url=f"{validator_url}/store/request",
             headers=headers,
-            json={"file": file_hash, "file_size_bytes": str(file_size_bytes)},
+            json=input_params.dict(),
             verify=False
         )
 
         response.raise_for_status()
         message = response.json()
+
         store_request_event_uuid = message.get("store_request_event_uuid")
         spinner.stop_with_message("Done!")
 
         if store_request_event_uuid:
-            _check_permission_store(temp_file_path, file_hash, file_size_bytes, store_request_event_uuid, key, testnet)
+            logger.info(f"Your data will be stored soon. Your file UUID is: {store_request_event_uuid}")
+            subprocess.Popen(
+                [sys.executable, "smartdrive/cli/scripts/async_upload_file.py", temp_file_path, file_hash, str(file_size_bytes), store_request_event_uuid, key_name, str(testnet)],
+                close_fds=True,
+                start_new_session=True
+            )
 
     except NoValidatorsAvailableException:
         spinner.stop_with_message("Error: No validators available")
@@ -302,68 +306,3 @@ def _get_validator_url(key: Keypair, testnet: bool = False) -> str:
 
     validator = random.choice(validators)
     return f"https://{validator.connection.ip}:{validator.connection.port}"
-
-
-def _check_permission_store(file_path: str, file_hash: str, file_size_bytes: int, store_request_event_uuid: str, key: Keypair, testnet: bool) -> bool:
-    spinner = Spinner("Checking permission to store")
-    spinner.start()
-
-    for i in range(3):
-        time.sleep(10)
-
-        validator_url = _get_validator_url(key, testnet)
-        headers = create_headers(b'', key, show_content_type=False)
-
-        response = requests.get(
-            url=f"{validator_url}/store/check-permission",
-            headers=headers,
-            params=store_request_event_uuid,
-            verify=False,
-        )
-
-        response.raise_for_status()
-
-        if response.status_code == requests.codes.ok:
-            spinner.stop_with_message("Done!")
-            return _store_file(file_path=file_path, file_hash=file_hash, file_size_bytes=file_size_bytes, keypair=key, testnet=testnet)
-
-
-def _store_file(file_path: str, file_hash: str, file_size_bytes: int, keypair: Keypair, testnet: bool) -> bool:
-    spinner = Spinner("Sending file")
-    spinner.start()
-    input_params = StoreInputParams(file=file_hash, file_size_bytes=file_size_bytes)
-    signed_data = sign_data(input_params.dict(), keypair)
-
-    validator_url = _get_validator_url(keypair, testnet)
-    headers = create_headers(signed_data, keypair, show_content_type=False)
-    headers["X-File-Hash"] = file_hash
-    headers["X-File-Size"] = str(file_size_bytes)
-
-    response = requests.post(
-        url=f"{validator_url}/store",
-        headers=headers,
-        data=stream_file_with_signature(file_path=file_path, keypair=keypair),
-        verify=False,
-        stream=True
-    )
-
-    response.raise_for_status()
-
-    if os.path.exists(file_path):
-        os.remove(file_path)
-
-    spinner.stop_with_message("Done!")
-
-    try:
-        message = response.json()
-    except ValueError:
-        logger.error(f"Error: Unable to parse response JSON - {response.text}")
-        return False
-
-    uuid = message.get("uuid")
-    if uuid:
-        logger.info(f"Your data will be stored soon. Your file UUID is: {uuid}")
-    else:
-        logger.info("Your data will be stored soon, but no file UUID was returned.")
-
-    return response.status_code == requests.codes.ok

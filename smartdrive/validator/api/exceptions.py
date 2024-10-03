@@ -52,6 +52,11 @@ class FileTooLargeException(HTTPException):
         super().__init__(status_code=413, detail=detail)
 
 
+class StoreRequestNotApprovedException(HTTPException):
+    def __init__(self, detail: str = "Store request is not approved due to limit storage", status_code: int = 403):
+        super().__init__(status_code=status_code, detail=detail)
+
+
 class CommuneNetworkUnreachable(HTTPException):
     def __init__(self, detail: str = "Commune network is unreachable"):
         super().__init__(status_code=503, detail=detail)

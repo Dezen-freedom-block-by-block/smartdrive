@@ -35,9 +35,8 @@ from smartdrive.commune.connection_pool import initialize_commune_connection_poo
 from smartdrive.models.block import Block, MAX_EVENTS_PER_BLOCK
 from smartdrive.utils import DEFAULT_VALIDATOR_PATH
 from smartdrive.validator.config import Config, config_manager
-from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 from smartdrive.validator.database.database import Database
-from smartdrive.validator.node.node import Node
+from smartdrive.validator.node.node import Node, VALIDATION_VOTE_INTERVAL_SECONDS
 from smartdrive.validator.api.api import API
 from smartdrive.validator.evaluation.evaluation import score_miners, set_weights
 from smartdrive.validator.node.connection_pool import INACTIVITY_TIMEOUT_SECONDS as VALIDATOR_INACTIVITY_TIMEOUT_SECONDS
@@ -46,7 +45,6 @@ from smartdrive.validator.validation import validate
 from smartdrive.validator.utils import process_events, prepare_sync_blocks
 from smartdrive.sign import sign_data
 from smartdrive.commune.request import get_filtered_modules, get_modules
-from smartdrive.commune.utils import filter_truthful_validators
 
 
 def get_config() -> Config:
@@ -83,7 +81,6 @@ def get_config() -> Config:
 
 class Validator(Module):
     BLOCK_INTERVAL_SECONDS = 30
-    VALIDATION_VOTE_INTERVAL_SECONDS = 10 * 60
 
     _config = None
     _key: Keypair = None
@@ -95,7 +92,7 @@ class Validator(Module):
         super().__init__()
         self._key = classic_load_key(config_manager.config.key)
         self._database = Database()
-        self.node = Node()
+        self.node = Node(self._database)
         self.api = API(self.node)
 
     async def create_blocks(self):
@@ -114,7 +111,7 @@ class Validator(Module):
             start_time = time.monotonic()
 
             try:
-                if not first_validation_vote_launched or start_time - last_validation_time >= self.VALIDATION_VOTE_INTERVAL_SECONDS:
+                if not first_validation_vote_launched or start_time - last_validation_time >= VALIDATION_VOTE_INTERVAL_SECONDS:
                     logger.info("Starting validation and voting task")
                     asyncio.create_task(self.validate_vote_task())
                     first_validation_vote_launched = True
@@ -123,30 +120,7 @@ class Validator(Module):
                 logger.error("Error validating", exc_info=True)
 
             try:
-                # Retrieving all active validators is crucial, so we attempt it an optimal number of times.
-                # Between each attempt, we wait VALIDATOR_INACTIVITY_TIMEOUT_SECONDS / 2,
-                # as new validators might be activated in the background.
-                active_validators = []
-                for _ in range(4):
-                    active_validators = self.node.get_connected_modules()
-                    if active_validators:
-                        break
-                    await asyncio.sleep(VALIDATOR_INACTIVITY_TIMEOUT_SECONDS / 2)
-
-                truthful_validators = filter_truthful_validators(active_validators)
-
-                # Since the list of active validators never includes the current validator, we need to locate our own
-                # validator within the complete list.
-                all_validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
-                own_validator = next((v for v in all_validators if v.ss58_address == self._key.ss58_address), None)
-
-                is_own_validator_truthful = own_validator and own_validator.stake >= TRUTHFUL_STAKE_AMOUNT
-                if is_own_validator_truthful:
-                    truthful_validators.append(own_validator)
-
-                proposer_validator = max(truthful_validators or all_validators, key=lambda v: v.stake or 0)
-
-                is_current_validator_proposer = proposer_validator.ss58_address == self._key.ss58_address
+                is_current_validator_proposer, active_validators, all_validators = await self.node.get_proposer_validator()
                 if is_current_validator_proposer:
                     new_block_number = (self._database.get_last_block_number() or 0) + 1
 
@@ -181,7 +155,7 @@ class Validator(Module):
                         signed_block=signed_block.hex(),
                         proposer_ss58_address=Ss58Address(self._key.ss58_address)
                     )
-                    self._database.create_block(block=block)
+                    await self._database.create_block(block=block, is_proposer=is_current_validator_proposer, validators=all_validators)
 
                     self.node.send_block(block=block)
 
