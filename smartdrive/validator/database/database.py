@@ -738,7 +738,7 @@ class Database:
                 total_stake = await get_stake_from_user(user_ss58_address=event.user_ss58_address, validators=validators)
                 total_size_stored_by_user = self.get_total_file_size_by_user(user_ss58_address=event.user_ss58_address)
                 available_storage_of_user = calculate_storage_capacity(total_stake)
-                approved = total_size_stored_by_user <= available_storage_of_user
+                approved = total_size_stored_by_user + event.input_params.file_size_bytes <= available_storage_of_user
         elif isinstance(event, RemoveEvent):
             self.remove_file(cursor=cursor, file_uuid=event.event_params.file_uuid)
 
