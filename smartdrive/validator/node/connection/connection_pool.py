@@ -74,6 +74,16 @@ class ConnectionPool:
 
         return validator
 
+    def get_active_connection(self, identifier) -> Optional[Connection]:
+        with self._lock:
+            current_time = time.monotonic()
+
+            connection = self._connections.get(identifier)
+            if connection and current_time - connection.last_response_time <= INACTIVITY_TIMEOUT_SECONDS:
+                return connection
+
+        return None
+
     def get_module_ss58_addresses(self) -> list[Ss58Address]:
         return self._connections.keys()
 

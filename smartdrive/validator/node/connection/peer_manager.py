@@ -114,14 +114,11 @@ class PeerManager(multiprocessing.Process):
                     peer_socket.close()
                     return
 
-                inactive_connection = self._connection_pool.remove_if_inactive(ss58_address)
-                if not inactive_connection:
+                active_connection = self._connection_pool.get_active_connection(ss58_address)
+                if active_connection:
                     logger.debug(f"Peer {ss58_address} is already active")
                     peer_socket.close()
                     return
-
-                # When the connection is inactive, we terminate it even though it is not the method's responsibility
-                inactive_connection.close()
 
                 validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
                 if not validators:
