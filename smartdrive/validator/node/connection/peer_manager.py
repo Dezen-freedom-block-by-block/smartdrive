@@ -114,7 +114,7 @@ class PeerManager(multiprocessing.Process):
                     peer_socket.close()
                     return
 
-                active_connection = self._connection_pool.get_active_connection(ss58_address)
+                active_connection = self._connection_pool.get_actives(ss58_address)
                 if active_connection:
                     logger.debug(f"Peer {ss58_address} is already active")
                     peer_socket.close()
@@ -166,12 +166,12 @@ class PeerManager(multiprocessing.Process):
                     validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
                     validators_ss58_addresses = {validator.ss58_address for validator in validators}
 
-                    unregistered_validators_ss8_addresses = [ss58_address for ss58_address in self._connection_pool.get_module_ss58_addresses() if ss58_address not in validators_ss58_addresses]
+                    unregistered_validators_ss8_addresses = [ss58_address for ss58_address in self._connection_pool.get_identifiers() if ss58_address not in validators_ss58_addresses]
                     removed_connections = self._connection_pool.remove_multiple(unregistered_validators_ss8_addresses)
                     for removed_connection in removed_connections:
                         removed_connection.close()
 
-                    connected_ss58_addresses = self._connection_pool.get_module_ss58_addresses()
+                    connected_ss58_addresses = self._connection_pool.get_identifiers()
                     new_registered_validators = [
                         validator for validator in validators
                         if validator.ss58_address not in connected_ss58_addresses and validator.ss58_address != self._keypair.ss58_address

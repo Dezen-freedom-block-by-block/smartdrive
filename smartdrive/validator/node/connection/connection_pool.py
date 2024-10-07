@@ -65,16 +65,10 @@ class ConnectionPool:
         # Ignore the warning, the values method is returning the values not a list[tuple[_KT, _VT]]
         return self._connections.values()
 
-    def get_module(self, identifier: Ss58Address) -> Optional[ModuleInfo]:
-        connection = self.get(identifier)
-        validator = None
+    def get_identifiers(self) -> list[Ss58Address]:
+        return self._connections.keys()
 
-        if connection:
-            validator = connection.module
-
-        return validator
-
-    def get_active_connection(self, identifier) -> Optional[Connection]:
+    def get_actives(self, identifier) -> Optional[Connection]:
         with self._lock:
             current_time = time.monotonic()
 
@@ -83,12 +77,6 @@ class ConnectionPool:
                 return connection
 
         return None
-
-    def get_module_ss58_addresses(self) -> list[Ss58Address]:
-        return self._connections.keys()
-
-    def get_remaining_capacity(self) -> int:
-        return self._cache_size - len(self._connections)
 
     def update_or_append(self, identifier: Ss58Address, module_info: ModuleInfo, socket: SocketType):
         with self._lock:
@@ -124,14 +112,6 @@ class ConnectionPool:
                 if connection:
                     sockets.append(connection.socket)
         return sockets
-
-    def remove_if_inactive(self, identifier: Ss58Address) -> Optional[SocketType]:
-        with self._lock:
-            connection = self._connections.get(identifier)
-            current_time = time.monotonic()
-            if connection and current_time - connection.last_response_time > INACTIVITY_TIMEOUT_SECONDS:
-                return self._connections.pop(identifier).socket
-            return None
 
     def remove_inactive(self) -> list[SocketType]:
         with self._lock:
