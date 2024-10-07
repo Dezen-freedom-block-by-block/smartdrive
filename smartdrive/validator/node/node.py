@@ -19,39 +19,36 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
+
 import asyncio
 import itertools
 import multiprocessing
 import os
-import threading
 import time
 import uuid
-from time import sleep
+from multiprocessing import Value
 from typing import Union, List, Tuple
 
 from communex.compat.key import classic_load_key
 from communex.types import Ss58Address
 from substrateinterface import Keypair
 
+from smartdrive.commune.models import ModuleInfo
 from smartdrive.commune.request import get_filtered_modules
 from smartdrive.commune.utils import filter_truthful_validators
-from smartdrive.logging_config import logger
-from smartdrive.commune.models import ModuleInfo
-from smartdrive.models.block import Block, block_to_block_event
-from smartdrive.models.event import MessageEvent, StoreEvent, RemoveEvent, StoreRequestEvent, EventParams, \
-    RemoveInputParams
+from smartdrive.models.event import MessageEvent, StoreEvent, RemoveEvent, RemoveInputParams, EventParams
 from smartdrive.sign import sign_data
 from smartdrive.utils import get_stake_from_user, calculate_storage_capacity
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.models.models import ModuleType
-from smartdrive.validator.node.connection_pool import ConnectionPool, Connection
-from smartdrive.validator.node.server import Server
+from smartdrive.validator.node.connection.connection_pool import ConnectionPool, Connection
+from smartdrive.validator.node.connection.peer_manager import PeerManager
+from smartdrive.validator.node.event.event_pool import EventPool
 from smartdrive.validator.node.util.message import MessageCode, Message, MessageBody
-from smartdrive.validator.node.util.utils import send_json
-from smartdrive.validator.node.connection_pool import INACTIVITY_TIMEOUT_SECONDS as VALIDATOR_INACTIVITY_TIMEOUT_SECONDS
-
+from smartdrive.validator.node.connection.utils.utils import send_message
+from smartdrive.validator.node.connection.connection_pool import INACTIVITY_TIMEOUT_SECONDS as VALIDATOR_INACTIVITY_TIMEOUT_SECONDS
 
 SLEEP_TIME_CHECK_STAKE_SECONDS = 1 * 60 * 60  # 1 hour
 VALIDATION_VOTE_INTERVAL_SECONDS = 10 * 60  # 10 minutes
@@ -59,32 +56,27 @@ VALIDATION_VOTE_INTERVAL_SECONDS = 10 * 60  # 10 minutes
 
 class Node:
     _keypair: Keypair
-    _ping_process = None
-    _event_pool = None
-    _connection_pool = None
-    _event_pool_lock = None
-    initial_sync_completed = None
+    _event_pool: EventPool = None
+    _connection_pool: ConnectionPool = None
+    initial_sync_completed: Value = None
+    _database: Database = None
 
-    def __init__(self, database: Database):
+    def __init__(self):
         self._keypair = classic_load_key(config_manager.config.key)
 
         manager = multiprocessing.Manager()
-        self._event_pool = manager.list()
-        self._event_pool_lock = manager.Lock()
-        self.initial_sync_completed = multiprocessing.Value('b', False)
-        self._connection_pool = ConnectionPool(cache_size=Server.MAX_N_CONNECTIONS)
-        self._database = database
+        self._event_pool = EventPool(manager)
+        self._connection_pool = ConnectionPool(manager=manager, cache_size=PeerManager.MAX_N_CONNECTIONS)
+        self.initial_sync_completed = Value('b', False)
+        self._database = Database()
 
-        server = Server(
+        connection_manager = PeerManager(
             event_pool=self._event_pool,
-            event_pool_lock=self._event_pool_lock,
             connection_pool=self._connection_pool,
             initial_sync_completed=self.initial_sync_completed
         )
-        server.daemon = True
-        server.start()
-
-        threading.Thread(target=self.periodically_ping_nodes, daemon=True).start()
+        connection_manager.daemon = True
+        connection_manager.start()
 
         multiprocessing.Process(target=self.periodically_check_stake, daemon=True).start()
 
@@ -94,9 +86,8 @@ class Node:
     def get_connected_modules(self) -> List[ModuleInfo]:
         return [connection.module for connection in self._connection_pool.get_all()]
 
-    def add_event(self, event: Union[StoreEvent, RemoveEvent, StoreRequestEvent]):
-        with self._event_pool_lock:
-            self._event_pool.append(event)
+    def distribute_event(self, event: Union[StoreEvent, RemoveEvent]):
+        self._event_pool.append(event)
 
         message_event = MessageEvent.from_json(event.dict(), event.get_event_action())
 
@@ -115,65 +106,11 @@ class Node:
                 signature_hex=body_sign.hex(),
                 public_key_hex=self._keypair.public_key.hex()
             )
-            self.send_message(connection, message)
 
-    def consume_events(self, count: int):
-        items = []
-        with self._event_pool_lock:
-            for _ in range(min(count, len(self._event_pool))):
-                items.append(self._event_pool.pop(0))
-        return items
+            send_message(connection.socket, message)
 
-    def send_message(self, connection: Connection, message: Message):
-        threading.Thread(target=send_json, args=(connection.socket, message.dict(),)).start()
-
-    def send_block(self, block: Block):
-        block_event = block_to_block_event(block)
-
-        body = MessageBody(
-            code=MessageCode.MESSAGE_CODE_BLOCK,
-            data=block_event.dict()
-        )
-
-        body_sign = sign_data(body.dict(), self._keypair)
-
-        message = Message(
-            body=body,
-            signature_hex=body_sign.hex(),
-            public_key_hex=self._keypair.public_key.hex()
-        )
-
-        connections = self.get_connections()
-        for c in connections:
-            self.send_message(c, message)
-
-    def periodically_ping_nodes(self):
-        while True:
-            connections = self.get_connections()
-
-            for c in connections:
-                try:
-                    body = MessageBody(
-                        code=MessageCode.MESSAGE_CODE_PING
-                    )
-
-                    body_sign = sign_data(body.dict(), self._keypair)
-
-                    message = Message(
-                        body=body,
-                        signature_hex=body_sign.hex(),
-                        public_key_hex=self._keypair.public_key.hex()
-                    )
-
-                    self.send_message(c, message)
-                except Exception:
-                    logger.debug("Error pinging validator", exc_info=True)
-
-            inactive_connections = self._connection_pool.remove_and_return_inactive_sockets()
-            for inactive_connection in inactive_connections:
-                inactive_connection.close()
-
-            sleep(5)
+    def consume_events(self, count: int) -> List[Union[StoreEvent, RemoveEvent]]:
+        return self._event_pool.consume_events(count)
 
     async def get_proposer_validator(self) -> Tuple[bool, List[ModuleInfo], List[ModuleInfo]]:
         """

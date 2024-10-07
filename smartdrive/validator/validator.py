@@ -19,6 +19,7 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
+
 import os
 import argparse
 import time
@@ -30,19 +31,25 @@ from communex.types import Ss58Address
 from substrateinterface import Keypair
 
 import smartdrive
+from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.logging_config import logger
 from smartdrive.commune.connection_pool import initialize_commune_connection_pool
-from smartdrive.models.block import Block, MAX_EVENTS_PER_BLOCK
+from smartdrive.models.block import Block, MAX_EVENTS_PER_BLOCK, block_to_block_event
+from smartdrive.models.event import RemoveEvent
+from smartdrive.models.utils import compile_miners_info_and_chunks
 from smartdrive.utils import DEFAULT_VALIDATOR_PATH
+from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.config import Config, config_manager
 from smartdrive.validator.database.database import Database
+from smartdrive.validator.node.connection.utils.utils import send_message
 from smartdrive.validator.node.node import Node, VALIDATION_VOTE_INTERVAL_SECONDS
 from smartdrive.validator.api.api import API
 from smartdrive.validator.evaluation.evaluation import score_miners, set_weights
-from smartdrive.validator.node.connection_pool import INACTIVITY_TIMEOUT_SECONDS as VALIDATOR_INACTIVITY_TIMEOUT_SECONDS
+from smartdrive.validator.node.connection.connection_pool import INACTIVITY_TIMEOUT_SECONDS as VALIDATOR_INACTIVITY_TIMEOUT_SECONDS
 from smartdrive.validator.models.models import ModuleType
+from smartdrive.validator.node.util.message import MessageBody, MessageCode, Message
 from smartdrive.validator.validation import validate
-from smartdrive.validator.utils import process_events, prepare_sync_blocks
+from smartdrive.validator.utils import prepare_sync_blocks
 from smartdrive.sign import sign_data
 from smartdrive.commune.request import get_filtered_modules, get_modules
 
@@ -92,7 +99,7 @@ class Validator(Module):
         super().__init__()
         self._key = classic_load_key(config_manager.config.key)
         self._database = Database()
-        self.node = Node(self._database)
+        self.node = Node()
         self.api = API(self.node)
 
     async def create_blocks(self):
@@ -140,13 +147,6 @@ class Validator(Module):
                             continue
 
                     block_events = self.node.consume_events(count=MAX_EVENTS_PER_BLOCK)
-                    await process_events(
-                        events=block_events,
-                        is_proposer_validator=True,
-                        keypair=self._key,
-                        netuid=config_manager.config.netuid,
-                        database=self._database
-                    )
 
                     signed_block = sign_data({"block_number": new_block_number, "events": [event.dict() for event in block_events]}, self._key)
                     block = Block(
@@ -157,7 +157,30 @@ class Validator(Module):
                     )
                     await self._database.create_block(block=block, is_proposer=is_current_validator_proposer, validators=all_validators)
 
-                    self.node.send_block(block=block)
+                    block_event = block_to_block_event(block)
+                    body = MessageBody(
+                        code=MessageCode.MESSAGE_CODE_BLOCK,
+                        data=block_event.dict()
+                    )
+                    body_sign = sign_data(body.dict(), self._key)
+                    message = Message(
+                        body=body,
+                        signature_hex=body_sign.hex(),
+                        public_key_hex=self._key.public_key.hex()
+                    )
+                    for connection in self.node.get_connections():
+                        send_message(connection.socket, message)
+
+                    for event in block_events:
+                        if isinstance(event, RemoveEvent):
+                            chunks = self._database.get_chunks(file_uuid=event.event_params.file_uuid)
+                            miners = await get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
+                            miners_info_with_chunk = compile_miners_info_and_chunks(miners, chunks)
+
+                            for miner in miners_info_with_chunk:
+                                connection = ConnectionInfo(miner["connection"]["ip"], miner["connection"]["port"])
+                                miner_info = ModuleInfo(miner["uid"], miner["ss58_address"], connection)
+                                await remove_chunk_request(self._key, event.user_ss58_address, miner_info, miner["chunk_uuid"])
 
                 elapsed = time.monotonic() - start_time
                 sleep_time = max(0.0, self.BLOCK_INTERVAL_SECONDS - elapsed)

@@ -25,6 +25,19 @@ from typing import Union
 from smartdrive.models.block import Block
 from smartdrive.models.event import UserEvent, StoreEvent, RemoveEvent
 from smartdrive.sign import verify_data_signature
+from smartdrive.validator.node.util.exceptions import BlockIntegrityException
+
+
+def check_block_integrity(block: Block):
+    if not are_all_block_events_valid(block):
+        raise BlockIntegrityException(f"Invalid events in {block}")
+
+    if not verify_data_signature(
+            data={"block_number": block.block_number, "events": [event.dict() for event in block.events]},
+            signature_hex=block.signed_block,
+            ss58_address=block.proposer_ss58_address
+    ):
+        raise BlockIntegrityException(f"Block {block.block_number} data signature not verified")
 
 
 def _verify_event_signatures(event: Union[StoreEvent, RemoveEvent]) -> bool:
@@ -60,14 +73,3 @@ def are_all_block_events_valid(block: Block) -> bool:
         if not _verify_event_signatures(event):
             return False
     return True
-
-
-def remove_invalid_block_events(block: Block):
-    """
-    Removes events with invalid signatures from the block.
-
-    Parameters:
-        block (Block): The block containing events to be verified and cleaned.
-    """
-    verified_events = [event for event in block.events if _verify_event_signatures(event)]
-    block.events = verified_events

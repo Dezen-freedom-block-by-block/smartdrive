@@ -19,9 +19,11 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
+
 import os
 import sqlite3
 import time
+from sqlite3 import Cursor
 from typing import List, Optional, Union
 
 from smartdrive.logging_config import logger
@@ -29,7 +31,7 @@ from smartdrive.commune.models import ModuleInfo
 from smartdrive.models.event import StoreEvent, Action, StoreParams, StoreInputParams, RemoveEvent, RemoveInputParams, \
     EventParams, UserEvent, ChunkParams, ValidationEvent, StoreRequestEvent
 from smartdrive.models.block import Block
-from smartdrive.utils import calculate_storage_capacity, get_stake_from_user
+from smartdrive.utils import get_stake_from_user, calculate_storage_capacity
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.models.models import MinerWithChunk, File, Chunk
 
@@ -98,7 +100,7 @@ class Database:
                         file_uuid TEXT NOT NULL,
                         event_signed_params TEXT NOT NULL,
                         user_ss58_address TEXT,
-                        file TEXT,
+                        file_hash TEXT,
                         file_size_bytes BIGINT,
                         expiration_at INTEGER,
                         approved BOOLEAN,
@@ -157,47 +159,30 @@ class Database:
         if self._database_exists():
             os.remove(self._database_file_path)
 
-    def insert_file(self, file: File, event_uuid: str) -> bool:
+    def insert_file(self, cursor: Cursor, file: File, event_uuid: str):
         """
         Inserts a file and its associated chunks into the database.
 
         This method inserts a new file record and its associated chunks into the database.
-        It ensures that all operations are performed within a single transaction to maintain
-        data integrity.
 
         Params:
+            cursor (Cursor): The database cursor
             file (File): File to be inserted
-
-        Returns:
-            bool: True if the operation was successful, or False if was not successful.
+            event_uuid (str): The event UUID where the File was created
 
         Raises:
             sqlite3.Error: If an error occurs during the database transaction.
         """
-        try:
-            connection = sqlite3.connect(self._database_file_path)
-            with connection:
-                cursor = connection.cursor()
-                connection.execute('BEGIN TRANSACTION')
+        cursor.execute('''
+            INSERT INTO file (uuid, user_ss58_address, total_chunks, file_size_bytes)
+            VALUES (?, ?, ?, ?)
+        ''', (file.file_uuid, file.user_owner_ss58address, file.total_chunks, file.file_size_bytes))
 
-                cursor.execute('''
-                    INSERT INTO file (uuid, user_ss58_address, total_chunks, file_size_bytes)
-                    VALUES (?, ?, ?, ?)
-                ''', (file.file_uuid, file.user_owner_ss58address, file.total_chunks, file.file_size_bytes))
-
-                for chunk in file.chunks:
-                    cursor.execute('''
-                        INSERT INTO chunk (uuid, file_uuid, event_uuid, miner_ss58_address, chunk_index)
-                        VALUES (?, ?, ?, ?, ?)
-                    ''', (chunk.chunk_uuid, file.file_uuid, event_uuid, chunk.miner_ss58_address, chunk.chunk_index))
-
-                connection.commit()
-
-            return True
-
-        except sqlite3.Error:
-            logger.error("Database error", exc_info=True)
-            return False
+        for chunk in file.chunks:
+            cursor.execute('''
+                INSERT INTO chunk (uuid, file_uuid, event_uuid, miner_ss58_address, chunk_index)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (chunk.chunk_uuid, file.file_uuid, event_uuid, chunk.miner_ss58_address, chunk.chunk_index))
 
     def get_file(self, user_ss58_address: str, file_uuid: str) -> File | None:
         """
@@ -593,7 +578,7 @@ class Database:
 
         return validation_events
 
-    def remove_file(self, file_uuid: str) -> bool:
+    def remove_file(self, file_uuid: str, cursor: Optional[Cursor] = None) -> bool:
         """
         Mark a file as removed in the database.
 
@@ -601,26 +586,28 @@ class Database:
         validation table since it will not be validated in the future.
 
         Params:
+            cursor (sqlite3.Cursor): The database cursor.
             file_uuid: The UUID of the file to mark as removed.
 
-        Returns:
-            bool: True if the file was successfully marked as removed, False otherwise.
-
         Raises:
-            None explicitly, but logs an error message if an SQLite error occurs.
+            sqlite3.Error: If an error occurs during the database transaction.
         """
-        try:
-            connection = sqlite3.connect(self._database_file_path)
-            with connection:
-                cursor = connection.cursor()
-                cursor.execute("UPDATE file SET removed = 1 WHERE uuid = ?", (file_uuid,))
-                cursor.execute("DELETE FROM validation WHERE file_uuid = ?", (file_uuid,))
-                connection.commit()
-        except sqlite3.Error:
-            logger.error("Database error", exc_info=True)
-            return False
+        if cursor is None:
+            try:
+                with sqlite3.connect(self._database_file_path) as connection:
+                    cursor = connection.cursor()
+                    cursor.execute("UPDATE file SET removed = 1 WHERE uuid = ?", (file_uuid,))
+                    cursor.execute("DELETE FROM validation WHERE file_uuid = ?", (file_uuid,))
+                    connection.commit()
+                return True
+            except sqlite3.Error as e:
+                logger.error(f"Error removing file {file_uuid}: {str(e)}", exc_info=True)
+                return False
 
-        return True
+        else:
+            cursor.execute("UPDATE file SET removed = 1 WHERE uuid = ?", (file_uuid,))
+            cursor.execute("DELETE FROM validation WHERE file_uuid = ?", (file_uuid,))
+            return True
 
     def get_last_block_number(self) -> Optional[int]:
         """
@@ -666,12 +653,13 @@ class Database:
                 cursor = connection.cursor()
                 connection.execute('BEGIN TRANSACTION')
 
-                # Insert block
-                cursor.execute('INSERT INTO block (id, proposer_ss58_address, signed_block) VALUES (?, ?, ?)', (block.block_number, block.proposer_ss58_address, block.signed_block))
+                cursor.execute(
+                    'INSERT INTO block (id, proposer_ss58_address, signed_block) VALUES (?, ?, ?)',
+                    (block.block_number, block.proposer_ss58_address, block.signed_block)
+                )
 
-                # Insert events
                 for event in block.events:
-                    await self._insert_event(cursor, event, block.block_number, is_proposer, validators)
+                    await self._process_event(cursor, event, block.block_number, is_proposer, validators)
 
                 connection.commit()
             return True
@@ -680,28 +668,35 @@ class Database:
                 connection.rollback()
             logger.error("Database error", exc_info=True)
             return False
+        except Exception as e:
+            logger.error(f"Failed to create block: {str(e)}", exc_info=True)
+            return False
         finally:
             if connection:
                 connection.close()
 
-    async def _insert_event(self, cursor, event: Union[StoreEvent, RemoveEvent, StoreRequestEvent], block_id: int, is_proposer: bool, validators: [ModuleInfo] = None):
+    async def _process_event(self, cursor, event: Union[StoreEvent, RemoveEvent], block_id: int, is_proposer: bool, validators: List[ModuleInfo]):
         """
-        Inserts an event into the database.
+        Processes an event and executes the necessary operations in the database.
 
         Parameters:
             cursor (sqlite3.Cursor): The database cursor.
             event Union[StoreEvent, RemoveEvent]: The specific Event object (StoreEvent, RemoveEvent).
             block_id (int): The ID of the block to which the event belongs.
+            is_proposer: Flag indicating if the current validator is the proposer of the block.
+            validators: A list of validator modules.
+
+        Raises:
+            sqlite3.Error: If an error occurs during the database transaction.
         """
         event_type = event.get_event_action().value
         validator_ss58_address = event.validator_ss58_address
         event_signed_params = event.event_signed_params
 
-        # Initialize common fields
         file_uuid = event.event_params.file_uuid
         user_ss58_address = None
         input_signed_params = None
-        file = None
+        file_hash = None
         file_size_bytes = None
         expiration_at = None
         approved = None
@@ -710,12 +705,31 @@ class Database:
             user_ss58_address = event.user_ss58_address
             input_signed_params = event.input_signed_params
 
-        # Populate specific fields based on event type
-        if isinstance(event, StoreEvent):
-            file = event.input_params.file
+        elif isinstance(event, StoreEvent):
+            total_chunks_index = set()
+            chunks = []
+            for chunk in event.event_params.chunks_params:
+                total_chunks_index.add(chunk.chunk_index)
+                chunks.append(
+                    Chunk(
+                        miner_ss58_address=Ss58Address(chunk.miner_ss58_address),
+                        chunk_uuid=chunk.uuid,
+                        file_uuid=event.event_params.file_uuid,
+                        chunk_index=chunk.chunk_index
+                    )
+                )
+            file = File(
+                user_owner_ss58address=event.user_ss58_address,
+                total_chunks=len(total_chunks_index),
+                file_uuid=event.event_params.file_uuid,
+                chunks=chunks,
+                file_size_bytes=event.input_params.file_size_bytes
+            )
+            self.insert_file(cursor=cursor, file=file, event_uuid=event.uuid)
 
-        if isinstance(event, StoreRequestEvent):
-            file = event.input_params.file
+            file_hash = event.input_params.file_hash
+        elif isinstance(event, StoreRequestEvent):
+            file_hash = event.input_params.file_hash
             file_size_bytes = event.input_params.file_size_bytes
             expiration_at = event.event_params.expiration_at
             approved = event.event_params.approved
@@ -725,13 +739,15 @@ class Database:
                 total_size_stored_by_user = self.get_total_file_size_by_user(user_ss58_address=event.user_ss58_address)
                 available_storage_of_user = calculate_storage_capacity(total_stake)
                 approved = total_size_stored_by_user <= available_storage_of_user
+        elif isinstance(event, RemoveEvent):
+            self.remove_file(cursor=cursor, file_uuid=event.event_params.file_uuid)
 
         cursor.execute(
             '''
-            INSERT INTO events (uuid, validator_ss58_address, event_type, file_uuid, event_signed_params, user_ss58_address, file, input_signed_params, block_id, file_size_bytes, expiration_at, approved)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO events (uuid, validator_ss58_address, event_type, file_uuid, event_signed_params, user_ss58_address, file_hash, input_signed_params, block_id, file_size_bytes, expiration_at, approved)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
-            (event.uuid, validator_ss58_address, event_type, file_uuid, event_signed_params, user_ss58_address, file, input_signed_params, block_id, file_size_bytes, expiration_at, approved)
+            (event.uuid, validator_ss58_address, event_type, file_uuid, event_signed_params, user_ss58_address, file_hash, input_signed_params, block_id, file_size_bytes, expiration_at, approved)
         )
 
     def get_blocks(self, start: int, end: int) -> Optional[List[Block]]:
@@ -923,7 +939,7 @@ class Database:
                 event_params=StoreParams(**event_params),
                 event_signed_params=row['event_signed_params'],
                 user_ss58_address=row['user_ss58_address'],
-                input_params=StoreInputParams(file=row['file'], file_size_bytes=row['file_size_bytes']),
+                input_params=StoreInputParams(file_hash=row['file_hash'], file_size_bytes=row['file_size_bytes']),
                 input_signed_params=row['input_signed_params']
             )
         elif event_type == Action.REMOVE.value:

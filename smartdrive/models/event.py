@@ -47,7 +47,7 @@ class RetrieveInputParams(InputParams):
 
 
 class StoreInputParams(InputParams):
-    file: str
+    file_hash: str
     file_size_bytes: int
 
 
@@ -184,7 +184,7 @@ def parse_event(message_event: MessageEvent) -> Union[StoreEvent, RemoveEvent, S
         return StoreEvent(
             **common_params,
             user_ss58_address=Ss58Address(message_event.event.user_ss58_address),
-            input_params=StoreInputParams(file=message_event.event.input_params.file, file_size_bytes=message_event.event.input_params.file_size_bytes),
+            input_params=StoreInputParams(file_hash=message_event.event.input_params.file_hash, file_size_bytes=message_event.event.input_params.file_size_bytes),
             input_signed_params=message_event.event.input_signed_params
         )
     elif message_event.event_action == Action.REMOVE.value:

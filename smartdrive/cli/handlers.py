@@ -91,7 +91,7 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
             file_hash = calculate_hash_stream(temp_file)
             file_size_bytes = os.path.getsize(temp_file_path)
 
-        input_params = StoreInputParams(file=file_hash, file_size_bytes=file_size_bytes)
+        input_params = StoreInputParams(file_hash=file_hash, file_size_bytes=file_size_bytes)
         signed_data = sign_data(input_params.dict(), key)
 
         # Step 3: Send the request

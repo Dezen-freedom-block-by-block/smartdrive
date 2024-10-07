@@ -85,4 +85,4 @@ class RemoveAPI:
             input_signed_params=input_signed_params
         )
 
-        self._node.add_event(event)
+        self._node.distribute_event(event)
