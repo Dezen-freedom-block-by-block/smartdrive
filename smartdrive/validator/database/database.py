@@ -31,7 +31,6 @@ from smartdrive.commune.models import ModuleInfo
 from smartdrive.models.event import StoreEvent, Action, StoreParams, StoreInputParams, RemoveEvent, RemoveInputParams, \
     EventParams, UserEvent, ChunkParams, ValidationEvent, StoreRequestEvent
 from smartdrive.models.block import Block
-from smartdrive.utils import get_stake_from_user, calculate_storage_capacity
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.models.models import MinerWithChunk, File, Chunk
 
@@ -631,14 +630,12 @@ class Database:
             if connection:
                 connection.close()
 
-    async def create_block(self, block: Block, is_proposer: bool, validators: [ModuleInfo] = None) -> bool:
+    def create_block(self, block: Block) -> bool:
         """
         Creates a block in the database with its associated events.
 
         Parameters:
             block (Block): The block to be created in the database.
-            is_proposer (bool): A flag indicating if the current validator is the proposer of the block.
-            validators ([ModuleInfo], optional): A list of validator modules.
 
         Returns:
             bool: True if the block and its events are successfully created, False otherwise.
@@ -659,7 +656,7 @@ class Database:
                 )
 
                 for event in block.events:
-                    await self._process_event(cursor, event, block.block_number, is_proposer, validators)
+                    self._process_event(cursor, event, block.block_number)
 
                 connection.commit()
             return True
@@ -675,7 +672,7 @@ class Database:
             if connection:
                 connection.close()
 
-    async def _process_event(self, cursor, event: Union[StoreEvent, RemoveEvent], block_id: int, is_proposer: bool, validators: List[ModuleInfo]):
+    def _process_event(self, cursor, event: Union[StoreEvent, RemoveEvent], block_id: int):
         """
         Processes an event and executes the necessary operations in the database.
 
@@ -683,8 +680,6 @@ class Database:
             cursor (sqlite3.Cursor): The database cursor.
             event Union[StoreEvent, RemoveEvent]: The specific Event object (StoreEvent, RemoveEvent).
             block_id (int): The ID of the block to which the event belongs.
-            is_proposer: Flag indicating if the current validator is the proposer of the block.
-            validators: A list of validator modules.
 
         Raises:
             sqlite3.Error: If an error occurs during the database transaction.
@@ -728,17 +723,13 @@ class Database:
             self.insert_file(cursor=cursor, file=file, event_uuid=event.uuid)
 
             file_hash = event.input_params.file_hash
+
         elif isinstance(event, StoreRequestEvent):
             file_hash = event.input_params.file_hash
             file_size_bytes = event.input_params.file_size_bytes
             expiration_at = event.event_params.expiration_at
             approved = event.event_params.approved
 
-            if is_proposer:
-                total_stake = await get_stake_from_user(user_ss58_address=event.user_ss58_address, validators=validators)
-                total_size_stored_by_user = self.get_total_file_size_by_user(user_ss58_address=event.user_ss58_address)
-                available_storage_of_user = calculate_storage_capacity(total_stake)
-                approved = total_size_stored_by_user + event.input_params.file_size_bytes <= available_storage_of_user
         elif isinstance(event, RemoveEvent):
             self.remove_file(cursor=cursor, file_uuid=event.event_params.file_uuid)
 
@@ -770,7 +761,7 @@ class Database:
             query = '''
                 SELECT
                     b.id AS block_id, b.signed_block, b.proposer_ss58_address,
-                    e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.event_signed_params, e.user_ss58_address, e.file, e.input_signed_params,
+                    e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.event_signed_params, e.user_ss58_address, e.file_hash, e.input_signed_params,
                     c.uuid AS chunk_uuid, c.miner_ss58_address, c.chunk_index,
                     f.file_size_bytes
                 FROM block b
