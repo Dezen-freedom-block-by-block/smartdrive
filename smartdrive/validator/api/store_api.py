@@ -93,7 +93,7 @@ class StoreAPI:
         user_public_key = request.headers.get("X-Key")
         user_ss58_address = get_ss58_address_from_public_key(user_public_key)
         input_signed_params = request.headers.get("X-Signature")
-        file = request.headers.get("X-File-Hash")
+        file_hash = request.headers.get("X-File-Hash")
         file_size_bytes = request.headers.get("X-File-Size")
 
         event_params = StoreRequestParams(file_uuid=f"{int(time.time())}_{str(uuid.uuid4())}", expiration_at=int(time.time()) + TIME_EXPIRATION_STORE_REQUEST_EVENT_SECONDS, approved=None)  # Expires in 5 minutes
@@ -105,11 +105,11 @@ class StoreAPI:
             event_params=event_params,
             event_signed_params=signed_params.hex(),
             user_ss58_address=user_ss58_address,
-            input_params=StoreRequestInputParams(file=file, file_size_bytes=file_size_bytes),
+            input_params=StoreRequestInputParams(file_hash=file_hash, file_size_bytes=file_size_bytes),
             input_signed_params=input_signed_params
         )
 
-        self._node.add_event(event)
+        self._node.distribute_event(event)
 
         return {"store_request_event_uuid": event.uuid}
 
@@ -153,7 +153,6 @@ class StoreAPI:
 
         Params:
             request (Request): The incoming request containing necessary headers for validation.
-            file (UploadFile): The file to be uploaded.
 
         Raises:
             FileDoesNotExistException: If the file is bigger than allowed.
@@ -382,6 +381,61 @@ async def store_new_file(
     except Exception:
         await remove_stored_chunks()
         raise
+
+
+async def store_new_file_stream(
+        stream,
+        miners: List[ModuleInfo],
+        validator_keypair: Keypair,
+        user_ss58_address: Ss58Address,
+        input_signed_params: str,
+        validators_len: int,
+) -> Tuple[Optional[StoreEvent], List[List[ValidationEvent]]]:
+    max_chunk_size = 50 * 1024 * 1024
+    current_chunk_index = 0
+    buffer = bytearray()
+    stored_chunks_results = []
+    stored_miner_with_chunk_uuid: List[Tuple[ModuleInfo, str]] = []
+
+    async def handle_store_request(miner: ModuleInfo, chunk_bytes: bytes, chunk_index: int) -> bool:
+        miner_answer = await _store_request(
+            keypair=validator_keypair,
+            miner=miner,
+            user_ss58_address=user_ss58_address,
+            chunk_bytes=chunk_bytes
+        )
+        if miner_answer:
+            stored_chunks_results.append((miner_answer.chunk_uuid, chunk_index, miner.ss58_address, chunk_bytes))
+            stored_miner_with_chunk_uuid.append((miner, miner_answer.chunk_uuid))
+            return True
+        return False
+
+    async def store_chunk_with_redundancy(chunk: bytes, chunk_index: int):
+        available_miners = miners.copy()
+        random.shuffle(available_miners)
+        tasks = []
+        replication_count = 0
+
+        while replication_count < MIN_MINERS_REPLICATION_FOR_CHUNK and available_miners:
+            miner = available_miners.pop()
+            tasks.append(asyncio.create_task(handle_store_request(miner, chunk, chunk_index)))
+
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            replication_count += sum(1 for result in results if result is True)
+
+            tasks = [task for task, result in zip(tasks, results) if result is not True]
+
+    async for chunk in stream:
+        buffer.extend(chunk)
+
+        while len(buffer) >= max_chunk_size:
+            buffer = buffer[max_chunk_size:]
+
+            await store_chunk_with_redundancy(chunk=buffer[:max_chunk_size], chunk_index=current_chunk_index)
+            current_chunk_index += 1
+
+    if buffer:
+        await store_chunk_with_redundancy(chunk=buffer, chunk_index=current_chunk_index)
 
 
 async def _store_request(keypair: Keypair, miner: ModuleInfo, user_ss58_address: Ss58Address, chunk_bytes: bytes) -> Optional[MinerWithChunk]:

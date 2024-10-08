@@ -20,16 +20,16 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 import os
-import sys
+import sys # noqa
 import time
 
 import requests
 from substrateinterface import Keypair
 
 from smartdrive.cli.handlers import _get_key, _get_validator_url
-from smartdrive.cli.utils import stream_file_with_signature
 from smartdrive.commune.connection_pool import initialize_commune_connection_pool
 from smartdrive.commune.module._protocol import create_headers
+from smartdrive.commune.utils import calculate_hash_stream
 from smartdrive.models.event import StoreInputParams
 from smartdrive.sign import sign_data
 
@@ -65,35 +65,47 @@ def _check_permission_store(file_path: str, file_hash: str, file_size_bytes: int
 
 def _store_file(file_path: str, file_hash: str, file_size_bytes: int, keypair: Keypair, testnet: bool):
     try:
-        input_params = StoreInputParams(file=file_hash, file_size_bytes=file_size_bytes)
+        input_params = StoreInputParams(file_hash=file_hash, file_size_bytes=file_size_bytes)
         signed_data = sign_data(input_params.dict(), keypair)
         headers = create_headers(signed_data, keypair, show_content_type=False)
         validator_url = _get_validator_url(key=key, testnet=testnet)
         headers["X-File-Hash"] = file_hash
         headers["X-File-Size"] = str(file_size_bytes)
 
-        requests.post(
-            url=f"{validator_url}/store",
-            headers=headers,
-            data=stream_file_with_signature(file_path=file_path, keypair=keypair),
-            verify=False,
-            stream=True
-        )
+        with open(file_path, 'rb') as file:
+            requests.post(
+                url=f"{validator_url}/store",
+                headers=headers,
+                data=file,
+                verify=False,
+                stream=True
+            )
+
     except Exception:
         return
-    finally:
-        if os.path.exists(file_path):
-            os.remove(file_path)
+    # finally:
+        # if os.path.exists(file_path):
+        #     os.remove(file_path)
 
+
+# if __name__ == "__main__":
+#     file_path = sys.argv[1]
+#     file_hash = sys.argv[2]
+#     file_size_bytes = int(sys.argv[3])
+#     store_request_event_uuid = sys.argv[4]
+#     key_name = sys.argv[5]
+#     testnet = sys.argv[6] == 'True'
+#     key = _get_key(key_name)
+#
+#     initialize_commune_connection_pool(False, num_connections=1, max_pool_size=1)
+#     _check_permission_store(file_path, file_hash, file_size_bytes, store_request_event_uuid, key, testnet)
 
 if __name__ == "__main__":
-    file_path = sys.argv[1]
-    file_hash = sys.argv[2]
-    file_size_bytes = int(sys.argv[3])
-    store_request_event_uuid = sys.argv[4]
-    key_name = sys.argv[5]
-    testnet = sys.argv[6] == 'True'
-    key = _get_key(key_name)
+    key = _get_key("unknown")
 
-    initialize_commune_connection_pool(testnet, num_connections=1, max_pool_size=1)
-    _check_permission_store(file_path, file_hash, file_size_bytes, store_request_event_uuid, key, testnet)
+    with open("/Users/miguel/.smartdrive/client/smartdrive.db", 'rb') as temp_file:
+        file_hash = calculate_hash_stream(temp_file)
+        file_size_bytes = os.path.getsize("/Users/miguel/.smartdrive/client/smartdrive.db")
+
+    initialize_commune_connection_pool(False, num_connections=1, max_pool_size=1)
+    _store_file(file_path="/Users/miguel/.smartdrive/client/smartdrive.db", file_hash=file_hash, file_size_bytes=file_size_bytes, keypair=key, testnet=False)

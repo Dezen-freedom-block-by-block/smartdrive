@@ -21,7 +21,6 @@
 #  SOFTWARE.
 
 import json
-from urllib.parse import parse_qs
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
@@ -117,14 +116,6 @@ class APIMiddleware(BaseHTTPMiddleware):
                         body = await request.json()
                     except json.JSONDecodeError:
                         return _error_response(401, "Invalid JSON")
-                else:
-                    body = {}
-            elif content_type and "application/octet-stream" not in content_type:
-                body_bytes = await request.body()
-                try:
-                    body = {key: value[0] if isinstance(value, list) else value for key, value in parse_qs(body_bytes.decode("utf-8")).items()}
-                except UnicodeDecodeError:
-                    body = body_bytes
 
         is_verified_signature = verify_data_signature(body, signature, ss58_address)
         if not is_verified_signature:

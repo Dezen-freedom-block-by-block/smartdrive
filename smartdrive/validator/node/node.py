@@ -36,7 +36,8 @@ from substrateinterface import Keypair
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.commune.request import get_filtered_modules
 from smartdrive.commune.utils import filter_truthful_validators
-from smartdrive.models.event import MessageEvent, StoreEvent, RemoveEvent, RemoveInputParams, EventParams
+from smartdrive.models.event import MessageEvent, StoreEvent, RemoveEvent, RemoveInputParams, EventParams, \
+    StoreRequestEvent
 from smartdrive.sign import sign_data
 from smartdrive.utils import get_stake_from_user, calculate_storage_capacity
 from smartdrive.validator.config import config_manager
@@ -86,7 +87,7 @@ class Node:
     def get_connected_modules(self) -> List[ModuleInfo]:
         return [connection.module for connection in self._connection_pool.get_all()]
 
-    def distribute_event(self, event: Union[StoreEvent, RemoveEvent]):
+    def distribute_event(self, event: Union[StoreEvent, RemoveEvent, StoreRequestEvent]):
         self._event_pool.append(event)
 
         message_event = MessageEvent.from_json(event.dict(), event.get_event_action())
@@ -224,6 +225,6 @@ class Node:
                                     input_signed_params=signed_input_params.hex()
                                 )
 
-                                self.add_event(event)
+                                self.distribute_event(event)
             except Exception:
                 continue

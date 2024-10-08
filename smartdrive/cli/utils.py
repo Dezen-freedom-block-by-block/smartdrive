@@ -70,20 +70,6 @@ def compress_encrypt_and_save(file_path, private_key_bytes):
     return output_file_path
 
 
-def stream_file_with_signature(file_path, keypair):
-    chunk_size = 8192  # 8KB
-    with open(file_path, 'rb') as file:
-        while True:
-            chunk = file.read(chunk_size)
-            if not chunk:
-                break
-
-            signature = keypair.sign(chunk)
-
-            yield chunk
-            yield signature
-
-
 def decrypt_with_aes(encrypted_data, aes_key):
     iv = encrypted_data[:16]
     cipher = AES.new(aes_key, AES.MODE_CFB, iv)
