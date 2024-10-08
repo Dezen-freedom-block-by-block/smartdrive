@@ -153,7 +153,11 @@ class Peer(threading.Thread):
         block = block_event_to_block(block_event)
 
         try:
-            check_block_integrity(block)
+            check_block_integrity(
+                block=block,
+                database=self._database,
+                validators=self._connection_pool.get_modules()
+            )
 
             local_block_number = self._database.get_last_block_number() or 0
             if block.block_number - 1 != local_block_number:
@@ -215,7 +219,11 @@ class Peer(threading.Thread):
                 block = Block(**block)
 
                 try:
-                    check_block_integrity(block)
+                    check_block_integrity(
+                        block=block,
+                        database=self._database,
+                        validators=self._connection_pool.get_modules()
+                    )
                     self._run_create_block(block)
                     self._event_pool.remove_multiple(block.events)
 

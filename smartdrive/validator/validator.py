@@ -20,10 +20,12 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 
+import itertools
 import os
 import argparse
 import time
 import asyncio
+import uuid
 
 from communex.module.module import Module
 from communex.compat.key import classic_load_key
@@ -35,19 +37,20 @@ from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.logging_config import logger
 from smartdrive.commune.connection_pool import initialize_commune_connection_pool
 from smartdrive.models.block import Block, MAX_EVENTS_PER_BLOCK, block_to_block_event
-from smartdrive.models.event import RemoveEvent
+from smartdrive.models.event import RemoveEvent, EventParams, RemoveInputParams
 from smartdrive.models.utils import compile_miners_info_and_chunks
-from smartdrive.utils import DEFAULT_VALIDATOR_PATH
+from smartdrive.utils import DEFAULT_VALIDATOR_PATH, get_stake_from_user, calculate_storage_capacity
 from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.config import Config, config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.node.connection.utils.utils import send_message
-from smartdrive.validator.node.node import Node, VALIDATION_VOTE_INTERVAL_SECONDS
+from smartdrive.validator.node.node import Node
 from smartdrive.validator.api.api import API
 from smartdrive.validator.evaluation.evaluation import score_miners, set_weights
 from smartdrive.validator.node.connection.connection_pool import INACTIVITY_TIMEOUT_SECONDS as VALIDATOR_INACTIVITY_TIMEOUT_SECONDS
 from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.node.util.message import MessageBody, MessageCode, Message
+from smartdrive.validator.node.util.utils import get_proposer_validator
 from smartdrive.validator.validation import validate
 from smartdrive.validator.utils import prepare_sync_blocks
 from smartdrive.sign import sign_data
@@ -88,6 +91,8 @@ def get_config() -> Config:
 
 class Validator(Module):
     BLOCK_INTERVAL_SECONDS = 30
+    VALIDATION_VOTE_INTERVAL_SECONDS = 10 * 60  # 10 minutes
+    SLEEP_TIME_CHECK_STAKE_SECONDS = 1 * 60 * 60  # 1 hour
 
     _config = None
     _key: Keypair = None
@@ -102,32 +107,37 @@ class Validator(Module):
         self.node = Node()
         self.api = API(self.node)
 
-    async def create_blocks(self):
+    async def run_steps(self):
         """
-        Periodically attempts to create new blocks by proposing them to the network if the current node is the
-        proposer.
-
-        This method operates in an infinite loop, regularly checking whether it's time to vote, validate, or create
-        a new block. The process includes validating the current validator's status, handling the initial sync,
-        processing events, and ensuring that the block creation and validation intervals are respected.
+        This method runs in an infinite loop, following these steps:
+            1. Validates and votes on users within the SmartDrive subnet.
+            2. Ensures that user stakes remain active as long as storage is being requested.
+            3. Proposes a new block if the current node is designated as the proposer.
         """
-        last_validation_time = time.monotonic()
-        first_validation_vote_launched = False
+        last_validation_vote_time = time.monotonic() - self.VALIDATION_VOTE_INTERVAL_SECONDS
+        last_check_stake_time = time.monotonic() - self.SLEEP_TIME_CHECK_STAKE_SECONDS
 
         while True:
-            start_time = time.monotonic()
+            start_step_time = time.monotonic()
 
             try:
-                if not first_validation_vote_launched or start_time - last_validation_time >= VALIDATION_VOTE_INTERVAL_SECONDS:
+                if start_step_time - last_validation_vote_time >= self.VALIDATION_VOTE_INTERVAL_SECONDS:
                     logger.info("Starting validation and voting task")
                     asyncio.create_task(self.validate_vote_task())
-                    first_validation_vote_launched = True
-                    last_validation_time = start_time
+                    last_validation_vote_time = start_step_time
             except Exception:
-                logger.error("Error validating", exc_info=True)
+                logger.error("Error validating and voting", exc_info=True)
 
             try:
-                is_current_validator_proposer, active_validators, all_validators = await self.node.get_proposer_validator()
+                if start_step_time - last_check_stake_time >= self.SLEEP_TIME_CHECK_STAKE_SECONDS:
+                    logger.info("Starting checking stake")
+                    asyncio.create_task(self.check_stake_task())
+                    last_check_stake_time = start_step_time
+            except Exception:
+                logger.error("Error checking stake", exc_info=True)
+
+            try:
+                is_current_validator_proposer, active_validators, all_validators = get_proposer_validator(self._key, self.node.connection_pool.get_modules())
                 if is_current_validator_proposer:
                     new_block_number = (self._database.get_last_block_number() or 0) + 1
 
@@ -182,13 +192,13 @@ class Validator(Module):
                                 miner_info = ModuleInfo(miner["uid"], miner["ss58_address"], connection)
                                 await remove_chunk_request(self._key, event.user_ss58_address, miner_info, miner["chunk_uuid"])
 
-                elapsed = time.monotonic() - start_time
+                elapsed = time.monotonic() - start_step_time
                 sleep_time = max(0.0, self.BLOCK_INTERVAL_SECONDS - elapsed)
                 logger.info(f"Sleeping for {sleep_time:.2f} seconds before trying to create the next block.")
                 await asyncio.sleep(sleep_time)
 
             except Exception:
-                logger.error("Error creating blocks", exc_info=True)
+                logger.error("Error creating block", exc_info=True)
                 await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS)
 
     async def validate_vote_task(self):
@@ -207,6 +217,73 @@ class Validator(Module):
             score_dict = score_miners(result_miners=result_miners)
             if score_dict:
                 await set_weights(score_dict, config_manager.config.netuid, self._key)
+
+    async def check_stake_task(self):
+        """
+        Periodically checks each user's stake and adjusts their stored data if they exceed their storage capacity.
+
+        This function checks if any user exceeds their permitted storage capacity based on their stake in the network.
+        If a user exceeds the permitted storage, the function will attempt to remove the necessary amount of data, prioritizing
+        the removal of the fewest number of files to resolve the issue.
+
+        The function performs the following steps:
+            1. Fetches a list of validators and users' SS58 addresses.
+            2. For each user, it calculates the total stake and the total size of the data they have stored.
+            3. Compares the total stored size with the user's allowed storage capacity based on their stake.
+            4. If the user exceeds their storage capacity, the function:
+               a. Attempts to find a single file large enough to resolve the excess storage.
+               b. If no single file is sufficient, it searches for a combination of files whose combined size is enough to reduce the excess storage.
+            5. The selected file(s) are removed, and the function creates and sends events to remove the files from the network.
+            6. Continues to the next user and repeats the process.
+            7. After processing all users, the function sleeps for the configured time before starting the process again.
+        """
+        is_current_validator_proposer, _, validators = get_proposer_validator(self._key, self.node.connection_pool.get_modules())
+
+        if is_current_validator_proposer:
+            user_ss58_addresses = self._database.get_unique_user_ss58_addresses()
+
+            for user_ss58_address in user_ss58_addresses:
+                total_stake = await get_stake_from_user(user_ss58_address=Ss58Address(user_ss58_address), validators=validators)
+                total_size_stored_by_user = self._database.get_total_file_size_by_user(user_ss58_address=user_ss58_address, only_files=True)
+                available_storage_of_user = calculate_storage_capacity(total_stake)
+
+                if total_size_stored_by_user > available_storage_of_user:
+                    excess_storage = total_size_stored_by_user - available_storage_of_user
+                    user_files = self._database.get_files_by_user(user_ss58_address=user_ss58_address)
+                    user_files_sorted = sorted(user_files, key=lambda x: x.file_size_bytes)
+
+                    files_to_remove = None
+                    for file in user_files_sorted:
+                        if file.file_size_bytes >= excess_storage:
+                            files_to_remove = [file]
+                            break
+
+                    if not files_to_remove:
+                        for r in range(1, len(user_files_sorted) + 1):
+                            for combo in itertools.combinations(user_files_sorted, r):
+                                if sum(f.file_size_bytes for f in combo) >= excess_storage:
+                                    files_to_remove = list(combo)
+                                    break
+                            if files_to_remove:
+                                break
+
+                    for file in files_to_remove:
+                        event_params = EventParams(file_uuid=file.file_uuid)
+                        signed_params = sign_data(event_params.dict(), self._key)
+                        input_params = RemoveInputParams(file_uuid=file.file_uuid)
+                        signed_input_params = sign_data(input_params.dict(), self._key)
+
+                        event = RemoveEvent(
+                            uuid=f"{int(time.time())}_{str(uuid.uuid4())}",
+                            validator_ss58_address=Ss58Address(self._key.ss58_address),
+                            event_params=event_params,
+                            event_signed_params=signed_params.hex(),
+                            user_ss58_address=user_ss58_address,
+                            input_params=input_params,
+                            input_signed_params=signed_input_params.hex()
+                        )
+
+                        self.node.distribute_event(event)
 
 
 if __name__ == "__main__":
@@ -233,7 +310,7 @@ if __name__ == "__main__":
 
             await asyncio.gather(
                 validator.api.run_server(),
-                validator.create_blocks()
+                validator.run_steps()
             )
 
         await run_tasks()

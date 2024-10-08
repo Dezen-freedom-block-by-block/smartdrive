@@ -24,7 +24,7 @@ import time
 from _socket import SocketType
 from multiprocessing import Manager
 from multiprocessing.managers import DictProxy
-from typing import Optional
+from typing import Optional, List
 
 from communex.types import Ss58Address
 
@@ -77,6 +77,9 @@ class ConnectionPool:
                 return connection
 
         return None
+
+    def get_modules(self) -> List[ModuleInfo]:
+        return list(map(lambda connection: connection.module, self.get_all()))
 
     def update_or_append(self, identifier: Ss58Address, module_info: ModuleInfo, socket: SocketType):
         with self._lock:

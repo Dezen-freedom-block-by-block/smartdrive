@@ -109,7 +109,7 @@ class StoreAPI:
             input_signed_params=input_signed_params
         )
 
-        self._node.add_event(event)
+        self._node.distribute_event(event)
 
         return {"store_request_event_uuid": event.uuid}
 

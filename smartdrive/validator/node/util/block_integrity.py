@@ -20,16 +20,20 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 
-from typing import Union
+import asyncio
+from typing import Union, List
 
+from smartdrive.commune.models import ModuleInfo
 from smartdrive.models.block import Block
-from smartdrive.models.event import UserEvent, StoreEvent, RemoveEvent
+from smartdrive.models.event import UserEvent, StoreEvent, RemoveEvent, StoreRequestEvent
 from smartdrive.sign import verify_data_signature
+from smartdrive.utils import get_stake_from_user, calculate_storage_capacity
+from smartdrive.validator.database.database import Database
 from smartdrive.validator.node.util.exceptions import BlockIntegrityException
 
 
-def check_block_integrity(block: Block):
-    if not are_all_block_events_valid(block):
+def check_block_integrity(block: Block, database: Database, validators: List[ModuleInfo]):
+    if not are_all_block_events_valid(block, database, validators):
         raise BlockIntegrityException(f"Invalid events in {block}")
 
     if not verify_data_signature(
@@ -59,17 +63,42 @@ def _verify_event_signatures(event: Union[StoreEvent, RemoveEvent]) -> bool:
     return input_params_verified and event_params_verified
 
 
-def are_all_block_events_valid(block: Block) -> bool:
+def are_all_block_events_valid(block: Block, database: Database, validators: List[ModuleInfo]) -> bool:
     """
-    Checks if all events in the block have valid signatures.
+    Checks if all events in the block are valid.
 
     Parameters:
         block (Block): The block containing events to be verified.
 
     Returns:
-        bool: True if all events in the block have valid signatures, False otherwise.
+        bool: True if all events in the block are valid, False otherwise.
     """
-    for event in block.events:
-        if not _verify_event_signatures(event):
-            return False
-    return True
+    async def _are_all_block_events_valid(block: Block, database: Database, validators: List[ModuleInfo]) -> bool:
+        users_to_check = set()
+        for event in block.events:
+            if isinstance(event, StoreRequestEvent):
+                users_to_check.add(event.user_ss58_address)
+
+        total_stakes = {}
+        for user_ss58_address in users_to_check:
+            total_stakes[user_ss58_address] = await get_stake_from_user(user_ss58_address=user_ss58_address, validators=validators)
+
+        for event in block.events:
+            if not _verify_event_signatures(event):
+                return False
+
+            if isinstance(event, StoreRequestEvent):
+                total_stake = total_stakes.get(event.user_ss58_address)
+                total_size_stored_by_user = database.get_total_file_size_by_user(user_ss58_address=event.user_ss58_address)
+                available_storage_of_user = calculate_storage_capacity(total_stake)
+                size_available = total_size_stored_by_user + event.input_params.file_size_bytes <= available_storage_of_user
+                if not size_available:
+                    return False
+
+        return True
+
+    try:
+        loop = asyncio.get_running_loop()
+        return loop.run_until_complete(_are_all_block_events_valid(block, database, validators))
+    except RuntimeError:
+        return asyncio.run(_are_all_block_events_valid(block, database, validators))
