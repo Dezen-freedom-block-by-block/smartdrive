@@ -40,6 +40,11 @@ class InvalidSignatureException(Exception):
         super().__init__()
 
 
+class InvalidStorageRequestException(Exception):
+    def __init__(self):
+        super().__init__()
+
+
 class ConnectionPoolMaxSizeReached(Exception):
     def __init__(self, message):
         super().__init__(message)

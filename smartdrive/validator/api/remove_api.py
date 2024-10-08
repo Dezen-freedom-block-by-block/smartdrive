@@ -29,12 +29,13 @@ from communex.compat.key import classic_load_key
 from communex.types import Ss58Address
 
 from smartdrive.sign import sign_data
-from smartdrive.validator.api.exceptions import FileDoesNotExistException
+from smartdrive.validator.api.exceptions import FileDoesNotExistException, UnexpectedErrorException
 from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.models.event import RemoveEvent, RemoveInputParams, EventParams
 from smartdrive.validator.node.node import Node
+from smartdrive.validator.node.util.exceptions import InvalidSignatureException
 
 
 class RemoveAPI:
@@ -57,6 +58,7 @@ class RemoveAPI:
 
         Raises:
            FileDoesNotExistException: If the file does not exist or there are no miners with the files.
+           UnexpectedErrorException: If an unexpected error occurs.
         """
         user_public_key = request.headers.get("X-Key")
         input_signed_params = request.headers.get("X-Signature")
@@ -85,4 +87,7 @@ class RemoveAPI:
             input_signed_params=input_signed_params
         )
 
-        self._node.distribute_event(event)
+        try:
+            self._node.distribute_event(event)
+        except InvalidSignatureException:
+            raise UnexpectedErrorException

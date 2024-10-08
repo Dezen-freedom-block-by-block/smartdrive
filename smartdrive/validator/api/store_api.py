@@ -49,6 +49,7 @@ from smartdrive.commune.request import execute_miner_request, get_filtered_modul
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.validator.node.connection.utils.utils import send_message
 from smartdrive.validator.node.node import Node
+from smartdrive.validator.node.util.exceptions import InvalidSignatureException
 from smartdrive.validator.node.util.message import MessageCode, Message, MessageBody
 from smartdrive.validator.utils import get_file_expiration
 from smartdrive.commune.utils import calculate_hash
@@ -109,9 +110,12 @@ class StoreAPI:
             input_signed_params=input_signed_params
         )
 
-        self._node.distribute_event(event)
+        try:
+            self._node.distribute_event(event)
+            return {"store_request_event_uuid": event.uuid}
 
-        return {"store_request_event_uuid": event.uuid}
+        except InvalidSignatureException:
+            raise UnexpectedErrorException
 
     async def store_request_permission_endpoint(self, store_request_event_uuid: str):
         """
@@ -208,29 +212,33 @@ class StoreAPI:
         if not store_event:
             raise NoValidMinerResponseException
 
-        if validations_events_per_validator:
-            self._database.insert_validation_events(validation_events=validations_events_per_validator.pop(0))
+        try:
+            self._node.distribute_event(store_event)
 
-            for index, active_connection in enumerate(active_connections):
-                data_list = [validations_events.dict() for validations_events in validations_events_per_validator[index]]
+            if validations_events_per_validator:
+                self._database.insert_validation_events(validation_events=validations_events_per_validator.pop(0))
 
-                body = MessageBody(
-                    code=MessageCode.MESSAGE_CODE_VALIDATION_EVENTS,
-                    data={"list": data_list}
-                )
+                for index, active_connection in enumerate(active_connections):
+                    data_list = [validations_events.dict() for validations_events in validations_events_per_validator[index]]
 
-                body_sign = sign_data(body.dict(), self._key)
+                    body = MessageBody(
+                        code=MessageCode.MESSAGE_CODE_VALIDATION_EVENTS,
+                        data={"list": data_list}
+                    )
 
-                message = Message(
-                    body=body,
-                    signature_hex=body_sign.hex(),
-                    public_key_hex=self._key.public_key.hex()
-                )
-                send_message(active_connection.socket, message)
+                    body_sign = sign_data(body.dict(), self._key)
 
-        self._node.distribute_event(store_event)
+                    message = Message(
+                        body=body,
+                        signature_hex=body_sign.hex(),
+                        public_key_hex=self._key.public_key.hex()
+                    )
+                    send_message(active_connection.socket, message)
 
-        return {"uuid": store_event.event_params.file_uuid}
+            return {"uuid": store_event.event_params.file_uuid}
+
+        except InvalidSignatureException:
+            raise UnexpectedErrorException()
 
 
 async def store_new_file(

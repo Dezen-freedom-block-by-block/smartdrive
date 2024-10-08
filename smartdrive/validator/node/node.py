@@ -35,6 +35,7 @@ from smartdrive.validator.database.database import Database
 from smartdrive.validator.node.connection.connection_pool import ConnectionPool, Connection
 from smartdrive.validator.node.connection.peer_manager import PeerManager
 from smartdrive.validator.node.event.event_pool import EventPool
+from smartdrive.validator.node.util.block_integrity import verify_event_signatures
 from smartdrive.validator.node.util.message import MessageCode, Message, MessageBody
 from smartdrive.validator.node.connection.utils.utils import send_message
 
@@ -70,27 +71,37 @@ class Node:
         return [connection.module for connection in self.connection_pool.get_all()]
 
     def distribute_event(self, event: Union[StoreEvent, RemoveEvent]):
-        self._event_pool.append(event)
+        """
+        Add an event to the node's event pool and distribute it.
 
-        message_event = MessageEvent.from_json(event.dict(), event.get_event_action())
+        Params:
+            event (Union[StoreEvent, RemoveEvent]): The event to distribute.
 
-        connections = self.get_connections()
-        for index, connection in enumerate(connections):
+        Raises:
+            InvalidSignatureException: If the event signature is not valid.
+        """
+        if verify_event_signatures(event):
+            self._event_pool.append(event)
 
-            body = MessageBody(
-                code=MessageCode.MESSAGE_CODE_EVENT,
-                data=message_event.dict()
-            )
+            message_event = MessageEvent.from_json(event.dict(), event.get_event_action())
 
-            body_sign = sign_data(body.dict(), self._keypair)
+            connections = self.get_connections()
+            for index, connection in enumerate(connections):
 
-            message = Message(
-                body=body,
-                signature_hex=body_sign.hex(),
-                public_key_hex=self._keypair.public_key.hex()
-            )
+                body = MessageBody(
+                    code=MessageCode.MESSAGE_CODE_EVENT,
+                    data=message_event.dict()
+                )
 
-            send_message(connection.socket, message)
+                body_sign = sign_data(body.dict(), self._keypair)
+
+                message = Message(
+                    body=body,
+                    signature_hex=body_sign.hex(),
+                    public_key_hex=self._keypair.public_key.hex()
+                )
+
+                send_message(connection.socket, message)
 
     def consume_events(self, count: int) -> List[Union[StoreEvent, RemoveEvent]]:
         return self._event_pool.consume_events(count)

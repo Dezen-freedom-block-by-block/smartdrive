@@ -19,7 +19,6 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
-import asyncio
 import queue
 import threading
 from _socket import SocketType
@@ -111,7 +110,10 @@ class Peer(threading.Thread):
             elif message.body.code == MessageCode.MESSAGE_CODE_EVENT:
                 message_event = MessageEvent.from_json(message.body.data["event"], Action(message.body.data["event_action"]))
                 event = parse_event(message_event)
-                self._event_pool.append(event)
+                try:
+                    self._event_pool.append(event)
+                except InvalidSignatureException:
+                    logger.error(f"Invalid signature in event {event}", exc_info=True)
 
             elif message.body.code == MessageCode.MESSAGE_CODE_PING:
                 body = MessageBody(
@@ -155,15 +157,14 @@ class Peer(threading.Thread):
         try:
             check_block_integrity(
                 block=block,
-                database=self._database,
-                validators=self._connection_pool.get_modules()
+                database=self._database
             )
 
             local_block_number = self._database.get_last_block_number() or 0
             if block.block_number - 1 != local_block_number:
                 prepare_sync_blocks(start=local_block_number + 1, end=block.block_number, active_connections=self._connection_pool.get_all(), keypair=self._keypair)
             else:
-                self._run_create_block(block)
+                self._database.create_block(block)
                 self._event_pool.remove_multiple(block.events)
 
                 if not self._initial_sync_completed.value:
@@ -221,24 +222,11 @@ class Peer(threading.Thread):
                 try:
                     check_block_integrity(
                         block=block,
-                        database=self._database,
-                        validators=self._connection_pool.get_modules()
+                        database=self._database
                     )
-                    self._run_create_block(block)
+                    self._database.create_block(block)
                     self._event_pool.remove_multiple(block.events)
 
                 except BlockIntegrityException:
                     logger.error(exc_info=True)
                     return
-
-    def _run_create_block(self, block: Block, is_proposer: bool = False):
-        async def run_create_block(block: Block, is_proposer: bool):
-            await self._database.create_block(block=block, is_proposer=is_proposer)
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-        if loop and loop.is_running():
-            asyncio.create_task(run_create_block(block=block, is_proposer=is_proposer))
-        else:
-            asyncio.run(run_create_block(block=block, is_proposer=is_proposer))

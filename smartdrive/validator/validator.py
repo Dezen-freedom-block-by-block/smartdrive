@@ -37,7 +37,7 @@ from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.logging_config import logger
 from smartdrive.commune.connection_pool import initialize_commune_connection_pool
 from smartdrive.models.block import Block, MAX_EVENTS_PER_BLOCK, block_to_block_event
-from smartdrive.models.event import RemoveEvent, EventParams, RemoveInputParams
+from smartdrive.models.event import RemoveEvent, EventParams, RemoveInputParams, StoreRequestEvent
 from smartdrive.models.utils import compile_miners_info_and_chunks
 from smartdrive.utils import DEFAULT_VALIDATOR_PATH, get_stake_from_user, calculate_storage_capacity
 from smartdrive.validator.api.utils import remove_chunk_request
@@ -49,6 +49,8 @@ from smartdrive.validator.api.api import API
 from smartdrive.validator.evaluation.evaluation import score_miners, set_weights
 from smartdrive.validator.node.connection.connection_pool import INACTIVITY_TIMEOUT_SECONDS as VALIDATOR_INACTIVITY_TIMEOUT_SECONDS
 from smartdrive.validator.models.models import ModuleType
+from smartdrive.validator.node.util.block_integrity import get_invalid_events
+from smartdrive.validator.node.util.exceptions import InvalidSignatureException, InvalidStorageRequestException
 from smartdrive.validator.node.util.message import MessageBody, MessageCode, Message
 from smartdrive.validator.node.util.utils import get_proposer_validator
 from smartdrive.validator.validation import validate
@@ -137,7 +139,7 @@ class Validator(Module):
                 logger.error("Error checking stake", exc_info=True)
 
             try:
-                is_current_validator_proposer, active_validators, all_validators = get_proposer_validator(self._key, self.node.connection_pool.get_modules())
+                is_current_validator_proposer, active_validators, all_validators = await get_proposer_validator(self._key, self.node.connection_pool.get_modules())
                 if is_current_validator_proposer:
                     new_block_number = (self._database.get_last_block_number() or 0) + 1
 
@@ -158,6 +160,11 @@ class Validator(Module):
 
                     block_events = self.node.consume_events(count=MAX_EVENTS_PER_BLOCK)
 
+                    invalid_events = await get_invalid_events(block_events, self._database)
+                    for invalid_event, exception in invalid_events:
+                        if isinstance(invalid_event, StoreRequestEvent) and isinstance(exception, InvalidStorageRequestException):
+                            invalid_event.event_params.approved = False
+
                     signed_block = sign_data({"block_number": new_block_number, "events": [event.dict() for event in block_events]}, self._key)
                     block = Block(
                         block_number=new_block_number,
@@ -165,7 +172,7 @@ class Validator(Module):
                         signed_block=signed_block.hex(),
                         proposer_ss58_address=Ss58Address(self._key.ss58_address)
                     )
-                    await self._database.create_block(block=block, is_proposer=is_current_validator_proposer, validators=all_validators)
+                    self._database.create_block(block)
 
                     block_event = block_to_block_event(block)
                     body = MessageBody(
@@ -173,13 +180,13 @@ class Validator(Module):
                         data=block_event.dict()
                     )
                     body_sign = sign_data(body.dict(), self._key)
-                    message = Message(
+                    block_message = Message(
                         body=body,
                         signature_hex=body_sign.hex(),
                         public_key_hex=self._key.public_key.hex()
                     )
                     for connection in self.node.get_connections():
-                        send_message(connection.socket, message)
+                        send_message(connection.socket, block_message)
 
                     for event in block_events:
                         if isinstance(event, RemoveEvent):
@@ -237,7 +244,7 @@ class Validator(Module):
             6. Continues to the next user and repeats the process.
             7. After processing all users, the function sleeps for the configured time before starting the process again.
         """
-        is_current_validator_proposer, _, validators = get_proposer_validator(self._key, self.node.connection_pool.get_modules())
+        is_current_validator_proposer, _, validators = await get_proposer_validator(self._key, self.node.connection_pool.get_modules())
 
         if is_current_validator_proposer:
             user_ss58_addresses = self._database.get_unique_user_ss58_addresses()
@@ -283,7 +290,10 @@ class Validator(Module):
                             input_signed_params=signed_input_params.hex()
                         )
 
-                        self.node.distribute_event(event)
+                        try:
+                            self.node.distribute_event(event)
+                        except InvalidSignatureException:
+                            logger.debug("Error sending remove event", exc_info=True)
 
 
 if __name__ == "__main__":
