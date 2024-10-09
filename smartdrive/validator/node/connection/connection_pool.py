@@ -38,13 +38,13 @@ INACTIVITY_TIMEOUT_SECONDS = 10
 
 
 class Connection:
-    def __init__(self, module: ModuleInfo, socket: SocketType, last_response_time: float):
+    def __init__(self, module: ModuleInfo, socket: SocketType, ping: float):
         self.module = module
         self.socket = socket
-        self.last_response_time = last_response_time
+        self.ping = ping
 
     def __repr__(self):
-        return f"Connection(module={self.module}, socket={self.socket}, last_response_time={self.last_response_time})"
+        return f"Connection(module={self.module}, socket={self.socket}, ping={self.ping})"
 
 
 class ConnectionPool:
@@ -73,7 +73,7 @@ class ConnectionPool:
             current_time = time.monotonic()
 
             connection = self._connections.get(identifier)
-            if connection and current_time - connection.last_response_time <= INACTIVITY_TIMEOUT_SECONDS:
+            if connection and current_time - connection.ping <= INACTIVITY_TIMEOUT_SECONDS:
                 return connection
 
         return None
@@ -94,13 +94,13 @@ class ConnectionPool:
             else:
                 self._connections[identifier] = connection
 
-    def update_last_response_time(self, identifier):
+    def update_ping(self, identifier):
         with self._lock:
             if identifier in self._connections:
                 # The manager do not keep track on attributes but object instead
                 _time = time.monotonic()
                 connection = self._connections[identifier]
-                connection.last_response_time = _time
+                connection.ping = _time
                 self._connections[identifier] = connection
 
     def remove(self, identifier: Ss58Address) -> Optional[SocketType]:
@@ -119,7 +119,7 @@ class ConnectionPool:
     def remove_inactive(self) -> list[SocketType]:
         with self._lock:
             current_time = time.monotonic()
-            connections_to_remove = [identifier for identifier, c in self._connections.items() if current_time - c.last_response_time > INACTIVITY_TIMEOUT_SECONDS]
+            connections_to_remove = [identifier for identifier, c in self._connections.items() if current_time - c.ping > INACTIVITY_TIMEOUT_SECONDS]
             sockets_to_remove = [self._connections[identifier].socket for identifier in connections_to_remove]
 
             for identifier in connections_to_remove:

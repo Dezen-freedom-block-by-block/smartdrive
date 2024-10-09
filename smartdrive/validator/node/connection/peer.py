@@ -129,7 +129,7 @@ class Peer(threading.Thread):
                 send_message(self._socket, message)
 
             elif message.body.code == MessageCode.MESSAGE_CODE_PONG:
-                self._connection_pool.update_last_response_time(self._connection_identifier)
+                self._connection_pool.update_ping(self._connection_identifier)
 
             elif message.body.code == MessageCode.MESSAGE_CODE_SYNC:
                 self._process_message_sync(message)

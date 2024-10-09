@@ -158,6 +158,7 @@ class PeerManager(multiprocessing.Process):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         loop.run_until_complete(handle_connection())
+        loop.close()
 
     def _discovery(self):
         async def discovery():
@@ -188,6 +189,7 @@ class PeerManager(multiprocessing.Process):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         loop.run_until_complete(discovery())
+        loop.close()
 
     def _periodically_ping_nodes(self):
         while True:
