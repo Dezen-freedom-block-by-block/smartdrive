@@ -3,5 +3,5 @@ from . import cli, miner, validator  # noqa: F401
 from .logging_config import logger  # noqa: F401
 
 # TODO: Change when deploy
-NETUID = 19
+NETUID = 4
 TESTNET_NETUID = 25
