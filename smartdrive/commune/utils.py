@@ -1,7 +1,9 @@
+import asyncio
 import hashlib
 import re
 from typing import List, Optional
 
+import aiofiles
 from communex.types import Ss58Address
 from substrateinterface.utils.ss58 import is_valid_ss58_address, ss58_encode
 
@@ -78,32 +80,38 @@ def get_ss58_address_from_public_key(public_key_hex) -> Optional[Ss58Address]:
     return Ss58Address(ss58_address) if is_valid_ss58_address(ss58_address) else None
 
 
-def calculate_hash(data: bytes) -> str:
+def calculate_hash_sync(path: str) -> str:
     """
-    Calculates the SHA-256 hash of the given data.
+    Calculates the SHA-256 hash of the file at the given path.
 
     Params:
-        data (bytes): The data to hash, provided as a byte string.
+        path (str): The path to the file to hash.
 
     Returns:
-        str: The hexadecimal representation of the SHA-256 hash of the input data.
+        str: The hexadecimal representation of the SHA-256 hash of the file.
     """
-    sha256 = hashlib.sha256()
-    sha256.update(data)
-    return sha256.hexdigest()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    return loop.run_until_complete(calculate_hash(path))
 
 
-def calculate_hash_stream(file_stream) -> str:
+async def calculate_hash(path: str) -> str:
     """
-    Calculates the SHA-256 hash of the given file stream by reading it in chunks.
+    Calculates the SHA-256 hash of the file at the given path.
 
     Params:
-        file_stream (file-like object): The file stream to hash.
+        path (str): The path to the file to hash.
 
     Returns:
-        str: The hexadecimal representation of the SHA-256 hash of the input data.
+        str: The hexadecimal representation of the SHA-256 hash of the file.
     """
     sha256 = hashlib.sha256()
-    for chunk in iter(lambda: file_stream.read(8192), b''):
-        sha256.update(chunk)
+
+    async with aiofiles.open(path, 'rb') as f:
+        while True:
+            chunk = await f.read(8192)
+            if not chunk:
+                break
+            sha256.update(chunk)
+
     return sha256.hexdigest()

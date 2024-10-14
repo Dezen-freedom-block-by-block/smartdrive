@@ -672,7 +672,7 @@ class Database:
             if connection:
                 connection.close()
 
-    def _process_event(self, cursor, event: Union[StoreEvent, RemoveEvent], block_id: int):
+    def _process_event(self, cursor, event: Union[StoreEvent, RemoveEvent, StoreRequestEvent], block_id: int):
         """
         Processes an event and executes the necessary operations in the database.
 
@@ -700,7 +700,7 @@ class Database:
             user_ss58_address = event.user_ss58_address
             input_signed_params = event.input_signed_params
 
-        elif isinstance(event, StoreEvent):
+        if isinstance(event, StoreEvent):
             total_chunks_index = set()
             chunks = []
             for chunk in event.event_params.chunks_params:

@@ -35,8 +35,6 @@ from communex.util import parse_hex
 from communex.util.memo import TTLDict
 from communex.module import _signer as signer
 
-from smartdrive.commune.utils import calculate_hash
-
 
 class CustomInputHandlerVerifier(InputHandlerVerifier):
     def __init__(
@@ -60,7 +58,8 @@ class CustomInputHandlerVerifier(InputHandlerVerifier):
                 pass
 
         body_dict = await self._get_signed_body(request)
-        timestamp = body_dict['params'].get("timestamp", None)
+
+        timestamp = body_dict.get("params").get("timestamp", None) if body_dict.get("params") else None
         legacy_timestamp = request.headers.get("X-Timestamp", None)
         try:
             timestamp_to_use = timestamp if not legacy_timestamp else legacy_timestamp
@@ -103,8 +102,14 @@ class CustomInputHandlerVerifier(InputHandlerVerifier):
             log_reffusal(key.decode(), reason)
             return (False, json_error(400, reason))
 
+        content_type = request.headers.get("Content-Type")
         legacy_verified = False
-        signed_body = await self._get_signed_body(request)
+
+        if content_type and "application/octet-stream" in content_type:
+            signed_body = {"params": {"file_hash": headers_dict.get("X-File-Hash"), "file_size_bytes": int(headers_dict.get("X-File-Size")), "target_key": headers_dict.get("Target-Key")}}
+        else:
+            signed_body = await self._get_signed_body(request)
+
         stamped_body = json.dumps(signed_body).encode()
         verified = signer.verify(key, crypto, stamped_body, signature)
 
@@ -114,7 +119,7 @@ class CustomInputHandlerVerifier(InputHandlerVerifier):
             return (False, json_error(401, "Signatures doesn't match"))
 
         body_dict: dict[str, dict[str, Any]] = signed_body
-        target_key = body_dict['params'].get("target_key", None)
+        target_key = (body_dict.get('params') and body_dict.get('params').get("target_key", None)) or headers_dict.get("Target-Key", None)
         if not target_key or target_key != module_key:
             reason = "Wrong target_key in body"
             log_reffusal(key_ss58, reason)
@@ -129,7 +134,7 @@ class CustomInputHandlerVerifier(InputHandlerVerifier):
             module_key: Ss58Address
     ):
         required_headers = ["x-signature", "x-key", "x-crypto"]
-        optional_headers = ["x-timestamp"]
+        optional_headers = ["x-timestamp", 'X-File-Size', 'Target-Key', 'X-File-Hash']
 
         match self._get_headers_dict(request.headers, required_headers, optional_headers):
             case (False, error):
@@ -158,26 +163,11 @@ class CustomInputHandlerVerifier(InputHandlerVerifier):
         return (True, None)
 
     async def _get_signed_body(self, request: Request):
-        body_bytes = await request.body()
-        request._body = body_bytes
-
-        content_type = request.headers.get("Content-Type")
-        if content_type and "multipart/form-data" in content_type:
-            body = await request.form()
-            body_dict = {}
-            for key in body:
-                if key == "chunk":
-                    body_dict[key] = await body[key].read()
-                else:
-                    body_dict[key] = body[key]
-
-            return {
-                "params": {
-                    "folder": body_dict["folder"],
-                    "chunk": calculate_hash(body_dict["chunk"]),
-                    "target_key": body_dict["target_key"]
-                }
-            }
+        if request.headers.get("X-File-Size", None):
+            body = {}
         else:
+            body_bytes = await request.body()
+            request._body = body_bytes
             body = await request.json()
-            return body
+
+        return body

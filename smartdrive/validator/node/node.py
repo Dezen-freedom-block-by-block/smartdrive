@@ -80,28 +80,29 @@ class Node:
         Raises:
             InvalidSignatureException: If the event signature is not valid.
         """
-        if verify_event_signatures(event):
-            self._event_pool.append(event)
+        verify_event_signatures(event)
 
-            message_event = MessageEvent.from_json(event.dict(), event.get_event_action())
+        self._event_pool.append(event)
 
-            connections = self.get_connections()
-            for index, connection in enumerate(connections):
+        message_event = MessageEvent.from_json(event.dict(), event.get_event_action())
 
-                body = MessageBody(
-                    code=MessageCode.MESSAGE_CODE_EVENT,
-                    data=message_event.dict()
-                )
+        connections = self.get_connections()
+        for index, connection in enumerate(connections):
 
-                body_sign = sign_data(body.dict(), self._keypair)
+            body = MessageBody(
+                code=MessageCode.MESSAGE_CODE_EVENT,
+                data=message_event.dict()
+            )
 
-                message = Message(
-                    body=body,
-                    signature_hex=body_sign.hex(),
-                    public_key_hex=self._keypair.public_key.hex()
-                )
+            body_sign = sign_data(body.dict(), self._keypair)
 
-                send_message(connection.socket, message)
+            message = Message(
+                body=body,
+                signature_hex=body_sign.hex(),
+                public_key_hex=self._keypair.public_key.hex()
+            )
+
+            send_message(connection.socket, message)
 
     def consume_events(self, count: int) -> List[Union[StoreEvent, RemoveEvent]]:
         return self._event_pool.consume_events(count)

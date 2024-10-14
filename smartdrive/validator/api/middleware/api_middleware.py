@@ -116,6 +116,8 @@ class APIMiddleware(BaseHTTPMiddleware):
                         body = await request.json()
                     except json.JSONDecodeError:
                         return _error_response(401, "Invalid JSON")
+            elif request.headers.get("X-File-Size", None):
+                body = {"file_hash": request.headers.get("X-File-Hash"), "file_size_bytes": int(request.headers.get("X-File-Size"))}
 
         is_verified_signature = verify_data_signature(body, signature, ss58_address)
         if not is_verified_signature:

@@ -35,6 +35,7 @@ from nacl.exceptions import CryptoError
 from communex.compat.key import is_encrypted, classic_load_key
 
 import smartdrive
+from smartdrive.commune.utils import calculate_hash_sync
 from smartdrive.logging_config import logger
 from smartdrive.cli.errors import NoValidatorsAvailableException
 from smartdrive.cli.spinner import Spinner
@@ -44,7 +45,7 @@ from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_active_validators, EXTENDED_PING_TIMEOUT
 from smartdrive.models.event import StoreInputParams, RetrieveInputParams, RemoveInputParams
 from smartdrive.sign import sign_data
-from smartdrive.commune.utils import calculate_hash_stream
+from smartdrive.utils import MAXIMUM_STORAGE, format_size
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -77,6 +78,10 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
         logger.error(f"File {file_path} does not exist or is a directory.")
         return
 
+    if os.path.getsize(file_path) > MAXIMUM_STORAGE:
+        logger.error(f"Error: File size exceeds the maximum limit of {format_size(MAXIMUM_STORAGE)}")
+        return
+
     key = _get_key(key_name)
 
     # Step 1: Compress the file
@@ -87,10 +92,8 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
         temp_file_path = compress_encrypt_and_save(file_path, key.private_key)
         spinner.stop_with_message("Done!")
 
-        with open(temp_file_path, 'rb') as temp_file:
-            file_hash = calculate_hash_stream(temp_file)
-            file_size_bytes = os.path.getsize(temp_file_path)
-
+        file_hash = calculate_hash_sync(temp_file_path)
+        file_size_bytes = os.path.getsize(temp_file_path)
         input_params = StoreInputParams(file_hash=file_hash, file_size_bytes=file_size_bytes)
         signed_data = sign_data(input_params.dict(), key)
 
@@ -100,8 +103,6 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
 
         validator_url = _get_validator_url(key, testnet)
         headers = create_headers(signed_data, key, show_content_type=False)
-        headers["X-File-Hash"] = file_hash
-        headers["X-File-Size"] = str(file_size_bytes)
 
         response = requests.post(
             url=f"{validator_url}/store/request",
@@ -117,7 +118,7 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
         spinner.stop_with_message("Done!")
 
         if store_request_event_uuid:
-            logger.info(f"Your data will be stored soon. Your file UUID is: {store_request_event_uuid}")
+            logger.info(f"Your data will be stored soon in background. Your file UUID is: {store_request_event_uuid}")
             subprocess.Popen(
                 [sys.executable, "smartdrive/cli/scripts/async_upload_file.py", temp_file_path, file_hash, str(file_size_bytes), store_request_event_uuid, key_name, str(testnet)],
                 close_fds=True,

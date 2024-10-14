@@ -19,7 +19,6 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
-
 from communex.balance import from_nano
 from communex.types import Ss58Address
 
@@ -27,7 +26,6 @@ from smartdrive.commune.connection_pool import get_staketo
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.validator.config import config_manager
 
-MAX_FILE_SIZE = 500 * 1024 * 1024  # 500 MB
 INITIAL_STORAGE = 50 * 1024 * 1024  # 50 MB
 MAXIMUM_STORAGE = 2 * 1024 * 1024 * 1024  # 2 GB
 ADDITIONAL_STORAGE_PER_COMAI = 0.1 * 1024 * 1024  # 0.1 MB

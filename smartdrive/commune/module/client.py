@@ -22,6 +22,9 @@
 
 import asyncio
 import json
+import os
+
+import aiofiles
 import aiohttp
 import requests
 from aiohttp import ClientSession, ClientResponse
@@ -71,28 +74,34 @@ class ModuleClient:
             else:
                 raise Exception(f"Unknown content type: {content_type}")
 
+        async def chunk_generator(file_path):
+            async with aiofiles.open(file_path, 'rb') as file:
+                while True:
+                    chunk = await file.read(8192)
+                    if not chunk:
+                        break
+                    yield chunk
+
         try:
-            async with ClientSession() as session:
+            async with ClientSession(timeout=aiohttp.ClientTimeout(connect=5, sock_connect=5, total=timeout)) as session:
                 if file:
-                    file_content = file['chunk']
-                    file_hash = calculate_hash(file_content)
-                    data_to_sign = {'folder': file['folder'], 'chunk': file_hash}
-                    serialized_data, headers = create_request_data(self.key, target_key, data_to_sign, False)
+                    file_size = os.path.getsize(file["chunk"])
+                    file_hash = await calculate_hash(file["chunk"])
+                    _, headers = create_request_data(self.key, target_key, {"file_hash": file_hash, "file_size_bytes": file_size}, content_type="application/octet-stream")
+                    headers["X-File-Size"] = str(file_size)
+                    headers["X-File-Hash"] = file_hash
+                    headers["Folder"] = file['folder']
+                    headers["Target-Key"] = target_key
 
-                    form_data = aiohttp.FormData()
-                    form_data.add_field('folder', file['folder'])
-                    form_data.add_field('chunk', file_content, filename='file', content_type='application/octet-stream')
-                    form_data.add_field('target_key', target_key)
-
-                    async with session.post(url, data=form_data, headers=headers, timeout=timeout, ssl=False) as response:
+                    async with session.post(url, data=chunk_generator(file["chunk"]), headers=headers, ssl=False) as response:
                         return await _get_body(response)
                 else:
                     serialized_data, headers = create_request_data(self.key, target_key, params)
                     if fn == "remove":
-                        async with session.delete(url, json=json.loads(serialized_data), headers=headers, timeout=timeout, ssl=False) as response:
+                        async with session.delete(url, json=json.loads(serialized_data), headers=headers, ssl=False) as response:
                             return await _get_body(response)
                     else:
-                        async with session.post(url, json=json.loads(serialized_data), headers=headers, timeout=timeout, ssl=False) as response:
+                        async with session.post(url, json=json.loads(serialized_data), headers=headers, ssl=False) as response:
                             return await _get_body(response)
 
         except asyncio.TimeoutError as e:
