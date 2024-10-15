@@ -94,7 +94,7 @@ class APIMiddleware(BaseHTTPMiddleware):
             return _error_response(401, "Not a valid public key provided")
 
         try:
-            staketo_modules = get_staketo(ss58_address, config_manager.config.netuid)
+            staketo_modules = get_staketo(ss58_address)
             validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
         except CommuneNetworkUnreachable:
             return _error_response(404, "Currently the Commune network is unreachable")

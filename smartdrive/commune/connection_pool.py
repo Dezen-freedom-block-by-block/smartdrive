@@ -69,6 +69,9 @@ class ThreadWithReturnValue(threading.Thread):
 
 
 def _run_with_timeout(target, args=(), timeout=TIMEOUT):
+    if not isinstance(args, tuple):
+        args = (args,)
+
     thread = ThreadWithReturnValue(target=target, args=args)
     thread.start()
     thread.join(timeout)
@@ -152,13 +155,13 @@ def retry_on_failure(retries):
 
 
 @retry_on_failure(retries=RETRIES)
-def _get_staketo_with_timeout(client, ss58_address, netuid, timeout=TIMEOUT):
-    return _run_with_timeout(client.get_staketo, (ss58_address, netuid), timeout)
+def _get_staketo_with_timeout(client, ss58_address, timeout=TIMEOUT):
+    return _run_with_timeout(client.get_staketo, ss58_address, timeout)
 
 
-def get_staketo(ss58_address: Ss58Address, netuid: int, timeout=TIMEOUT) -> Dict[str, int]:
+def get_staketo(ss58_address: Ss58Address, timeout=TIMEOUT) -> Dict[str, int]:
     try:
-        result = _get_staketo_with_timeout(ss58_address=ss58_address, netuid=netuid, timeout=timeout)
+        result = _get_staketo_with_timeout(ss58_address=ss58_address, timeout=timeout)
         if result is not None:
             return result
     except Exception as e:
