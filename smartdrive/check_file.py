@@ -19,24 +19,23 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
-import os
 
-from smartdrive.commune.utils import calculate_hash
 from smartdrive.utils import MAXIMUM_STORAGE
 from smartdrive.validator.api.exceptions import FileHashMismatchException, FileSizeMismatchException, \
     FileTooLargeException
 
 
-async def check_file(file_path: str, original_file_size: int, original_file_hash: str):
+async def check_file(file_hash: str, file_size: int, original_file_size: int, original_file_hash: str):
     """
     Validates a file by checking its hash, size, and storage limits.
 
-    This function verifies that the file located at `file_path` has the same
+    This function verifies that one file has the same
     hash and size as the original file, ensuring data integrity. It also ensures
     that the file does not exceed the maximum allowed storage size.
 
     Params:
-        file_path (str): The path to the file that needs to be checked.
+        file_hash (str): The actual SHA-256 hash of the file.
+        file_size (int): The actual size of the file in bytes.
         original_file_size (int): The original size of the file in bytes.
         original_file_hash (str): The original SHA-256 hash of the file.
 
@@ -45,14 +44,11 @@ async def check_file(file_path: str, original_file_size: int, original_file_hash
         FileSizeMismatchException: If the file's size does not match the original size.
         FileTooLargeException: If the file exceeds the maximum storage size defined.
     """
-    actual_file_hash = await calculate_hash(file_path)
-    actual_file_size = os.path.getsize(file_path)
-
-    if original_file_hash != actual_file_hash:
+    if original_file_hash != file_hash:
         raise FileHashMismatchException
 
-    if original_file_size != actual_file_size:
+    if original_file_size != file_size:
         raise FileSizeMismatchException
 
-    if actual_file_size > MAXIMUM_STORAGE:
+    if file_size > MAXIMUM_STORAGE:
         raise FileTooLargeException

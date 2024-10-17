@@ -109,7 +109,7 @@ async def calculate_hash(path: str) -> str:
 
     async with aiofiles.open(path, 'rb') as f:
         while True:
-            chunk = await f.read(8192)
+            chunk = await f.read(16384)
             if not chunk:
                 break
             sha256.update(chunk)

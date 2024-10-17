@@ -105,7 +105,7 @@ class CustomInputHandlerVerifier(InputHandlerVerifier):
         content_type = request.headers.get("Content-Type")
         legacy_verified = False
 
-        if content_type and "application/octet-stream" in content_type:
+        if content_type and "multipart/form-data" in content_type:
             signed_body = {"params": {"file_hash": headers_dict.get("X-File-Hash"), "file_size_bytes": int(headers_dict.get("X-File-Size")), "target_key": headers_dict.get("Target-Key")}}
         else:
             signed_body = await self._get_signed_body(request)

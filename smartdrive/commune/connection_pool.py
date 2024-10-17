@@ -22,12 +22,14 @@
 
 import asyncio
 from queue import Queue, Empty
-from typing import Dict, List
+from typing import Dict, List, Any
 from functools import wraps
+
+from communex.key import check_ss58_address
 from websocket import WebSocketException
 from threading import Semaphore, Lock
 
-from communex._common import ComxSettings
+from communex._common import ComxSettings, transform_stake_dmap
 from communex.client import CommuneClient
 from communex.types import Ss58Address
 from substrateinterface import Keypair
@@ -121,17 +123,17 @@ def retry_on_failure(retries):
 
 
 @retry_on_failure(retries=RETRIES)
-async def _get_staketo_with_timeout(client, ss58_address, netuid, timeout=TIMEOUT):
+async def _get_staketo_with_timeout(client, ss58_address, timeout=TIMEOUT):
     loop = asyncio.get_running_loop()
     try:
-        return await asyncio.wait_for(loop.run_in_executor(None, client.get_staketo, ss58_address, netuid), timeout=timeout)
+        return await asyncio.wait_for(loop.run_in_executor(None, client.get_staketo, ss58_address), timeout=timeout)
     except asyncio.TimeoutError:
         raise TimeoutException("Operation timed out")
 
 
-async def get_staketo(ss58_address: Ss58Address, netuid: int, timeout=TIMEOUT) -> Dict[str, int]:
+async def get_staketo(ss58_address: Ss58Address, timeout=TIMEOUT) -> Dict[str, int]:
     try:
-        result = await _get_staketo_with_timeout(ss58_address=ss58_address, netuid=netuid, timeout=timeout)
+        result = await _get_staketo_with_timeout(ss58_address=ss58_address, timeout=timeout)
         if result is not None:
             return result
     except Exception:
@@ -157,43 +159,54 @@ async def vote(key: Keypair, uids: List[int], weights: List[int], netuid: int, t
 
 
 @retry_on_failure(retries=RETRIES)
-async def _get_modules_with_timeout(client, queries, timeout=TIMEOUT):
+async def _get_modules_with_timeout(client, request_dict, timeout=TIMEOUT):
     loop = asyncio.get_running_loop()
     try:
-        return await asyncio.wait_for(loop.run_in_executor(None, client.query_batch_map, queries), timeout=timeout)
+        return await asyncio.wait_for(loop.run_in_executor(None, client.query_batch_map, request_dict), timeout=timeout)
     except asyncio.TimeoutError:
         raise TimeoutException("Operation timed out")
 
 
 async def get_modules(netuid: int, timeout=TIMEOUT) -> List[ModuleInfo]:
-    queries = {
+    request_dict: dict[Any, Any] = {
         "SubspaceModule": [
             ("Keys", [netuid]),
             ("Address", [netuid]),
             ("Incentive", []),
             ("Dividends", []),
-            ("StakeFrom", [netuid])
+            ("StakeFrom", [])
         ]
     }
     try:
-        result = await _get_modules_with_timeout(queries=queries, timeout=timeout)
+        result = await _get_modules_with_timeout(request_dict=request_dict, timeout=timeout)
         if result is not None:
-            keys_map = result["Keys"]
-            address_map = result["Address"]
+
             modules_info = []
-            for uid, ss58_address in keys_map.items():
-                address = address_map.get(uid)
-                total_stake = 0
-                stake = result["StakeFrom"].get(ss58_address, [])
-                for _, s in stake:
-                    total_stake += s
-                if address:
-                    connection = _get_ip_port(address)
-                    if connection:
-                        modules_info.append(
-                            ModuleInfo(uid, ss58_address, connection, result["Incentive"][netuid][uid], result["Dividends"][netuid][uid], total_stake)
-                        )
-            return modules_info
+
+            uid_to_key = result.get("Keys", {})
+            if uid_to_key:
+
+                ss58_to_stakefrom = result.get("StakeFrom", {})
+                ss58_to_stakefrom = transform_stake_dmap(ss58_to_stakefrom)
+                uid_to_address = result["Address"]
+                uid_to_incentive = result["Incentive"]
+                uid_to_dividend = result["Dividends"]
+
+                for uid, key in uid_to_key.items():
+                    key = check_ss58_address(key)
+                    address = uid_to_address[uid]
+                    incentive = uid_to_incentive[netuid][uid]
+                    dividend = uid_to_dividend[netuid][uid]
+                    stake_from = ss58_to_stakefrom.get(key, [])
+                    stake = sum(stake for _, stake in stake_from)
+
+                    if address:
+                        connection = _get_ip_port(address)
+                        if connection:
+                            modules_info.append(ModuleInfo(uid, key, connection, incentive, dividend, stake))
+
+                return modules_info
+
     except Exception:
         logger.error("Error getting modules", exc_info=True)
     raise CommuneNetworkUnreachable()

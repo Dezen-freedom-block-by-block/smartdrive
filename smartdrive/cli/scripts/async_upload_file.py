@@ -32,10 +32,10 @@ from smartdrive.commune.module._protocol import create_headers
 from smartdrive.models.event import StoreInputParams
 from smartdrive.sign import sign_data
 
-SLEEP_TIME_SECONDS = 10
+SLEEP_TIME_SECONDS = 20
 
 
-def _check_permission_store(file_path: str, file_hash: str, file_size_bytes: int, store_request_event_uuid: str, key: Keypair, testnet: bool):
+def _check_permission_store(file_path: str, file_hash: str, file_size_bytes: int, store_request_event_uuid: str, key: Keypair, testnet: bool, file_uuid: str):
     for i in range(3):
         try:
             time.sleep(SLEEP_TIME_SECONDS)
@@ -54,7 +54,15 @@ def _check_permission_store(file_path: str, file_hash: str, file_size_bytes: int
             )
 
             if response.status_code == requests.codes.ok:
-                _store_file(file_path=file_path, file_hash=file_hash, file_size_bytes=file_size_bytes, keypair=key, testnet=testnet)
+                _store_file(
+                    file_path=file_path,
+                    file_hash=file_hash,
+                    file_size_bytes=file_size_bytes,
+                    keypair=key,
+                    testnet=testnet,
+                    file_uuid=file_uuid,
+                    event_uuid=store_request_event_uuid
+                )
                 break
             elif response.status_code != requests.codes.accepted:
                 break
@@ -62,7 +70,7 @@ def _check_permission_store(file_path: str, file_hash: str, file_size_bytes: int
             continue
 
 
-def _store_file(file_path: str, file_hash: str, file_size_bytes: int, keypair: Keypair, testnet: bool):
+def _store_file(file_path: str, file_hash: str, file_size_bytes: int, keypair: Keypair, testnet: bool, file_uuid: str, event_uuid: str):
     for i in range(3):
         try:
             input_params = StoreInputParams(file_hash=file_hash, file_size_bytes=file_size_bytes)
@@ -70,6 +78,8 @@ def _store_file(file_path: str, file_hash: str, file_size_bytes: int, keypair: K
             headers = create_headers(signed_data, keypair, show_content_type=False)
             headers["X-File-Hash"] = file_hash
             headers["X-File-Size"] = str(file_size_bytes)
+            headers["X-Event-UUID"] = event_uuid
+            headers["X-File-UUID"] = file_uuid
             validator_url = _get_validator_url(key=key, testnet=testnet)
 
             with open(file_path, 'rb') as file:
@@ -98,7 +108,8 @@ if __name__ == "__main__":
     store_request_event_uuid = sys.argv[4]
     key_name = sys.argv[5]
     testnet = sys.argv[6] == 'True'
+    file_uuid = sys.argv[7]
     key = _get_key(key_name)
 
-    initialize_commune_connection_pool(False, num_connections=1, max_pool_size=1)
-    _check_permission_store(file_path, file_hash, file_size_bytes, store_request_event_uuid, key, testnet)
+    initialize_commune_connection_pool(testnet, num_connections=1, max_pool_size=1)
+    _check_permission_store(file_path, file_hash, file_size_bytes, store_request_event_uuid, key, testnet, file_uuid)

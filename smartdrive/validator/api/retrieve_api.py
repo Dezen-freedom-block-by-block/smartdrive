@@ -21,9 +21,15 @@
 #  SOFTWARE.
 
 import asyncio
+import os
 import random
+import shutil
+import time
+import uuid
 from typing import Optional
-from fastapi import Request
+
+import aiofiles
+from fastapi import Request, BackgroundTasks
 
 from communex.compat.key import classic_load_key
 from starlette.responses import StreamingResponse
@@ -31,6 +37,7 @@ from substrateinterface import Keypair
 from communex.types import Ss58Address
 
 from smartdrive.commune.errors import CommuneNetworkUnreachable
+from smartdrive.utils import DEFAULT_VALIDATOR_PATH
 from smartdrive.validator.api.exceptions import FileDoesNotExistException, \
     CommuneNetworkUnreachable as HTTPCommuneNetworkUnreachable, NoMinersInNetworkException, FileNotAvailableException, \
     ChunkNotAvailableException
@@ -44,7 +51,8 @@ from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.node.node import Node
 
 
-MINER_RETRIEVE_TIMEOUT_SECONDS = 60
+MINER_RETRIEVE_TIMEOUT_SECONDS = 180
+MAX_SIMULTANEOUS_DOWNLOADS = 3
 
 
 class RetrieveAPI:
@@ -57,7 +65,7 @@ class RetrieveAPI:
         self._key = classic_load_key(config_manager.config.key)
         self._database = Database()
 
-    async def retrieve_endpoint(self, request: Request, file_uuid: str):
+    async def retrieve_endpoint(self, request: Request, file_uuid: str, background_tasks: BackgroundTasks):
         """
         Retrieves a file chunk from active miners.
 
@@ -112,25 +120,37 @@ class RetrieveAPI:
         for chunk_index in miners_info_with_chunk_ordered_by_chunk_index:
             random.shuffle(miners_info_with_chunk_ordered_by_chunk_index[chunk_index])
 
-        async def _retrieve_request_task(chunk_index, miners_info_with_chunk):
-            for miner_info_with_chunk in miners_info_with_chunk:
-                connection = ConnectionInfo(
-                    miner_info_with_chunk["connection"]["ip"],
-                    miner_info_with_chunk["connection"]["port"]
-                )
-                miner_info = ModuleInfo(
-                    miner_info_with_chunk["uid"],
-                    miner_info_with_chunk["ss58_address"],
-                    connection
-                )
-                chunk = await _retrieve_request(self._key, user_ss58_address, miner_info, miner_info_with_chunk["chunk_uuid"])
-                if chunk:
-                    return chunk_index, chunk
+        path = os.path.expanduser(DEFAULT_VALIDATOR_PATH)
+        user_path = os.path.join(path, f"{int(time.time())}_{str(uuid.uuid4())}")
+        os.makedirs(user_path, exist_ok=True)
 
-            raise ChunkNotAvailableException
+        async def cleanup(user_path: str):
+            if user_path and os.path.exists(user_path):
+                shutil.rmtree(user_path)
+
+        background_tasks.add_task(cleanup, user_path)
+
+        async def _retrieve_request_task(chunk_index, miners_info_with_chunk, semaphore):
+            async with semaphore:
+                for miner_info_with_chunk in miners_info_with_chunk:
+                    connection = ConnectionInfo(
+                        miner_info_with_chunk["connection"]["ip"],
+                        miner_info_with_chunk["connection"]["port"]
+                    )
+                    miner_info = ModuleInfo(
+                        miner_info_with_chunk["uid"],
+                        miner_info_with_chunk["ss58_address"],
+                        connection
+                    )
+                    chunk = await _retrieve_request(self._key, user_ss58_address, miner_info, miner_info_with_chunk["chunk_uuid"], chunk_index, user_path)
+                    if chunk:
+                        return chunk_index, chunk
+                raise ChunkNotAvailableException
+
+        semaphore = asyncio.Semaphore(MAX_SIMULTANEOUS_DOWNLOADS)
 
         retrieve_request_tasks = [
-            _retrieve_request_task(chunk_index, miners_info_with_chunk)
+            _retrieve_request_task(chunk_index, miners_info_with_chunk, semaphore)
             for chunk_index, miners_info_with_chunk in miners_info_with_chunk_ordered_by_chunk_index.items()
         ]
 
@@ -138,17 +158,23 @@ class RetrieveAPI:
             retrieve_requests = await asyncio.gather(*retrieve_request_tasks)
         except ChunkNotAvailableException:
             # If any chunk fails to be retrieved, we stop the process and raise the exception
+            shutil.rmtree(user_path)
             raise FileNotAvailableException
 
-        received_chunks = {chunk_index: chunk for chunk_index, chunk in retrieve_requests if chunk is not None}
+        received_chunks = {chunk_index: chunk_path for chunk_index, chunk_path in retrieve_requests if chunk_path is not None}
 
         received_same_as_required_chunks = len(received_chunks) == file.total_chunks
         if received_same_as_required_chunks:
 
             sorted_chunks = [received_chunks[i] for i in range(file.total_chunks)]
-            def iter_combined_chunks():
-                for chunk in sorted_chunks:
-                    yield chunk
+            async def iter_combined_chunks():
+                for chunk_path in sorted_chunks:
+                    async with aiofiles.open(chunk_path, 'rb') as f:
+                        while True:
+                            chunk = await f.read(16384)
+                            if not chunk:
+                                break
+                            yield chunk
 
             return StreamingResponse(iter_combined_chunks(), media_type='application/octet-stream')
 
@@ -156,7 +182,7 @@ class RetrieveAPI:
             raise FileNotAvailableException
 
 
-async def _retrieve_request(keypair: Keypair, user_ss58address: Ss58Address, miner: ModuleInfo, chunk_uuid: str) -> Optional[str]:
+async def _retrieve_request(keypair: Keypair, user_ss58address: Ss58Address, miner: ModuleInfo, chunk_uuid: str, chunk_index: str, user_path: str) -> Optional[str]:
     """
     Sends a request to a miner to retrieve a specific data chunk.
 
@@ -169,6 +195,8 @@ async def _retrieve_request(keypair: Keypair, user_ss58address: Ss58Address, min
         user_ss58_address (Ss58Address): The SS58 address of the user associated with the data chunk.
         miner (ModuleInfo): The miner's module information.
         chunk_uuid (str): The UUID of the data chunk to be retrieved.
+        chunk_index (str): The index of the data chunk to be retrieved.
+        user_path (str): The path of the user associated with the data chunk.
 
     Returns:
         Optional[str]: Returns the chunk UUID, or None if something went wrong.
@@ -177,7 +205,9 @@ async def _retrieve_request(keypair: Keypair, user_ss58address: Ss58Address, min
         keypair, miner.connection, miner.ss58_address, "retrieve",
         {
             "folder": user_ss58address,
-            "chunk_uuid": chunk_uuid
+            "chunk_uuid": chunk_uuid,
+            "chunk_index": chunk_index,
+            "user_path": user_path
         },
         timeout=MINER_RETRIEVE_TIMEOUT_SECONDS
     )

@@ -21,6 +21,7 @@
 #  SOFTWARE.
 
 import asyncio
+import hashlib
 import os
 import random
 import shutil
@@ -42,7 +43,8 @@ from smartdrive.utils import calculate_storage_capacity, MAXIMUM_STORAGE, DEFAUL
 from smartdrive.sign import sign_data
 from smartdrive.validator.api.exceptions import RedundancyException, FileTooLargeException, NoMinersInNetworkException, \
     NoValidMinerResponseException, UnexpectedErrorException, HTTPRedundancyException, \
-    CommuneNetworkUnreachable as HTTPCommuneNetworkUnreachable, StoreRequestNotApprovedException, StorageLimitException
+    CommuneNetworkUnreachable as HTTPCommuneNetworkUnreachable, StoreRequestNotApprovedException, StorageLimitException, \
+    InvalidFileEventAssociationException
 from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.config import config_manager
@@ -63,9 +65,9 @@ MIN_MINERS_REPLICATION_FOR_CHUNK = 2
 MAX_MINERS_FOR_FILE = 10
 MAX_ENCODED_RANGE = 50
 MINER_STORE_TIMEOUT_SECONDS = 180
-TIME_EXPIRATION_STORE_REQUEST_EVENT_SECONDS = 5 * 60  # 5 minutes
-MAX_CHUNK_SIZE = 250 * 1024 * 1024  # Max chunk size to store, 250 MB
-MAX_QUEUE = 2
+TIME_EXPIRATION_STORE_REQUEST_EVENT_SECONDS = 2 * 60  # 2 minutes
+MAX_CHUNK_SIZE = 200 * 1024 * 1024  # Max chunk size to store, 200 MB
+MAX_SIMULTANEOUS_UPLOADS = 2
 
 
 class StoreAPI:
@@ -101,8 +103,9 @@ class StoreAPI:
         user_public_key = request.headers.get("X-Key")
         user_ss58_address = get_ss58_address_from_public_key(user_public_key)
         input_signed_params = request.headers.get("X-Signature")
+        file_uuid = f"{int(time.time())}_{str(uuid.uuid4())}"
 
-        event_params = StoreRequestParams(file_uuid=f"{int(time.time())}_{str(uuid.uuid4())}", expiration_at=int(time.time()) + TIME_EXPIRATION_STORE_REQUEST_EVENT_SECONDS, approved=True)  # Expires in 5 minutes
+        event_params = StoreRequestParams(file_uuid=file_uuid, expiration_at=int(time.time()) + TIME_EXPIRATION_STORE_REQUEST_EVENT_SECONDS, approved=True)  # Expires in 5 minutes
         signed_params = sign_data(event_params.dict(), self._key)
 
         event = StoreRequestEvent(
@@ -117,7 +120,7 @@ class StoreAPI:
 
         try:
             self._node.distribute_event(event)
-            return {"store_request_event_uuid": event.uuid}
+            return {"store_request_event_uuid": event.uuid, "file_uuid": file_uuid}
 
         except InvalidSignatureException:
             raise UnexpectedErrorException
@@ -176,7 +179,12 @@ class StoreAPI:
         input_signed_params = request.headers.get("X-Signature")
         file_size = int(request.headers.get("X-File-Size"))
         file_hash = request.headers.get("X-File-Hash")
+        event_uuid = request.headers.get("X-Event-UUID")
+        file_uuid = request.headers.get("X-File-UUID")
         total_stake = request.state.total_stake
+
+        if not self._database.verify_file_uuid_for_event(file_uuid=file_uuid, event_uuid=event_uuid):
+            raise InvalidFileEventAssociationException
 
         if file_size > MAXIMUM_STORAGE:
             raise FileTooLargeException
@@ -187,7 +195,7 @@ class StoreAPI:
             raise StorageLimitException(file_size, total_size_stored_by_user, available_storage_of_user)
 
         try:
-            miners = await get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
+            miners = await get_filtered_modules(config_manager.config.netuid, ModuleType.MINER, self._key.ss58_address)
         except CommuneNetworkUnreachable:
             raise HTTPCommuneNetworkUnreachable
 
@@ -204,6 +212,7 @@ class StoreAPI:
                 input_signed_params=input_signed_params,
                 file_size_bytes=file_size,
                 file_hash=file_hash,
+                file_uuid=file_uuid,
                 validators_len=len(active_connections) + 1  # To include myself
             )
         except RedundancyException as redundancy_exception:
@@ -251,6 +260,7 @@ async def store_new_file(
         input_signed_params: str,
         validators_len: int,
         file_hash: str,
+        file_uuid: str = None,
         file_size_bytes: int = None,
 ) -> Tuple[Optional[StoreEvent], List[List[ValidationEvent]]]:
     validating = isinstance(file, str)
@@ -262,12 +272,13 @@ async def store_new_file(
     stored_chunks_results = []
     stored_miner_with_chunk_uuid: List[Tuple[ModuleInfo, str]] = []
 
-    queue = asyncio.Queue()
+    semaphore = asyncio.Semaphore(MAX_SIMULTANEOUS_UPLOADS)
 
     validations_events_per_validator: List[List[ValidationEvent]] = []
     chunks_params: List[ChunkParams] = []
 
-    file_uuid = f"{int(time.time())}_{str(uuid.uuid4())}"
+    if not file_uuid:
+        file_uuid = f"{int(time.time())}_{str(uuid.uuid4())}"
 
     async def handle_store_request(miner: ModuleInfo, chunk_path: str, chunk_index: int) -> bool:
         miner_answer = await _store_request(
@@ -282,14 +293,17 @@ async def store_new_file(
             return True
         return False
 
-    async def store_chunk_with_redundancy(chunk_path: str, chunk_index: int, queue: asyncio.Queue):
+    async def store_chunk_with_redundancy(chunk_path: str, chunk_index: int):
         available_miners = miners.copy()
         random.shuffle(available_miners)
         replication_count = 0
 
-        if available_miners:
+        while replication_count < MIN_MINERS_REPLICATION_FOR_CHUNK and available_miners:
             miner = available_miners.pop()
-            await queue.put((miner, chunk_path, chunk_index, available_miners, replication_count))
+            async with semaphore:
+                success = await handle_store_request(miner, chunk_path, chunk_index)
+                if success:
+                    replication_count += 1
 
     async def remove_stored_chunks():
         if stored_miner_with_chunk_uuid:
@@ -306,26 +320,6 @@ async def store_new_file(
             ]
             await asyncio.gather(*remove_tasks, return_exceptions=True)
 
-    async def worker():
-        while True:
-            miner, chunk_path, chunk_index, available_miners, replication_count = await queue.get()
-            try:
-                success = await handle_store_request(miner, chunk_path, chunk_index)
-                if success:
-                    replication_count += 1
-
-                    if replication_count < MIN_MINERS_REPLICATION_FOR_CHUNK and available_miners:
-                        next_miner = available_miners.pop()
-                        await queue.put((next_miner, chunk_path, chunk_index, available_miners, replication_count))
-
-                else:
-                    if available_miners:
-                        next_miner = available_miners.pop()
-                        await queue.put((next_miner, chunk_path, chunk_index, available_miners, replication_count))
-
-            finally:
-                queue.task_done()
-
     try:
         if validating:
             await asyncio.gather(*[handle_store_request(miner, file, 0) for miner in miners],
@@ -334,10 +328,11 @@ async def store_new_file(
                 return None, []
 
         else:
-            workers = [asyncio.create_task(worker()) for _ in range(MAX_QUEUE)]
-
+            sha256 = hashlib.sha256()
             current_chunk_index = 0
             current_chunk_size = 0
+            total_size = 0
+            chunk_paths = []
 
             path = os.path.expanduser(DEFAULT_VALIDATOR_PATH)
             user_path = os.path.join(path, store_event_uuid)
@@ -345,24 +340,25 @@ async def store_new_file(
             chunk_path = os.path.join(user_path, f"chunk_{current_chunk_index}.part")
             async with aiofiles.open(chunk_path, "wb") as f:
                 async for chunk in file:
+                    total_size += len(chunk)
+                    sha256.update(chunk)
                     await f.write(chunk)
-
                     current_chunk_size += len(chunk)
+
                     if current_chunk_size >= MAX_CHUNK_SIZE:
-                        await store_chunk_with_redundancy(chunk_path, current_chunk_index, queue)
+                        chunk_paths.append((chunk_path, current_chunk_index))
                         current_chunk_index += 1
                         current_chunk_size = 0
                         chunk_path = os.path.join(user_path, f"chunk_{current_chunk_index}.part")
                         f = await aiofiles.open(chunk_path, 'wb')
 
+            await check_file(file_hash=sha256.hexdigest(), file_size=total_size, original_file_size=file_size_bytes, original_file_hash=file_hash)
+
             if current_chunk_size > 0:
-                await store_chunk_with_redundancy(chunk_path, current_chunk_index, queue)
+                chunk_paths.append((chunk_path, current_chunk_index))
 
-            await check_file(file_path=chunk_path, original_file_size=file_size_bytes, original_file_hash=file_hash)
-
-            await queue.join()
-            for w in workers:
-                w.cancel()
+            tasks = [asyncio.create_task(store_chunk_with_redundancy(chunk_path, chunk_index)) for chunk_path, chunk_index in chunk_paths]
+            await asyncio.gather(*tasks)
 
             if len(stored_chunks_results) != (current_chunk_index + 1) * MIN_MINERS_REPLICATION_FOR_CHUNK:
                 raise RedundancyException

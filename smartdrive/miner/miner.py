@@ -21,6 +21,7 @@
 #  SOFTWARE.
 
 import asyncio
+import hashlib
 import time
 import uuid
 import shutil
@@ -151,31 +152,41 @@ class Miner(Module):
         Raises:
             HTTPException: If there is not enough space to store the file or if another error occurs.
         """
+        chunk_path = ""
         try:
             folder = request.headers.get("Folder")
-            file_size = int(request.headers.get("X-File-Size"))
-            file_hash = request.headers.get("X-File-Hash")
+            original_file_size = int(request.headers.get("X-File-Size"))
+            original_file_hash = request.headers.get("X-File-Hash")
 
-            if not has_enough_space(file_size, self.config.max_size, self.config.data_path):
+            if not has_enough_space(original_file_size, self.config.max_size, self.config.data_path):
                 raise HTTPException(status_code=409, detail="Not enough space to store the file")
 
             client_dir = os.path.join(self.config.data_path, folder)
             if not os.path.exists(client_dir):
                 os.makedirs(client_dir)
 
+            sha256 = hashlib.sha256()
+            total_size = 0
             file_uuid = f"{int(time.time())}_{str(uuid.uuid4())}"
             chunk_path = os.path.join(client_dir, file_uuid)
+            form = await request.form()
+            chunk = form.get("chunk")
             async with aiofiles.open(chunk_path, 'wb') as chunk_file:
-                async for chunk in request.stream():
-                    if not chunk:
+                while True:
+                    chunk_data = await chunk.read(16384)
+                    if not chunk_data:
                         break
-                    await chunk_file.write(chunk)
+                    total_size += len(chunk_data)
+                    sha256.update(chunk_data)
+                    await chunk_file.write(chunk_data)
 
-            await check_file(file_path=chunk_path, original_file_size=file_size, original_file_hash=file_hash)
+            await check_file(file_hash=sha256.hexdigest(), file_size=total_size, original_file_size=original_file_size, original_file_hash=original_file_hash)
 
             return {"id": file_uuid}
         except Exception as e:
             logger.error("Error store", exc_info=True)
+            if chunk_path and os.path.exists(chunk_path):
+                os.remove(chunk_path)
             raise HTTPException(status_code=409, detail=f"Error: {e}")
 
     async def remove(self, request: Request) -> dict:
@@ -230,7 +241,6 @@ class Miner(Module):
             def iterfile():
                 with open(chunk_path, 'rb') as chunk_file:
                     while True:
-                        # Currently buffer 16KB
                         data = chunk_file.read(16384)
                         if not data:
                             break

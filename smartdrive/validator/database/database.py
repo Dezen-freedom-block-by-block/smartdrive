@@ -516,10 +516,49 @@ class Database:
                 return row[0] == 1
             else:
                 return None
-
         except sqlite3.Error:
             logger.error("Database error", exc_info=True)
             return None
+        finally:
+            if connection:
+                connection.close()
+
+    def verify_file_uuid_for_event(self, file_uuid: str, event_uuid: str) -> bool:
+        """
+        Verify if the given file_uuid corresponds to the provided event_uuid in the events table.
+
+        This function checks if the provided file_uuid is associated with the provided event_uuid
+        in the database. It returns True if the association exists, False otherwise.
+
+        Args:
+            file_uuid (str): The UUID of the file to be verified.
+            event_uuid (str): The UUID of the event to be checked against.
+
+        Returns:
+            bool: True if the file_uuid is associated with the event_uuid, False otherwise.
+
+        Raises:
+            sqlite3.Error: If a database error occurs during the execution of the query.
+        """
+        connection = None
+        try:
+            connection = sqlite3.connect(self._database_file_path)
+            cursor = connection.cursor()
+
+            query = """
+                    SELECT 1
+                    FROM events
+                    WHERE file_uuid = ? AND uuid = ? AND expiration_at > ? AND approved = 1
+                """
+
+            cursor.execute(query, (file_uuid, event_uuid, int(time.time()),))
+            row = cursor.fetchone()
+
+            return bool(row)
+
+        except sqlite3.Error:
+            logger.error("Database error", exc_info=True)
+            return False
         finally:
             if connection:
                 connection.close()

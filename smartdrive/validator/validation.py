@@ -116,6 +116,7 @@ async def validate(miners: list[ModuleInfo], database: Database, key: Keypair) -
     miners_to_store = _determine_miners_to_store(validation_events_with_expiration, validation_events_expired, miners)
     if miners_to_store and not miners_with_expired_and_non_expired_validations:
         path = os.path.expanduser(DEFAULT_VALIDATOR_PATH)
+        os.makedirs(path, exist_ok=True)
         validation_path = os.path.join(path, "validation.bin")
         file_path = generate_data(size_mb=5, file_path=validation_path)
         file_size = os.path.getsize(file_path)

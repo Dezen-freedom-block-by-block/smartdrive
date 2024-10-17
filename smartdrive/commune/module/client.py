@@ -53,15 +53,17 @@ class ModuleClient:
 
         url = create_method_endpoint(self.host, self.port, fn)
 
-        async def _read_streaming_response(response: ClientResponse):
-            # Currently buffer 16KB
-            chunk_size = 16384
-            data = bytearray()
-            async for chunk in response.content.iter_chunked(chunk_size):
-                data.extend(chunk)
-            return bytes(data)
+        async def _store_streaming_response(response: ClientResponse, chunk_path: str) -> str:
+            try:
+                async with aiofiles.open(chunk_path, 'wb') as f:
+                    async for chunk in response.content.iter_chunked(16384):
+                        await f.write(chunk)
 
-        async def _get_body(response: ClientResponse):
+                return chunk_path
+            except Exception as e:
+                raise Exception(f"Failed to store streaming response: {e}")
+
+        async def _get_body(response: ClientResponse, chunk_index: str = "", user_path: str = ""):
             response.raise_for_status()
             if response.status != 200:
                 raise Exception(f"Unexpected status code: {response.status}, response: {await response.text()}")
@@ -70,17 +72,10 @@ class ModuleClient:
             if content_type == 'application/json':
                 return await response.json()
             elif content_type == 'application/octet-stream':
-                return await _read_streaming_response(response)
+                chunk_path = os.path.join(user_path, f"chunk_{chunk_index}.part")
+                return await _store_streaming_response(response, chunk_path)
             else:
                 raise Exception(f"Unknown content type: {content_type}")
-
-        async def chunk_generator(file_path):
-            async with aiofiles.open(file_path, 'rb') as file:
-                while True:
-                    chunk = await file.read(8192)
-                    if not chunk:
-                        break
-                    yield chunk
 
         try:
             async with ClientSession(timeout=aiohttp.ClientTimeout(connect=5, sock_connect=5, total=timeout)) as session:
@@ -93,17 +88,23 @@ class ModuleClient:
                     headers["Folder"] = file['folder']
                     headers["Target-Key"] = target_key
 
-                    async with session.post(url, data=chunk_generator(file["chunk"]), headers=headers, ssl=False) as response:
-                        return await _get_body(response)
+                    with open(file["chunk"], 'rb') as f:
+                        multipartWriter = aiohttp.MultipartWriter("form-data")
+                        part = multipartWriter.append(f)
+                        part.set_content_disposition('form-data', name='chunk', filename='file')
+                        headers["Content-Type"] = f"multipart/form-data; boundary={multipartWriter.boundary}"
+                        async with session.post(url, data=multipartWriter, headers=headers, ssl=False) as response:
+                            return await _get_body(response)
                 else:
+                    chunk_index = params.pop("chunk_index", "")
+                    user_path = params.pop("user_path", "")
                     serialized_data, headers = create_request_data(self.key, target_key, params)
                     if fn == "remove":
                         async with session.delete(url, json=json.loads(serialized_data), headers=headers, ssl=False) as response:
                             return await _get_body(response)
                     else:
                         async with session.post(url, json=json.loads(serialized_data), headers=headers, ssl=False) as response:
-                            return await _get_body(response)
-
+                            return await _get_body(response, chunk_index, user_path)
         except asyncio.TimeoutError as e:
             raise Exception(f"The call took longer than the timeout of {timeout} second(s)").with_traceback(e.__traceback__)
         except aiohttp.ClientError as e:
