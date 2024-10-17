@@ -391,27 +391,37 @@ class Database:
                 connection.close()
         return total_size
 
-    def get_chunks(self, file_uuid: str) -> List[MinerWithChunk]:
+    def get_chunks(self, file_uuid: str, only_not_removed: bool = True) -> List[MinerWithChunk]:
         """
         Retrieves the miners' addresses and chunk hashes associated with a given file UUID.
 
         Params:
             file_uuid (str): The UUID of the file to search for.
+            only_not_removed (bool): If True, only return chunks that haven't been marked as removed.
+                                     If False, retrieves all chunks, including those marked as removed.
 
         Returns:
             List[MinerWithChunk]: A list of MinerWithChunk objects.
         """
-        query = """
-            SELECT c.miner_ss58_address, c.uuid, c.chunk_index
-            FROM chunk c
-            INNER JOIN file f ON c.file_uuid = f.uuid
-            WHERE f.uuid = ? AND f.removed = 0;
-        """
+        if only_not_removed:
+            query = """
+                SELECT c.miner_ss58_address, c.uuid, c.chunk_index
+                FROM chunk c
+                INNER JOIN file f ON c.file_uuid = f.uuid
+                WHERE f.uuid = ? AND f.removed = 0;
+            """
+        else:
+            query = """
+                    SELECT c.miner_ss58_address, c.uuid, c.chunk_index
+                    FROM chunk c
+                    INNER JOIN file f ON c.file_uuid = f.uuid
+                    WHERE f.uuid = ?;
+                """
         connection = None
         try:
             connection = sqlite3.connect(self._database_file_path)
             cursor = connection.cursor()
-            cursor.execute(query, (file_uuid,))
+            cursor.execute(query, (file_uuid, ))
             rows = cursor.fetchall()
             return [
                 MinerWithChunk(

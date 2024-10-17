@@ -39,14 +39,14 @@ from communex.types import Ss58Address
 
 from smartdrive.check_file import check_file
 from smartdrive.commune.errors import CommuneNetworkUnreachable
-from smartdrive.utils import calculate_storage_capacity, MAXIMUM_STORAGE, DEFAULT_VALIDATOR_PATH
+from smartdrive.utils import DEFAULT_VALIDATOR_PATH
 from smartdrive.sign import sign_data
-from smartdrive.validator.api.exceptions import RedundancyException, FileTooLargeException, NoMinersInNetworkException, \
+from smartdrive.validator.api.exceptions import RedundancyException, NoMinersInNetworkException, \
     NoValidMinerResponseException, UnexpectedErrorException, HTTPRedundancyException, \
-    CommuneNetworkUnreachable as HTTPCommuneNetworkUnreachable, StoreRequestNotApprovedException, StorageLimitException, \
+    CommuneNetworkUnreachable as HTTPCommuneNetworkUnreachable, StoreRequestNotApprovedException, \
     InvalidFileEventAssociationException
 from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_from_public_key
-from smartdrive.validator.api.utils import remove_chunk_request
+from smartdrive.validator.api.utils import remove_chunk_request, validate_storage_capacity
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.models.event import StoreEvent, StoreParams, StoreInputParams, ChunkParams, ValidationEvent, \
@@ -64,10 +64,10 @@ MIN_MINERS_FOR_FILE = 2
 MIN_MINERS_REPLICATION_FOR_CHUNK = 2
 MAX_MINERS_FOR_FILE = 10
 MAX_ENCODED_RANGE = 50
-MINER_STORE_TIMEOUT_SECONDS = 180
-TIME_EXPIRATION_STORE_REQUEST_EVENT_SECONDS = 2 * 60  # 2 minutes
+MINER_STORE_TIMEOUT_SECONDS = 2 * 60
+TIME_EXPIRATION_STORE_REQUEST_EVENT_SECONDS = 20 * 60
 MAX_CHUNK_SIZE = 200 * 1024 * 1024  # Max chunk size to store, 200 MB
-MAX_SIMULTANEOUS_UPLOADS = 2
+MAX_SIMULTANEOUS_UPLOADS = 3
 
 
 class StoreAPI:
@@ -104,8 +104,16 @@ class StoreAPI:
         user_ss58_address = get_ss58_address_from_public_key(user_public_key)
         input_signed_params = request.headers.get("X-Signature")
         file_uuid = f"{int(time.time())}_{str(uuid.uuid4())}"
+        total_stake = request.state.total_stake
 
-        event_params = StoreRequestParams(file_uuid=file_uuid, expiration_at=int(time.time()) + TIME_EXPIRATION_STORE_REQUEST_EVENT_SECONDS, approved=True)  # Expires in 5 minutes
+        validate_storage_capacity(
+            database=self._database,
+            user_ss58_address=user_ss58_address,
+            file_size_bytes=body["file_size_bytes"],
+            total_stake=total_stake,
+        )
+
+        event_params = StoreRequestParams(file_uuid=file_uuid, expiration_at=int(time.time()) + TIME_EXPIRATION_STORE_REQUEST_EVENT_SECONDS, approved=True)
         signed_params = sign_data(event_params.dict(), self._key)
 
         event = StoreRequestEvent(
@@ -186,13 +194,13 @@ class StoreAPI:
         if not self._database.verify_file_uuid_for_event(file_uuid=file_uuid, event_uuid=event_uuid):
             raise InvalidFileEventAssociationException
 
-        if file_size > MAXIMUM_STORAGE:
-            raise FileTooLargeException
-
-        total_size_stored_by_user = self._database.get_total_file_size_by_user(user_ss58_address=user_ss58_address)
-        available_storage_of_user = calculate_storage_capacity(total_stake)
-        if total_size_stored_by_user + file_size > available_storage_of_user:
-            raise StorageLimitException(file_size, total_size_stored_by_user, available_storage_of_user)
+        validate_storage_capacity(
+            database=self._database,
+            user_ss58_address=user_ss58_address,
+            file_size_bytes=file_size,
+            total_stake=total_stake,
+            only_files=True
+        )
 
         try:
             miners = await get_filtered_modules(config_manager.config.netuid, ModuleType.MINER, self._key.ss58_address)

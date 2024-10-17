@@ -189,10 +189,10 @@ def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testn
         spinner.start()
 
         try:
-            filename = decompress_decrypt_and_save(response.raw, key.private_key[:32], file_path)
+            final_file_path = decompress_decrypt_and_save(response.raw, key.private_key[:32], file_path)
 
             spinner.stop_with_message("Done!")
-            logger.info(f"Data downloaded and decompressed successfully in {file_path}{filename}")
+            logger.info(f"Data downloaded and decompressed successfully in {final_file_path}")
 
         except zstd.ZstdError:
             spinner.stop_with_message("Error: Decompression failed.")

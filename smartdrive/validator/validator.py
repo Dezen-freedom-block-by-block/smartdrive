@@ -190,7 +190,8 @@ class Validator(Module):
 
                     for event in block_events:
                         if isinstance(event, RemoveEvent):
-                            chunks = self._database.get_chunks(file_uuid=event.event_params.file_uuid)
+                            # Only deletions are chosen, since as the block is processed before, the deletion is already marked for these events.
+                            chunks = self._database.get_chunks(file_uuid=event.event_params.file_uuid, only_not_removed=False)
                             miners = await get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
                             miners_info_with_chunk = compile_miners_info_and_chunks(miners, chunks)
 

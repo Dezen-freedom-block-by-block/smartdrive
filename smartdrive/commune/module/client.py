@@ -76,7 +76,6 @@ class ModuleClient:
                 return await _store_streaming_response(response, chunk_path)
             else:
                 raise Exception(f"Unknown content type: {content_type}")
-
         try:
             async with ClientSession(timeout=aiohttp.ClientTimeout(connect=5, sock_connect=5, total=timeout)) as session:
                 if file:
@@ -88,7 +87,7 @@ class ModuleClient:
                     headers["Folder"] = file['folder']
                     headers["Target-Key"] = target_key
 
-                    with open(file["chunk"], 'rb') as f:
+                    async with aiofiles.open(file["chunk"], 'rb') as f:
                         multipartWriter = aiohttp.MultipartWriter("form-data")
                         part = multipartWriter.append(f)
                         part.set_content_disposition('form-data', name='chunk', filename='file')

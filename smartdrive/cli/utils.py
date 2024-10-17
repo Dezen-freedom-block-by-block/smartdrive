@@ -51,23 +51,23 @@ def compress_encrypt_and_save(file_path, aes_key):
 
     output_path = os.path.expanduser(DEFAULT_CLIENT_PATH)
     os.makedirs(output_path, exist_ok=True)
-    output_file_path = os.path.join(output_path, filename)
-    with open(file_path, 'rb') as f_in, open(output_file_path, 'wb') as f_out:
+    encrypted_file_path = os.path.join(output_path, f"{filename}.enc")
+    with open(file_path, 'rb') as f_in, open(encrypted_file_path, 'wb') as f_out:
         f_out.write(filename_length.to_bytes(4, 'big'))
         f_out.write(filename_bytes)
 
-        with cctx.stream_writer(f_out) as compressor:
-            encrypt_with_aes(f_in, aes_key, compressor)
+        with cctx.stream_reader(f_in) as compressed_stream:
+            encrypt_with_aes(compressed_stream, aes_key, f_out)
 
-    return output_file_path
+    return encrypted_file_path
 
 
-def decrypt_with_aes(data_stream, aes_key, output_stream):
-    iv = data_stream.read(16)
+def decrypt_with_aes(input_stream, aes_key, output_stream):
+    iv = input_stream.read(16)
     cipher = AES.new(aes_key, AES.MODE_CFB, iv)
 
     while True:
-        chunk = data_stream.read(16384)
+        chunk = input_stream.read(16384)
         if not chunk:
             break
         decrypted_chunk = cipher.decrypt(chunk)
@@ -85,7 +85,7 @@ def decompress_decrypt_and_save(input_stream, aes_key, output_dir):
 
     with open(output_file_path, 'wb') as f_out:
         dctx = zstd.ZstdDecompressor()
-        with dctx.stream_reader(input_stream) as decompressor:
-            decrypt_with_aes(decompressor, aes_key, f_out)
+        with dctx.stream_writer(f_out) as decompressor:
+            decrypt_with_aes(input_stream, aes_key, decompressor)
 
     return output_file_path
