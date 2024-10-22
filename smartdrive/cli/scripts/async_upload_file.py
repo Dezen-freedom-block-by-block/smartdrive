@@ -19,32 +19,38 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
+import asyncio
 import os
+import random
 import sys
-import time
 
+import aiofiles
+import aiohttp
 import requests
 from substrateinterface import Keypair
 
-from smartdrive.cli.handlers import _get_key, _get_validator_url
-from smartdrive.cli.utils import stream_file_with_signature
+import smartdrive
+from smartdrive.cli.errors import NoValidatorsAvailableException
+from smartdrive.cli.handlers import _get_key
 from smartdrive.commune.connection_pool import initialize_commune_connection_pool
+from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.module._protocol import create_headers
+from smartdrive.commune.request import get_active_validators, EXTENDED_PING_TIMEOUT
 from smartdrive.models.event import StoreInputParams
 from smartdrive.sign import sign_data
 
-SLEEP_TIME_SECONDS = 10
+SLEEP_TIME_SECONDS = 20
 
 
-def _check_permission_store(file_path: str, file_hash: str, file_size_bytes: int, store_request_event_uuid: str, key: Keypair, testnet: bool):
+async def _check_permission_store(file_path: str, file_hash: str, file_size_bytes: int, store_request_event_uuid: str, key: Keypair, testnet: bool, file_uuid: str):
     for i in range(3):
         try:
-            time.sleep(SLEEP_TIME_SECONDS)
+            await asyncio.sleep(SLEEP_TIME_SECONDS)
 
             input_params = {"store_request_event_uuid": store_request_event_uuid}
             signed_data = sign_data(input_params, key)
             headers = create_headers(signed_data, key, show_content_type=False)
-            validator_url = _get_validator_url(key=key, testnet=testnet)
+            validator_url = await _get_validator_url(key=key, testnet=testnet)
 
             response = requests.get(
                 url=f"{validator_url}/store/check-permission",
@@ -55,7 +61,15 @@ def _check_permission_store(file_path: str, file_hash: str, file_size_bytes: int
             )
 
             if response.status_code == requests.codes.ok:
-                _store_file(file_path=file_path, file_hash=file_hash, file_size_bytes=file_size_bytes, keypair=key, testnet=testnet)
+                await _store_file(
+                    file_path=file_path,
+                    file_hash=file_hash,
+                    file_size_bytes=file_size_bytes,
+                    keypair=key,
+                    testnet=testnet,
+                    file_uuid=file_uuid,
+                    event_uuid=store_request_event_uuid
+                )
                 break
             elif response.status_code != requests.codes.accepted:
                 break
@@ -63,27 +77,54 @@ def _check_permission_store(file_path: str, file_hash: str, file_size_bytes: int
             continue
 
 
-def _store_file(file_path: str, file_hash: str, file_size_bytes: int, keypair: Keypair, testnet: bool):
-    try:
-        input_params = StoreInputParams(file=file_hash, file_size_bytes=file_size_bytes)
-        signed_data = sign_data(input_params.dict(), keypair)
-        headers = create_headers(signed_data, keypair, show_content_type=False)
-        validator_url = _get_validator_url(key=key, testnet=testnet)
-        headers["X-File-Hash"] = file_hash
-        headers["X-File-Size"] = str(file_size_bytes)
+async def _store_file(file_path: str, file_hash: str, file_size_bytes: int, keypair: Keypair, testnet: bool, file_uuid: str, event_uuid: str):
+    for i in range(3):
+        try:
+            input_params = StoreInputParams(file_hash=file_hash, file_size_bytes=file_size_bytes)
+            signed_data = sign_data(input_params.dict(), keypair)
+            headers = create_headers(signed_data, keypair, show_content_type=False)
+            headers["X-File-Hash"] = file_hash
+            headers["X-File-Size"] = str(file_size_bytes)
+            headers["X-Event-UUID"] = event_uuid
+            headers["X-File-UUID"] = file_uuid
+            validator_url = await _get_validator_url(key=key, testnet=testnet)
 
-        requests.post(
-            url=f"{validator_url}/store",
-            headers=headers,
-            data=stream_file_with_signature(file_path=file_path, keypair=keypair),
-            verify=False,
-            stream=True
-        )
-    except Exception:
-        return
-    finally:
-        if os.path.exists(file_path):
-            os.remove(file_path)
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(connect=5, sock_connect=5, total=20 * 60)) as session:
+                async with aiofiles.open(file_path, 'rb') as file:
+                    async with session.post(f"{validator_url}/store", data=file, headers=headers, ssl=False) as response:
+                        if response.status == 200:
+                            break
+
+        except Exception:
+            continue
+
+    if os.path.exists(file_path):
+        os.remove(file_path)
+
+
+async def _get_validator_url(key: Keypair, testnet: bool = False) -> str:
+    """
+    Get the URL of an active validator.
+
+    Params:
+        key (Keypair): The keypair object.
+        testnet (bool, optional): Flag to indicate if the testnet should be used.
+
+    Returns:
+        str: The URL of an active validator.
+    """
+    netuid = smartdrive.TESTNET_NETUID if testnet else smartdrive.NETUID
+
+    try:
+        validators = await get_active_validators(key, netuid, EXTENDED_PING_TIMEOUT)
+    except CommuneNetworkUnreachable:
+        raise NoValidatorsAvailableException
+
+    if not validators:
+        raise NoValidatorsAvailableException
+
+    validator = random.choice(validators)
+    return f"https://{validator.connection.ip}:{validator.connection.port}"
 
 
 if __name__ == "__main__":
@@ -93,7 +134,11 @@ if __name__ == "__main__":
     store_request_event_uuid = sys.argv[4]
     key_name = sys.argv[5]
     testnet = sys.argv[6] == 'True'
+    file_uuid = sys.argv[7]
     key = _get_key(key_name)
-
     initialize_commune_connection_pool(testnet, num_connections=1, max_pool_size=1)
-    _check_permission_store(file_path, file_hash, file_size_bytes, store_request_event_uuid, key, testnet)
+
+    async def main():
+        await _check_permission_store(file_path, file_hash, file_size_bytes, store_request_event_uuid, key, testnet, file_uuid)
+
+    asyncio.run(main())

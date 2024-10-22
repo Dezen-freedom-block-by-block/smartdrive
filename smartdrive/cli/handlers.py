@@ -35,16 +35,17 @@ from nacl.exceptions import CryptoError
 from communex.compat.key import is_encrypted, classic_load_key
 
 import smartdrive
+from smartdrive.commune.utils import calculate_hash_sync
 from smartdrive.logging_config import logger
 from smartdrive.cli.errors import NoValidatorsAvailableException
 from smartdrive.cli.spinner import Spinner
-from smartdrive.cli.utils import decrypt_and_decompress, compress_encrypt_and_save
+from smartdrive.cli.utils import compress_encrypt_and_save, decompress_decrypt_and_save
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_active_validators, EXTENDED_PING_TIMEOUT
 from smartdrive.models.event import StoreInputParams, RetrieveInputParams, RemoveInputParams
 from smartdrive.sign import sign_data
-from smartdrive.commune.utils import calculate_hash_stream
+from smartdrive.utils import MAXIMUM_STORAGE, format_size
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -77,20 +78,23 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
         logger.error(f"File {file_path} does not exist or is a directory.")
         return
 
+    if os.path.getsize(file_path) > MAXIMUM_STORAGE:
+        logger.error(f"Error: File size exceeds the maximum limit of {format_size(MAXIMUM_STORAGE)}")
+        return
+
     key = _get_key(key_name)
 
     # Step 1: Compress the file
-    spinner = Spinner("Compressing file")
+    spinner = Spinner("Compressing and encrypting file")
     spinner.start()
 
+    temp_file_path = ""
     try:
-        temp_file_path = compress_encrypt_and_save(file_path, key.private_key)
+        temp_file_path = compress_encrypt_and_save(file_path, key.private_key[:32])
+        file_hash = calculate_hash_sync(temp_file_path)
         spinner.stop_with_message("Done!")
 
-        with open(temp_file_path, 'rb') as temp_file:
-            file_hash = calculate_hash_stream(temp_file)
-            file_size_bytes = os.path.getsize(temp_file_path)
-
+        file_size_bytes = os.path.getsize(temp_file_path)
         input_params = StoreInputParams(file_hash=file_hash, file_size_bytes=file_size_bytes)
         signed_data = sign_data(input_params.dict(), key)
 
@@ -100,8 +104,6 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
 
         validator_url = _get_validator_url(key, testnet)
         headers = create_headers(signed_data, key, show_content_type=False)
-        headers["X-File-Hash"] = file_hash
-        headers["X-File-Size"] = str(file_size_bytes)
 
         response = requests.post(
             url=f"{validator_url}/store/request",
@@ -113,27 +115,34 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
         response.raise_for_status()
         message = response.json()
 
+        file_uuid = message.get("file_uuid")
         store_request_event_uuid = message.get("store_request_event_uuid")
         spinner.stop_with_message("Done!")
 
-        if store_request_event_uuid:
-            logger.info(f"Your data will be stored soon. Your file UUID is: {store_request_event_uuid}")
+        if file_uuid and store_request_event_uuid:
+            logger.info(f"Your data will be stored soon in background. Your file UUID is: {file_uuid}")
             subprocess.Popen(
-                [sys.executable, "smartdrive/cli/scripts/async_upload_file.py", temp_file_path, file_hash, str(file_size_bytes), store_request_event_uuid, key_name, str(testnet)],
+                [sys.executable, "smartdrive/cli/scripts/async_upload_file.py", temp_file_path, file_hash, str(file_size_bytes), store_request_event_uuid, key_name, str(testnet), file_uuid],
                 close_fds=True,
                 start_new_session=True
             )
 
     except NoValidatorsAvailableException:
+        if temp_file_path and os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
         spinner.stop_with_message("Error: No validators available")
     except requests.RequestException as e:
         try:
+            if temp_file_path and os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
             error_message = e.response.json().get('detail', 'Unknown error')
             spinner.stop_with_message(f"Error: {error_message}.")
         except ValueError:
             spinner.stop_with_message("Error: Network error.")
-    except Exception:
-        spinner.stop_with_message("Unexpected error.")
+    except Exception as e:
+        if temp_file_path and os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+        spinner.stop_with_message(f"Unexpected error. {e}")
 
 
 def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testnet: bool = False):
@@ -170,22 +179,22 @@ def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testn
         input_params = RetrieveInputParams(file_uuid=file_uuid)
         headers = create_headers(sign_data(input_params.dict(), key), key)
 
-        response = requests.get(f"{validator_url}/retrieve", params=input_params.dict(), headers=headers, verify=False)
+        response = requests.get(f"{validator_url}/retrieve", params=input_params.dict(), headers=headers, verify=False, stream=True)
 
         response.raise_for_status()
         spinner.stop_with_message("Done!")
 
         # Step 2: Decompress and storing the file
-        spinner = Spinner("Decompressing")
+        spinner = Spinner("Decompressing and decrypting")
         spinner.start()
 
         try:
-            filename = decrypt_and_decompress(response.content, key.private_key[:32], file_path)
+            final_file_path = decompress_decrypt_and_save(response.raw, key.private_key[:32], file_path)
 
             spinner.stop_with_message("Done!")
-            logger.info(f"Data downloaded and decompressed successfully in {file_path}{filename}")
+            logger.info(f"Data downloaded and decompressed successfully in {final_file_path}")
 
-        except zstd.Error:
+        except zstd.ZstdError:
             spinner.stop_with_message("Error: Decompression failed.")
             logger.error("Error: Decompression failed. The data is corrupted or the format is incorrect.")
             return

@@ -21,17 +21,19 @@
 #  SOFTWARE.
 
 import asyncio
+import os.path
 import time
 from typing import List, Optional
 
 from communex.types import Ss58Address
 from substrateinterface import Keypair
 
+from smartdrive.commune.utils import calculate_hash
 from smartdrive.logging_config import logger
 from smartdrive.commune.models import ModuleInfo
-from smartdrive.commune.utils import calculate_hash
 from smartdrive.models.event import ValidationEvent
 from smartdrive.sign import sign_data
+from smartdrive.utils import DEFAULT_VALIDATOR_PATH
 from smartdrive.validator.api.store_api import store_new_file
 from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.api.validate_api import validate_chunk_request
@@ -113,17 +115,23 @@ async def validate(miners: list[ModuleInfo], database: Database, key: Keypair) -
     # Handle creating new validation events if there are no conflicts with expired validations
     miners_to_store = _determine_miners_to_store(validation_events_with_expiration, validation_events_expired, miners)
     if miners_to_store and not miners_with_expired_and_non_expired_validations:
-        file_data = generate_data(size_mb=5)
-        input_params = {"file": calculate_hash(file_data), "file_size_bytes": len(file_data)}
-        input_signed_params = sign_data(input_params, key)
+        path = os.path.expanduser(DEFAULT_VALIDATOR_PATH)
+        os.makedirs(path, exist_ok=True)
+        validation_path = os.path.join(path, "validation.bin")
+        file_path = generate_data(size_mb=5, file_path=validation_path)
+        file_size = os.path.getsize(file_path)
+        file_hash = await calculate_hash(file_path)
 
+        input_params = {"file_hash": file_hash, "file_size_bytes": file_size}
+        input_signed_params = sign_data(input_params, key)
         _, validations_events_per_validator = await store_new_file(
-            file_bytes=file_data,
+            file=file_path,
             miners=miners_to_store,
             validator_keypair=key,
             user_ss58_address=Ss58Address(key.ss58_address),
             input_signed_params=input_signed_params.hex(),
-            validating=True,
+            file_size_bytes=file_size,
+            file_hash=file_hash,
             validators_len=1  # To include current validator
         )
 

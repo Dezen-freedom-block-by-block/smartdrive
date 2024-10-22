@@ -23,18 +23,21 @@
 import os
 
 
-def generate_data(size_mb: int) -> bytes:
+def generate_data(size_mb: int, file_path: str) -> str:
     """
-    Generate a specified amount of random data.
-
-    This function generates a specified amount of random data in megabytes using
-    the `os.urandom` function, which provides cryptographically secure random bytes.
+    Generate a specified amount of random data and save it to a file.
 
     Params:
         size_mb (int): The size of the data to generate, in megabytes.
+        file_path (str): The path where the generated random data will be saved.
 
     Returns:
-        bytes: A bytes object containing the generated random data.
+        str: The path to the file containing the generated random data.
     """
     size_bytes = size_mb * 1024 * 1024
-    return os.urandom(size_bytes)
+    data = os.urandom(size_bytes)
+
+    with open(file_path, 'wb') as f:
+        f.write(data)
+
+    return file_path

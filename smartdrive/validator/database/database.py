@@ -29,7 +29,7 @@ from typing import List, Optional, Union
 from smartdrive.logging_config import logger
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.models.event import StoreEvent, Action, StoreParams, StoreInputParams, RemoveEvent, RemoveInputParams, \
-    EventParams, UserEvent, ChunkParams, ValidationEvent, StoreRequestEvent
+    EventParams, UserEvent, ChunkParams, ValidationEvent, StoreRequestEvent, StoreRequestInputParams, StoreRequestParams
 from smartdrive.models.block import Block
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.models.models import MinerWithChunk, File, Chunk
@@ -391,27 +391,37 @@ class Database:
                 connection.close()
         return total_size
 
-    def get_chunks(self, file_uuid: str) -> List[MinerWithChunk]:
+    def get_chunks(self, file_uuid: str, only_not_removed: bool = True) -> List[MinerWithChunk]:
         """
         Retrieves the miners' addresses and chunk hashes associated with a given file UUID.
 
         Params:
             file_uuid (str): The UUID of the file to search for.
+            only_not_removed (bool): If True, only return chunks that haven't been marked as removed.
+                                     If False, retrieves all chunks, including those marked as removed.
 
         Returns:
             List[MinerWithChunk]: A list of MinerWithChunk objects.
         """
-        query = """
-            SELECT c.miner_ss58_address, c.uuid, c.chunk_index
-            FROM chunk c
-            INNER JOIN file f ON c.file_uuid = f.uuid
-            WHERE f.uuid = ? AND f.removed = 0;
-        """
+        if only_not_removed:
+            query = """
+                SELECT c.miner_ss58_address, c.uuid, c.chunk_index
+                FROM chunk c
+                INNER JOIN file f ON c.file_uuid = f.uuid
+                WHERE f.uuid = ? AND f.removed = 0;
+            """
+        else:
+            query = """
+                    SELECT c.miner_ss58_address, c.uuid, c.chunk_index
+                    FROM chunk c
+                    INNER JOIN file f ON c.file_uuid = f.uuid
+                    WHERE f.uuid = ?;
+                """
         connection = None
         try:
             connection = sqlite3.connect(self._database_file_path)
             cursor = connection.cursor()
-            cursor.execute(query, (file_uuid,))
+            cursor.execute(query, (file_uuid, ))
             rows = cursor.fetchall()
             return [
                 MinerWithChunk(
@@ -516,10 +526,49 @@ class Database:
                 return row[0] == 1
             else:
                 return None
-
         except sqlite3.Error:
             logger.error("Database error", exc_info=True)
             return None
+        finally:
+            if connection:
+                connection.close()
+
+    def verify_file_uuid_for_event(self, file_uuid: str, event_uuid: str) -> bool:
+        """
+        Verify if the given file_uuid corresponds to the provided event_uuid in the events table.
+
+        This function checks if the provided file_uuid is associated with the provided event_uuid
+        in the database. It returns True if the association exists, False otherwise.
+
+        Args:
+            file_uuid (str): The UUID of the file to be verified.
+            event_uuid (str): The UUID of the event to be checked against.
+
+        Returns:
+            bool: True if the file_uuid is associated with the event_uuid, False otherwise.
+
+        Raises:
+            sqlite3.Error: If a database error occurs during the execution of the query.
+        """
+        connection = None
+        try:
+            connection = sqlite3.connect(self._database_file_path)
+            cursor = connection.cursor()
+
+            query = """
+                    SELECT 1
+                    FROM events
+                    WHERE file_uuid = ? AND uuid = ? AND expiration_at > ? AND approved = 1
+                """
+
+            cursor.execute(query, (file_uuid, event_uuid, int(time.time()),))
+            row = cursor.fetchone()
+
+            return bool(row)
+
+        except sqlite3.Error:
+            logger.error("Database error", exc_info=True)
+            return False
         finally:
             if connection:
                 connection.close()
@@ -672,7 +721,7 @@ class Database:
             if connection:
                 connection.close()
 
-    def _process_event(self, cursor, event: Union[StoreEvent, RemoveEvent], block_id: int):
+    def _process_event(self, cursor, event: Union[StoreEvent, RemoveEvent, StoreRequestEvent], block_id: int):
         """
         Processes an event and executes the necessary operations in the database.
 
@@ -700,7 +749,7 @@ class Database:
             user_ss58_address = event.user_ss58_address
             input_signed_params = event.input_signed_params
 
-        elif isinstance(event, StoreEvent):
+        if isinstance(event, StoreEvent):
             total_chunks_index = set()
             chunks = []
             for chunk in event.event_params.chunks_params:
@@ -723,6 +772,7 @@ class Database:
             self.insert_file(cursor=cursor, file=file, event_uuid=event.uuid)
 
             file_hash = event.input_params.file_hash
+            file_size_bytes = event.input_params.file_size_bytes
 
         elif isinstance(event, StoreRequestEvent):
             file_hash = event.input_params.file_hash
@@ -736,7 +786,7 @@ class Database:
         cursor.execute(
             '''
             INSERT INTO events (uuid, validator_ss58_address, event_type, file_uuid, event_signed_params, user_ss58_address, file_hash, input_signed_params, block_id, file_size_bytes, expiration_at, approved)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
             (event.uuid, validator_ss58_address, event_type, file_uuid, event_signed_params, user_ss58_address, file_hash, input_signed_params, block_id, file_size_bytes, expiration_at, approved)
         )
@@ -761,9 +811,9 @@ class Database:
             query = '''
                 SELECT
                     b.id AS block_id, b.signed_block, b.proposer_ss58_address,
-                    e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.event_signed_params, e.user_ss58_address, e.file_hash, e.input_signed_params,
+                    e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.event_signed_params, e.user_ss58_address, e.file_hash, e.input_signed_params, e.expiration_at, e.approved,
                     c.uuid AS chunk_uuid, c.miner_ss58_address, c.chunk_index,
-                    f.file_size_bytes
+                    COALESCE(e.file_size_bytes, f.file_size_bytes) AS file_size_bytes
                 FROM block b
                 LEFT JOIN events e ON b.id = e.block_id
                 LEFT JOIN chunk c ON c.event_uuid = e.uuid
@@ -902,7 +952,7 @@ class Database:
             if connection:
                 connection.close()
 
-    def _build_event_from_row(self, row) -> Union[StoreEvent, RemoveEvent]:
+    def _build_event_from_row(self, row) -> Union[StoreEvent, RemoveEvent, StoreRequestEvent]:
         """
         Build an Event object from a database row.
 
@@ -910,7 +960,7 @@ class Database:
             row (dict): A dictionary containing the row data from the database.
 
         Returns:
-            Union[StoreEvent, RemoveEvent]: An instance of an Event subclass (StoreEvent, RemoveEvent).
+            Union[StoreEvent, RemoveEvent, StoreRequestEvent]: An instance of an Event subclass (StoreEvent, RemoveEvent, StoreRequestEvent).
 
         Raises:
             ValueError: If the event type is unknown.
@@ -941,6 +991,16 @@ class Database:
                 event_signed_params=row['event_signed_params'],
                 user_ss58_address=row['user_ss58_address'],
                 input_params=RemoveInputParams(file_uuid=row['file_uuid']),
+                input_signed_params=row['input_signed_params']
+            )
+        elif event_type == Action.STORE_REQUEST.value:
+            event = StoreRequestEvent(
+                uuid=row['event_uuid'],
+                validator_ss58_address=row['validator_ss58_address'],
+                event_params=StoreRequestParams(file_uuid=row['file_uuid'], expiration_at=row['expiration_at'], approved=row['approved']),
+                event_signed_params=row['event_signed_params'],
+                user_ss58_address=row['user_ss58_address'],
+                input_params=StoreRequestInputParams(file_hash=row['file_hash'], file_size_bytes=row['file_size_bytes']),
                 input_signed_params=row['input_signed_params']
             )
         else:

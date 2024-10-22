@@ -23,7 +23,7 @@
 from typing import Optional
 from fastapi import HTTPException
 
-from smartdrive.utils import MAX_FILE_SIZE, format_size
+from smartdrive.utils import format_size, MAXIMUM_STORAGE
 
 
 class UnexpectedErrorException(HTTPException):
@@ -42,13 +42,39 @@ class FileDoesNotExistException(HTTPException):
         super().__init__(status_code=404, detail=detail)
 
 
+class InvalidFileEventAssociationException(HTTPException):
+    def __init__(self, detail: str = "File UUID does not match the event UUID."):
+        super().__init__(status_code=422, detail=detail)
+
+
 class FileNotAvailableException(HTTPException):
     def __init__(self, detail: str = "The file currently is not available"):
         super().__init__(status_code=503, detail=detail)
 
 
 class FileTooLargeException(HTTPException):
-    def __init__(self, detail: str = f"File size exceeds the maximum limit of {format_size(MAX_FILE_SIZE)}"):
+    def __init__(self, detail: str = f"File size exceeds the maximum limit of {format_size(MAXIMUM_STORAGE)}"):
+        super().__init__(status_code=413, detail=detail)
+
+
+class InvalidFileSizeException(HTTPException):
+    def __init__(self, detail: str = "The received file size does not match the original size"):
+        super().__init__(status_code=413, detail=detail)
+
+
+class FileSizeMismatchException(HTTPException):
+    def __init__(self, detail: str = "File size mismatch"):
+        super().__init__(status_code=413, detail=detail)
+
+
+class FileHashMismatchException(HTTPException):
+    def __init__(self, detail: str = "File hash mismatch"):
+        super().__init__(status_code=422, detail=detail)
+
+
+class StorageLimitException(HTTPException):
+    def __init__(self, file_size: int, total_size_stored_by_user: int, available_storage_of_user: int):
+        detail = f"Storage limit exceeded. You have used {format_size(total_size_stored_by_user)} out of {format_size(available_storage_of_user)}. The file you are trying to upload is {format_size(file_size)}."
         super().__init__(status_code=413, detail=detail)
 
 

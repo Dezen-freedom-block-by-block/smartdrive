@@ -104,7 +104,7 @@ def get_invalid_events(events: List[Union[StoreEvent, RemoveEvent, StoreRequestE
         return asyncio.run(_get_invalid_events())
 
 
-def verify_event_signatures(event: Union[StoreEvent, RemoveEvent]):
+def verify_event_signatures(event: Union[StoreEvent, RemoveEvent, StoreRequestEvent]):
     """
     Verifies the signatures of an individual event.
 
@@ -118,7 +118,11 @@ def verify_event_signatures(event: Union[StoreEvent, RemoveEvent]):
     if isinstance(event, UserEvent):
         input_params_verified = verify_data_signature(event.input_params.dict(), event.input_signed_params, event.user_ss58_address)
 
+        # RemoveEvent created by validators (check_stake_task)
+        if isinstance(event, RemoveEvent) and not input_params_verified:
+            input_params_verified = verify_data_signature(event.input_params.dict(), event.input_signed_params, event.validator_ss58_address)
+
     event_params_verified = verify_data_signature(event.event_params.dict(), event.event_signed_params, event.validator_ss58_address)
 
-    if not input_params_verified and event_params_verified:
+    if not input_params_verified or not event_params_verified:
         raise InvalidSignatureException()

@@ -19,15 +19,12 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
-
 from communex.balance import from_nano
 from communex.types import Ss58Address
 
 from smartdrive.commune.connection_pool import get_staketo
 from smartdrive.commune.models import ModuleInfo
-from smartdrive.validator.config import config_manager
 
-MAX_FILE_SIZE = 500 * 1024 * 1024  # 500 MB
 INITIAL_STORAGE = 50 * 1024 * 1024  # 50 MB
 MAXIMUM_STORAGE = 2 * 1024 * 1024 * 1024  # 2 GB
 ADDITIONAL_STORAGE_PER_COMAI = 0.1 * 1024 * 1024  # 0.1 MB
@@ -81,7 +78,7 @@ def format_size(size_in_bytes: int) -> str:
 
 
 async def get_stake_from_user(user_ss58_address: Ss58Address, validators: [ModuleInfo]):
-    staketo_modules = await get_staketo(user_ss58_address, config_manager.config.netuid)
+    staketo_modules = await get_staketo(user_ss58_address)
     validator_addresses = {validator.ss58_address for validator in validators}
     active_stakes = {address: from_nano(stake) for address, stake in staketo_modules.items() if address in validator_addresses and address != str(user_ss58_address)}
 

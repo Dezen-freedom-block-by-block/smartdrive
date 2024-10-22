@@ -123,17 +123,17 @@ def retry_on_failure(retries):
 
 
 @retry_on_failure(retries=RETRIES)
-async def _get_staketo_with_timeout(client, ss58_address, netuid, timeout=TIMEOUT):
+async def _get_staketo_with_timeout(client, ss58_address, timeout=TIMEOUT):
     loop = asyncio.get_running_loop()
     try:
-        return await asyncio.wait_for(loop.run_in_executor(None, client.get_staketo, ss58_address, netuid), timeout=timeout)
+        return await asyncio.wait_for(loop.run_in_executor(None, client.get_staketo, ss58_address), timeout=timeout)
     except asyncio.TimeoutError:
         raise TimeoutException("Operation timed out")
 
 
-async def get_staketo(ss58_address: Ss58Address, netuid: int, timeout=TIMEOUT) -> Dict[str, int]:
+async def get_staketo(ss58_address: Ss58Address, timeout=TIMEOUT) -> Dict[str, int]:
     try:
-        result = await _get_staketo_with_timeout(ss58_address=ss58_address, netuid=netuid, timeout=timeout)
+        result = await _get_staketo_with_timeout(ss58_address=ss58_address, timeout=timeout)
         if result is not None:
             return result
     except Exception:
@@ -177,7 +177,6 @@ async def get_modules(netuid: int, timeout=TIMEOUT) -> List[ModuleInfo]:
             ("StakeFrom", [])
         ]
     }
-
     try:
         result = await _get_modules_with_timeout(request_dict=request_dict, timeout=timeout)
         if result is not None:
@@ -206,11 +205,10 @@ async def get_modules(netuid: int, timeout=TIMEOUT) -> List[ModuleInfo]:
                         if connection:
                             modules_info.append(ModuleInfo(uid, key, connection, incentive, dividend, stake))
 
-            return modules_info
+                return modules_info
 
     except Exception:
         logger.error("Error getting modules", exc_info=True)
-
     raise CommuneNetworkUnreachable()
 
 
