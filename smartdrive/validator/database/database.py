@@ -29,7 +29,7 @@ from typing import List, Optional, Union
 from smartdrive.logging_config import logger
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.models.event import StoreEvent, Action, StoreParams, StoreInputParams, RemoveEvent, RemoveInputParams, \
-    EventParams, UserEvent, ChunkParams, ValidationEvent, StoreRequestEvent
+    EventParams, UserEvent, ChunkParams, ValidationEvent, StoreRequestEvent, StoreRequestInputParams, StoreRequestParams
 from smartdrive.models.block import Block
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.models.models import MinerWithChunk, File, Chunk
@@ -772,6 +772,7 @@ class Database:
             self.insert_file(cursor=cursor, file=file, event_uuid=event.uuid)
 
             file_hash = event.input_params.file_hash
+            file_size_bytes = event.input_params.file_size_bytes
 
         elif isinstance(event, StoreRequestEvent):
             file_hash = event.input_params.file_hash
@@ -810,9 +811,9 @@ class Database:
             query = '''
                 SELECT
                     b.id AS block_id, b.signed_block, b.proposer_ss58_address,
-                    e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.event_signed_params, e.user_ss58_address, e.file_hash, e.input_signed_params,
+                    e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.event_signed_params, e.user_ss58_address, e.file_hash, e.input_signed_params, e.expiration_at, e.approved,
                     c.uuid AS chunk_uuid, c.miner_ss58_address, c.chunk_index,
-                    f.file_size_bytes
+                    COALESCE(e.file_size_bytes, f.file_size_bytes) AS file_size_bytes
                 FROM block b
                 LEFT JOIN events e ON b.id = e.block_id
                 LEFT JOIN chunk c ON c.event_uuid = e.uuid
@@ -951,7 +952,7 @@ class Database:
             if connection:
                 connection.close()
 
-    def _build_event_from_row(self, row) -> Union[StoreEvent, RemoveEvent]:
+    def _build_event_from_row(self, row) -> Union[StoreEvent, RemoveEvent, StoreRequestEvent]:
         """
         Build an Event object from a database row.
 
@@ -959,7 +960,7 @@ class Database:
             row (dict): A dictionary containing the row data from the database.
 
         Returns:
-            Union[StoreEvent, RemoveEvent]: An instance of an Event subclass (StoreEvent, RemoveEvent).
+            Union[StoreEvent, RemoveEvent, StoreRequestEvent]: An instance of an Event subclass (StoreEvent, RemoveEvent, StoreRequestEvent).
 
         Raises:
             ValueError: If the event type is unknown.
@@ -990,6 +991,16 @@ class Database:
                 event_signed_params=row['event_signed_params'],
                 user_ss58_address=row['user_ss58_address'],
                 input_params=RemoveInputParams(file_uuid=row['file_uuid']),
+                input_signed_params=row['input_signed_params']
+            )
+        elif event_type == Action.STORE_REQUEST.value:
+            event = StoreRequestEvent(
+                uuid=row['event_uuid'],
+                validator_ss58_address=row['validator_ss58_address'],
+                event_params=StoreRequestParams(file_uuid=row['file_uuid'], expiration_at=row['expiration_at'], approved=row['approved']),
+                event_signed_params=row['event_signed_params'],
+                user_ss58_address=row['user_ss58_address'],
+                input_params=StoreRequestInputParams(file_hash=row['file_hash'], file_size_bytes=row['file_size_bytes']),
                 input_signed_params=row['input_signed_params']
             )
         else:

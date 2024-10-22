@@ -227,6 +227,6 @@ class Peer(threading.Thread):
                     self._database.create_block(block)
                     self._event_pool.remove_multiple(block.events)
 
-                except BlockIntegrityException:
-                    logger.error(exc_info=True)
+                except BlockIntegrityException as e:
+                    logger.error(e, exc_info=True)
                     return

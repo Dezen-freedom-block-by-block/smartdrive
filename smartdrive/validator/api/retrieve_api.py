@@ -52,7 +52,7 @@ from smartdrive.validator.node.node import Node
 
 
 MINER_RETRIEVE_TIMEOUT_SECONDS = 180
-MAX_SIMULTANEOUS_DOWNLOADS = 3
+MAX_SIMULTANEOUS_DOWNLOADS = 4
 
 
 class RetrieveAPI:
