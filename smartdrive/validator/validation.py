@@ -1,36 +1,39 @@
-# MIT License
+#  MIT License
 #
-# Copyright (c) 2024 Dezen | freedom block by block
+#  Copyright (c) 2024 Dezen | freedom block by block
 #
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
+#  Permission is hereby granted, free of charge, to any person obtaining a copy
+#  of this software and associated documentation files (the "Software"), to deal
+#  in the Software without restriction, including without limitation the rights
+#  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#  copies of the Software, and to permit persons to whom the Software is
+#  furnished to do so, subject to the following conditions:
 #
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
+#  The above copyright notice and this permission notice shall be included in all
+#  copies or substantial portions of the Software.
 #
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
+#  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+#  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#  SOFTWARE.
 
 import asyncio
+import os.path
 import time
 from typing import List, Optional
 
 from communex.types import Ss58Address
 from substrateinterface import Keypair
 
-from smartdrive.commune.models import ModuleInfo
 from smartdrive.commune.utils import calculate_hash
+from smartdrive.logging_config import logger
+from smartdrive.commune.models import ModuleInfo
 from smartdrive.models.event import ValidationEvent
 from smartdrive.sign import sign_data
+from smartdrive.utils import DEFAULT_VALIDATOR_PATH
 from smartdrive.validator.api.store_api import store_new_file
 from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.api.validate_api import validate_chunk_request
@@ -63,7 +66,7 @@ async def validate(miners: list[ModuleInfo], database: Database, key: Keypair) -
         CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
     if not miners:
-        print("Skipping validation, there is not any miner.")
+        logger.info("Skipping validation, there is not any miner.")
         return
 
     validation_events_expired, validation_events_not_expired = [], []
@@ -89,20 +92,47 @@ async def validate(miners: list[ModuleInfo], database: Database, key: Keypair) -
                 miners_ss58_address_in_validation_events_not_expired.append(validation_event.miner_ss58_address)
                 validation_events_not_expired.append(validation_event)
 
-    miners_to_store = _determine_miners_to_store(validation_events_with_expiration, validation_events_expired, miners)
-    if miners_to_store:
-        file_data = generate_data(size_mb=5)
-        input_params = {"file": calculate_hash(file_data)}
-        input_signed_params = sign_data(input_params, key)
+    # Check if any miner has both expired and non-expired validations
+    miners_with_expired_and_non_expired_validations = set(
+        validation_event.miner_ss58_address for validation_event in validation_events_expired
+    ).intersection(
+        miners_ss58_address_in_validation_events_not_expired
+    )
 
+    # Remove expired validations
+    if validation_events_expired:
+        expired_events_to_remove = [
+            event for event in validation_events_expired
+            if event.miner_ss58_address in miners_with_expired_and_non_expired_validations or not miners_with_expired_and_non_expired_validations
+        ]
+        await _remove_expired_validations(
+            validation_events_expired=expired_events_to_remove,
+            miners=miners,
+            database=database,
+            keypair=key
+        )
+
+    # Handle creating new validation events if there are no conflicts with expired validations
+    miners_to_store = _determine_miners_to_store(validation_events_with_expiration, validation_events_expired, miners)
+    if miners_to_store and not miners_with_expired_and_non_expired_validations:
+        path = os.path.expanduser(DEFAULT_VALIDATOR_PATH)
+        os.makedirs(path, exist_ok=True)
+        validation_path = os.path.join(path, "validation.bin")
+        file_path = generate_data(size_mb=5, file_path=validation_path)
+        file_size = os.path.getsize(file_path)
+        file_hash = await calculate_hash(file_path)
+
+        input_params = {"file_hash": file_hash, "file_size_bytes": file_size}
+        input_signed_params = sign_data(input_params, key)
         _, validations_events_per_validator = await store_new_file(
-            file_bytes=file_data,
+            file=file_path,
             miners=miners_to_store,
             validator_keypair=key,
             user_ss58_address=Ss58Address(key.ss58_address),
             input_signed_params=input_signed_params.hex(),
-            validating=True,
-            validators_len=1 # To include current validator
+            file_size_bytes=file_size,
+            file_hash=file_hash,
+            validators_len=1  # To include current validator
         )
 
         if validations_events_per_validator:
@@ -116,14 +146,7 @@ async def validate(miners: list[ModuleInfo], database: Database, key: Keypair) -
                     miners_ss58_address_in_validation_events_not_expired.append(validation_event.miner_ss58_address)
                     validation_events_not_expired.append(validation_event)
 
-    if validation_events_expired:
-        await _remove_expired_validations(
-            validation_events_expired=validation_events_expired,
-            miners=miners,
-            database=database,
-            keypair=key
-        )
-
+    # Validate miners using the non-expired validations
     result_miners = {}
     if validation_events_not_expired:
         result_miners = await _validate_miners(

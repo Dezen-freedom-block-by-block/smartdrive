@@ -1,24 +1,24 @@
-# MIT License
+#  MIT License
 #
-# Copyright (c) 2024 Dezen | freedom block by block
+#  Copyright (c) 2024 Dezen | freedom block by block
 #
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-# 
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
+#  Permission is hereby granted, free of charge, to any person obtaining a copy
+#  of this software and associated documentation files (the "Software"), to deal
+#  in the Software without restriction, including without limitation the rights
+#  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#  copies of the Software, and to permit persons to whom the Software is
+#  furnished to do so, subject to the following conditions:
 #
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
+#  The above copyright notice and this permission notice shall be included in all
+#  copies or substantial portions of the Software.
+#
+#  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+#  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#  SOFTWARE.
 
 import asyncio
 from typing import Dict, Any, List
@@ -36,7 +36,7 @@ EXTENDED_PING_TIMEOUT = 60
 CALL_TIMEOUT = 10
 
 
-def get_filtered_modules(netuid: int, module_type: ModuleType) -> List[ModuleInfo]:
+async def get_filtered_modules(netuid: int, module_type: ModuleType, ss58_address: str = None) -> List[ModuleInfo]:
     """
     Retrieve a list of miners or validators.
 
@@ -47,6 +47,7 @@ def get_filtered_modules(netuid: int, module_type: ModuleType) -> List[ModuleInf
     Params:
         netuid (int): Network identifier used for the queries.
         module_type (ModuleType): ModuleType.MINER or ModuleType.VALIDATOR.
+        ss58_address (str): Own Ss58 address.
 
     Returns:
         List[ModuleInfo]: A list of `ModuleInfo` objects representing miners.
@@ -54,12 +55,12 @@ def get_filtered_modules(netuid: int, module_type: ModuleType) -> List[ModuleInf
     Raises:
         CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
-    modules = get_modules(netuid)
+    modules = await get_modules(netuid)
     result = []
 
     for module in modules:
         condition = module.incentives > module.dividends if module_type == ModuleType.MINER else module.incentives < module.dividends
-        if (module.incentives == module.dividends == 0) or condition:
+        if (module.incentives == module.dividends == 0 or condition) and (ss58_address is None or module.ss58_address != ss58_address):
             result.append(module)
 
     return result
@@ -80,11 +81,11 @@ async def get_active_validators(key: Keypair, netuid: int, timeout=PING_TIMEOUT)
 
     Returns:
         List[ModuleInfo]: A list of `ModuleInfo` objects representing active validators.
-        
+
     Raises:
         CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
-    validators = get_filtered_modules(netuid, ModuleType.VALIDATOR)
+    validators = await get_filtered_modules(netuid, ModuleType.VALIDATOR)
 
     async def _get_active_validators(validator):
         ping_response = await execute_miner_request(key, validator.connection, validator.ss58_address, "ping", timeout=timeout)

@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "smartdrive"
-version = "0.2.0"
-description = ""
+version = "0.3.0"
+description = "SmartDrive subnet, a pioneering initiative designed to provide secure and distributed information storage solutions."
 authors = ["ghost-busterr", "naked-snake", "mkyts98"]
 readme = "README.md"
 packages = [
@@ -18,10 +18,13 @@ typer = "0.9.0"
 tomli = "2.0.1"
 requests = "2.32.2"
 python-multipart = "^0.0.9"
-numpy = "2.0.0"
 zstandard = "0.23.0"
-cryptography = "43.0.0"
-py7zr = "0.22.0"
+aiofiles="24.1.0"
+pycryptodome="3.21.0"
+
+[tool.poetry.dev-dependencies]
+flake8 = "^3.9.2"
+flake8-print = "^5.0.0"
 
 [build-system]
 requires = ["poetry-core"]

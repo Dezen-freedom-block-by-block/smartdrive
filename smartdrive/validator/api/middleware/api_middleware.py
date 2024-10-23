@@ -1,27 +1,26 @@
-# MIT License
+#  MIT License
 #
-# Copyright (c) 2024 Dezen | freedom block by block
+#  Copyright (c) 2024 Dezen | freedom block by block
 #
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
+#  Permission is hereby granted, free of charge, to any person obtaining a copy
+#  of this software and associated documentation files (the "Software"), to deal
+#  in the Software without restriction, including without limitation the rights
+#  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#  copies of the Software, and to permit persons to whom the Software is
+#  furnished to do so, subject to the following conditions:
 #
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
+#  The above copyright notice and this permission notice shall be included in all
+#  copies or substantial portions of the Software.
 #
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
+#  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+#  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#  SOFTWARE.
 
 import json
-from urllib.parse import parse_qs
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
@@ -30,13 +29,12 @@ from typing import Awaitable, Callable
 
 from substrateinterface import Keypair
 from communex.compat.key import classic_load_key
-
-from smartdrive.commune.connection_pool import get_staketo
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.request import get_filtered_modules
-from smartdrive.commune.utils import get_ss58_address_from_public_key, calculate_hash
+from smartdrive.commune.utils import get_ss58_address_from_public_key
 from smartdrive.sign import verify_data_signature
-from smartdrive.validator.api.endpoints import PING_ENDPOINT
+from smartdrive.utils import MINIMUM_STAKE, get_stake_from_user
+from smartdrive.validator.api.endpoints import PING_ENDPOINT, STORE_ENDPOINT, STORE_REQUEST_ENDPOINT
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.models.models import ModuleType
 
@@ -93,55 +91,35 @@ class APIMiddleware(BaseHTTPMiddleware):
         if not ss58_address:
             return _error_response(401, "Not a valid public key provided")
 
-        try:
-            staketo_modules = get_staketo(ss58_address)
-            validators = get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
-        except CommuneNetworkUnreachable:
-            return _error_response(404, "Currently the Commune network is unreachable")
+        if request.url.path in [STORE_REQUEST_ENDPOINT, STORE_ENDPOINT]:
+            try:
+                validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
+            except CommuneNetworkUnreachable:
+                return _error_response(404, "Currently the Commune network is unreachable")
 
-        non_self_addresses = {address for address in staketo_modules.keys() if address != str(ss58_address)}
-        validator_addresses = {validator.ss58_address for validator in validators}
-        if not non_self_addresses & validator_addresses:
-            return _error_response(401, "You must stake to at least one active validator in the subnet")
+            total_stake = await get_stake_from_user(user_ss58_address=ss58_address, validators=validators)
+            if total_stake < MINIMUM_STAKE:
+                return _error_response(401, f"You must stake at least {MINIMUM_STAKE} COMAI in total to active validators")
+
+            request.state.total_stake = total_stake
 
         signature = request.headers.get('X-Signature')
-
+        body = {}
         if request.method == "GET" or request.method == "DELETE":
             body = dict(request.query_params)
         else:
             content_type = request.headers.get("Content-Type")
-            if content_type and "multipart/form-data" in content_type:
-                body_bytes = await request.body()
-                request._body = body_bytes
-                form = await request.form()
-                body = {key: form[key] for key in form}
-                if "file" in form:
-                    file = form["file"]
-                    body["file"] = str(await file.read())
-                request._body = body_bytes
-            elif content_type and "application/json" in content_type:
+            if content_type and "application/json" in content_type:
                 body_bytes = await request.body()
                 if body_bytes:
                     try:
                         body = await request.json()
                     except json.JSONDecodeError:
                         return _error_response(401, "Invalid JSON")
-                else:
-                    body = {}
-            else:
-                body_bytes = await request.body()
-                try:
-                    body = {key: value[0] if isinstance(value, list) else value for key, value in parse_qs(body_bytes.decode("utf-8")).items()}
-                except UnicodeDecodeError:
-                    body = body_bytes
+            elif request.headers.get("X-File-Size", None):
+                body = {"file_hash": request.headers.get("X-File-Hash"), "file_size_bytes": int(request.headers.get("X-File-Size"))}
 
-        if "file" in body:
-            file_bytes = eval(body["file"])
-            signed_body = {"file": calculate_hash(file_bytes)}
-            is_verified_signature = verify_data_signature(signed_body, signature, ss58_address)
-        else:
-            is_verified_signature = verify_data_signature(body, signature, ss58_address)
-
+        is_verified_signature = verify_data_signature(body, signature, ss58_address)
         if not is_verified_signature:
             return _error_response(401, "Valid X-Signature not provided on headers")
 

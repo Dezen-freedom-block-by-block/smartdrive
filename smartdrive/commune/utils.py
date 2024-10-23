@@ -1,10 +1,13 @@
+import asyncio
 import hashlib
 import re
 from typing import List, Optional
 
+import aiofiles
 from communex.types import Ss58Address
 from substrateinterface.utils.ss58 import is_valid_ss58_address, ss58_encode
 
+from smartdrive.logging_config import logger
 from smartdrive.commune.models import ModuleInfo, ConnectionInfo
 from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 
@@ -57,8 +60,8 @@ def _get_ip_port(address_string: str) -> Optional[ConnectionInfo]:
             return ConnectionInfo(extracted_address[0], int(extracted_address[1]))
         return None
 
-    except Exception as e:
-        print(f"Error extracting IP and port: {e}")
+    except Exception:
+        logger.error("Error extracting IP and port", exc_info=True)
         return None
 
 
@@ -77,16 +80,38 @@ def get_ss58_address_from_public_key(public_key_hex) -> Optional[Ss58Address]:
     return Ss58Address(ss58_address) if is_valid_ss58_address(ss58_address) else None
 
 
-def calculate_hash(data: bytes) -> str:
+def calculate_hash_sync(path: str) -> str:
     """
-    Calculates the SHA-256 hash of the given data.
+    Calculates the SHA-256 hash of the file at the given path.
 
     Params:
-        data (bytes): The data to hash, provided as a byte string.
+        path (str): The path to the file to hash.
 
     Returns:
-        str: The hexadecimal representation of the SHA-256 hash of the input data.
+        str: The hexadecimal representation of the SHA-256 hash of the file.
+    """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    return loop.run_until_complete(calculate_hash(path))
+
+
+async def calculate_hash(path: str) -> str:
+    """
+    Calculates the SHA-256 hash of the file at the given path.
+
+    Params:
+        path (str): The path to the file to hash.
+
+    Returns:
+        str: The hexadecimal representation of the SHA-256 hash of the file.
     """
     sha256 = hashlib.sha256()
-    sha256.update(data)
+
+    async with aiofiles.open(path, 'rb') as f:
+        while True:
+            chunk = await f.read(16384)
+            if not chunk:
+                break
+            sha256.update(chunk)
+
     return sha256.hexdigest()

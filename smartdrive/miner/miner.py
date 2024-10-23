@@ -1,26 +1,27 @@
-# MIT License
+#  MIT License
 #
-# Copyright (c) 2024 Dezen | freedom block by block
+#  Copyright (c) 2024 Dezen | freedom block by block
 #
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-# 
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
+#  Permission is hereby granted, free of charge, to any person obtaining a copy
+#  of this software and associated documentation files (the "Software"), to deal
+#  in the Software without restriction, including without limitation the rights
+#  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#  copies of the Software, and to permit persons to whom the Software is
+#  furnished to do so, subject to the following conditions:
 #
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
+#  The above copyright notice and this permission notice shall be included in all
+#  copies or substantial portions of the Software.
+#
+#  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+#  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#  SOFTWARE.
 
 import asyncio
+import hashlib
 import time
 import uuid
 import shutil
@@ -28,6 +29,7 @@ import argparse
 from argparse import Namespace
 import os
 
+import aiofiles
 import uvicorn
 from fastapi import Request, FastAPI
 from fastapi import HTTPException
@@ -37,10 +39,13 @@ from communex.module.module import Module
 from communex.module._rate_limiters.limiters import IpLimiterParams
 
 import smartdrive
+from smartdrive.check_file import check_file
+from smartdrive.logging_config import logger
 from smartdrive.commune.connection_pool import initialize_commune_connection_pool
 from smartdrive.commune.request import get_modules
 from smartdrive.miner.middleware.miner_middleware import MinerMiddleware
 from smartdrive.miner.utils import has_enough_space, get_directory_size, parse_body
+from smartdrive.utils import DEFAULT_MINER_PATH, periodic_version_check
 
 
 def get_config() -> Namespace:
@@ -62,17 +67,17 @@ def get_config() -> Namespace:
     # Create parser and add all params.
     parser = argparse.ArgumentParser(description="Configure the miner.")
     parser.add_argument("--key-name", required=True, help="Name of key.")
-    parser.add_argument("--data-path", default="~/smartdrive-data", required=False, help="Path to the data.")
+    parser.add_argument("--data-path", default=DEFAULT_MINER_PATH, required=False, help="Path to the data.")
     parser.add_argument("--max-size", type=float, default=100, required=False, help="Size (in GB) of path to fill.")
     parser.add_argument("--port", type=int, default=8000, required=False, help="Default api port.")
     parser.add_argument("--testnet", action='store_true', help="Use testnet or not.")
 
     config = parser.parse_args()
+    config.data_path = os.path.expanduser(config.data_path)
 
     if config.data_path:
         os.makedirs(config.data_path, exist_ok=True)
 
-    config.data_path = os.path.expanduser(config.data_path)
     config.netuid = smartdrive.TESTNET_NETUID if config.testnet else smartdrive.NETUID
 
     return config
@@ -147,25 +152,41 @@ class Miner(Module):
         Raises:
             HTTPException: If there is not enough space to store the file or if another error occurs.
         """
+        chunk_path = ""
         try:
-            body = await request.form()
-            chunk_data = await body["chunk"].read()
+            folder = request.headers.get("Folder")
+            original_file_size = int(request.headers.get("X-File-Size"))
+            original_file_hash = request.headers.get("X-File-Hash")
 
-            if not has_enough_space(len(chunk_data), self.config.max_size, self.config.data_path):
+            if not has_enough_space(original_file_size, self.config.max_size, self.config.data_path):
                 raise HTTPException(status_code=409, detail="Not enough space to store the file")
 
-            client_dir = os.path.join(self.config.data_path, body["folder"])
+            client_dir = os.path.join(self.config.data_path, folder)
             if not os.path.exists(client_dir):
                 os.makedirs(client_dir)
 
+            sha256 = hashlib.sha256()
+            total_size = 0
             file_uuid = f"{int(time.time())}_{str(uuid.uuid4())}"
             chunk_path = os.path.join(client_dir, file_uuid)
-            with open(chunk_path, 'wb') as chunk_file:
-                chunk_file.write(chunk_data)
+            form = await request.form()
+            chunk = form.get("chunk")
+            async with aiofiles.open(chunk_path, 'wb') as chunk_file:
+                while True:
+                    chunk_data = await chunk.read(16384)
+                    if not chunk_data:
+                        break
+                    total_size += len(chunk_data)
+                    sha256.update(chunk_data)
+                    await chunk_file.write(chunk_data)
+
+            await check_file(file_hash=sha256.hexdigest(), file_size=total_size, original_file_size=original_file_size, original_file_hash=original_file_hash)
 
             return {"id": file_uuid}
         except Exception as e:
-            print(f"Error store - {e}")
+            logger.error("Error store", exc_info=True)
+            if chunk_path and os.path.exists(chunk_path):
+                os.remove(chunk_path)
             raise HTTPException(status_code=409, detail=f"Error: {e}")
 
     async def remove(self, request: Request) -> dict:
@@ -220,7 +241,6 @@ class Miner(Module):
             def iterfile():
                 with open(chunk_path, 'rb') as chunk_file:
                     while True:
-                        # Currently buffer 16KB
                         data = chunk_file.read(16384)
                         if not data:
                             break
@@ -230,7 +250,7 @@ class Miner(Module):
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="Chunk not found")
         except Exception as e:
-            print(e)
+            logger.error("Error retrieving", exc_info=True)
             raise HTTPException(status_code=409, detail=f"Error: {e}")
 
     async def validation(self, request: Request) -> dict:
@@ -268,20 +288,25 @@ class Miner(Module):
 
 
 if __name__ == "__main__":
-    smartdrive.check_version()
-
     config = get_config()
     miner = Miner(config)
 
     initialize_commune_connection_pool(config.testnet, num_connections=1, max_pool_size=1)
 
     key = classic_load_key(config.key_name)
-    registered_modules = get_modules(config.netuid)
 
-    if key.ss58_address not in list(map(lambda module: module.ss58_address, registered_modules)):
-        raise Exception(f"Your key: {key.ss58_address} is not registered.")
+    async def main():
+        registered_modules = await get_modules(config.netuid)
 
-    async def run_tasks():
-        await miner.run_server(config)
+        if key.ss58_address not in list(map(lambda module: module.ss58_address, registered_modules)):
+            raise Exception(f"Your key: {key.ss58_address} is not registered.")
 
-    asyncio.run(run_tasks())
+        async def run_tasks():
+            await asyncio.gather(
+                periodic_version_check(),
+                miner.run_server(config)
+            )
+
+        await run_tasks()
+
+    asyncio.run(main())

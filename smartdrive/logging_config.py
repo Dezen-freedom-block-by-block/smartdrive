@@ -20,24 +20,12 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 
-import os
+import logging
 
-
-def generate_data(size_mb: int, file_path: str) -> str:
-    """
-    Generate a specified amount of random data and save it to a file.
-
-    Params:
-        size_mb (int): The size of the data to generate, in megabytes.
-        file_path (str): The path where the generated random data will be saved.
-
-    Returns:
-        str: The path to the file containing the generated random data.
-    """
-    size_bytes = size_mb * 1024 * 1024
-    data = os.urandom(size_bytes)
-
-    with open(file_path, 'wb') as f:
-        f.write(data)
-
-    return file_path
+logger = logging.getLogger('smartdrive')
+logger.setLevel(logging.DEBUG)
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(levelname)s: %(message)s')
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)

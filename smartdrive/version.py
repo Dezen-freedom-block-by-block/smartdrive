@@ -1,32 +1,34 @@
-# MIT License
+#  MIT License
 #
-# Copyright (c) 2024 Dezen | freedom block by block
+#  Copyright (c) 2024 Dezen | freedom block by block
 #
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-# 
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
+#  Permission is hereby granted, free of charge, to any person obtaining a copy
+#  of this software and associated documentation files (the "Software"), to deal
+#  in the Software without restriction, including without limitation the rights
+#  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#  copies of the Software, and to permit persons to whom the Software is
+#  furnished to do so, subject to the following conditions:
 #
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
-
+#  The above copyright notice and this permission notice shall be included in all
+#  copies or substantial portions of the Software.
+#
+#  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+#  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#  SOFTWARE.
 import os
 import re
 import subprocess
-from subprocess import *
+import sys
+from subprocess import run, Popen
 from pathlib import Path
 import tomli
 import requests
+
+from smartdrive.logging_config import logger
 
 
 def get_version() -> str:
@@ -68,7 +70,7 @@ def version_str_to_num(version: str) -> int:
     return (100 * int(version_split[0])) + (10 * int(version_split[1])) + int(version_split[2])
 
 
-def check_version(extra_args: [str] = None):
+def check_version(extra_args: [str] = None, reload: bool = False):
     """
     Check current version of the module on GitHub. If it is greater than the local version, download and update the module.
 
@@ -82,12 +84,17 @@ def check_version(extra_args: [str] = None):
 
     # If version in GitHub is greater, update module.
     if version_str_to_num(__version__) < version_str_to_num(latest_version) and latest_version is not None:
-        print(f"Updating to the latest version ({latest_version})...")
+        logger.info(f"Updating to the latest version ({latest_version})...")
         subprocess.run(["git", "reset", "--hard"], cwd=root_directory)
         run(["git", "pull"], cwd=root_directory)
         run(["pip", "install", "-e", "."], cwd=root_directory)
         if extra_args:
             Popen(extra_args, cwd=os.getcwd(), preexec_fn=os.setsid)
+
+        if reload:
+            logger.info("Reloading with new version...")
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+
         exit(0)
 
 
@@ -115,4 +122,4 @@ def get_latest_version() -> str:
         return version_match.group(1)
 
     else:
-        print(f"Failed to fetch file content. Status code: {response.status_code}")
+        logger.error(f"Failed to fetch file content. Status code: {response.status_code}")

@@ -31,7 +31,7 @@ class Action(Enum):
     STORE = 0
     REMOVE = 1
     RETRIEVE = 2
-    VALIDATION = 3
+    STORE_REQUEST = 3
 
 
 class InputParams(BaseModel):
@@ -47,7 +47,12 @@ class RetrieveInputParams(InputParams):
 
 
 class StoreInputParams(InputParams):
-    file: str
+    file_hash: str
+    file_size_bytes: int
+
+
+class StoreRequestInputParams(StoreInputParams):
+    pass
 
 
 class ChunkParams(BaseModel):
@@ -77,6 +82,11 @@ class StoreParams(EventParams):
     chunks_params: List[ChunkParams]
 
 
+class StoreRequestParams(EventParams):
+    expiration_at: int
+    approved: Optional[bool] = None
+
+
 class Event(BaseModel):
     uuid: str
     validator_ss58_address: Ss58Address
@@ -97,6 +107,8 @@ class Event(BaseModel):
             return Action.STORE
         elif isinstance(self, RemoveEvent):
             return Action.REMOVE
+        elif isinstance(self, StoreRequestEvent):
+            return Action.STORE_REQUEST
         else:
             raise ValueError("Unknown event type")
 
@@ -117,9 +129,14 @@ class RemoveEvent(UserEvent):
     input_params: RemoveInputParams
 
 
+class StoreRequestEvent(UserEvent):
+    event_params: StoreRequestParams
+    input_params: StoreRequestInputParams
+
+
 class MessageEvent(BaseModel):
     event_action: Action
-    event: Union[StoreEvent, RemoveEvent]
+    event: Union[StoreEvent, RemoveEvent, StoreRequestEvent]
 
     class Config:
         use_enum_values = True
@@ -130,13 +147,15 @@ class MessageEvent(BaseModel):
             event = StoreEvent(**data)
         elif event_action == Action.REMOVE:
             event = RemoveEvent(**data)
+        elif event_action == Action.STORE_REQUEST:
+            event = StoreRequestEvent(**data)
         else:
             raise ValueError(f"Unknown action: {event_action}")
 
         return cls(event_action=event_action, event=event)
 
 
-def parse_event(message_event: MessageEvent) -> Union[StoreEvent, RemoveEvent]:
+def parse_event(message_event: MessageEvent) -> Union[StoreEvent, RemoveEvent, StoreRequestEvent]:
     """
     Parses a MessageEvent object into a specific Event object based on the event action.
 
@@ -144,7 +163,7 @@ def parse_event(message_event: MessageEvent) -> Union[StoreEvent, RemoveEvent]:
         message_event (MessageEvent): The MessageEvent object to be parsed.
 
     Returns:
-        Union[StoreEvent, RemoveEvent]: The specific Event object (StoreEvent, RemoveEvent).
+        Union[StoreEvent, RemoveEvent, StoreRequestEvent]: The specific Event object (StoreEvent, RemoveEvent, StoreRequestEvent).
 
     Raises:
         ValueError: If the event action is unknown.
@@ -165,7 +184,7 @@ def parse_event(message_event: MessageEvent) -> Union[StoreEvent, RemoveEvent]:
         return StoreEvent(
             **common_params,
             user_ss58_address=Ss58Address(message_event.event.user_ss58_address),
-            input_params=StoreInputParams(file=message_event.event.input_params.file),
+            input_params=StoreInputParams(file_hash=message_event.event.input_params.file_hash, file_size_bytes=message_event.event.input_params.file_size_bytes),
             input_signed_params=message_event.event.input_signed_params
         )
     elif message_event.event_action == Action.REMOVE.value:
@@ -173,6 +192,13 @@ def parse_event(message_event: MessageEvent) -> Union[StoreEvent, RemoveEvent]:
             **common_params,
             user_ss58_address=Ss58Address(message_event.event.user_ss58_address),
             input_params=RemoveInputParams(file_uuid=message_event.event.input_params.file_uuid),
+            input_signed_params=message_event.event.input_signed_params
+        )
+    elif message_event.event_action == Action.STORE_REQUEST.value:
+        return StoreRequestEvent(
+            **common_params,
+            user_ss58_address=Ss58Address(message_event.event.user_ss58_address),
+            input_params=StoreRequestInputParams(file_hash=message_event.event.input_params.file_hash, file_size_bytes=message_event.event.input_params.file_size_bytes),
             input_signed_params=message_event.event.input_signed_params
         )
     else:

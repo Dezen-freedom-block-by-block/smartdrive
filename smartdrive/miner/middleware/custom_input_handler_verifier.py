@@ -1,24 +1,24 @@
-# MIT License
+#  MIT License
 #
-# Copyright (c) 2024 Dezen | freedom block by block
+#  Copyright (c) 2024 Dezen | freedom block by block
 #
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
+#  Permission is hereby granted, free of charge, to any person obtaining a copy
+#  of this software and associated documentation files (the "Software"), to deal
+#  in the Software without restriction, including without limitation the rights
+#  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#  copies of the Software, and to permit persons to whom the Software is
+#  furnished to do so, subject to the following conditions:
 #
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
+#  The above copyright notice and this permission notice shall be included in all
+#  copies or substantial portions of the Software.
 #
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
+#  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+#  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#  SOFTWARE.
 
 import json
 from datetime import datetime, timezone
@@ -34,8 +34,6 @@ from communex.types import Ss58Address
 from communex.util import parse_hex
 from communex.util.memo import TTLDict
 from communex.module import _signer as signer
-
-from smartdrive.commune.utils import calculate_hash
 
 
 class CustomInputHandlerVerifier(InputHandlerVerifier):
@@ -55,12 +53,13 @@ class CustomInputHandlerVerifier(InputHandlerVerifier):
 
         match await self._check_inputs(request, body, self.module_key):
             case (False, error):
-                return error
+                return error  # noqa F821
             case (True, _):
                 pass
 
-        body_dict = await self._get_signed_body(request)  
-        timestamp = body_dict['params'].get("timestamp", None)
+        body_dict = await self._get_signed_body(request)
+
+        timestamp = body_dict.get("params").get("timestamp", None) if body_dict.get("params") else None
         legacy_timestamp = request.headers.get("X-Timestamp", None)
         try:
             timestamp_to_use = timestamp if not legacy_timestamp else legacy_timestamp
@@ -103,9 +102,14 @@ class CustomInputHandlerVerifier(InputHandlerVerifier):
             log_reffusal(key.decode(), reason)
             return (False, json_error(400, reason))
 
-
+        content_type = request.headers.get("Content-Type")
         legacy_verified = False
-        signed_body = await self._get_signed_body(request)
+
+        if content_type and "multipart/form-data" in content_type:
+            signed_body = {"params": {"file_hash": headers_dict.get("X-File-Hash"), "file_size_bytes": int(headers_dict.get("X-File-Size")), "target_key": headers_dict.get("Target-Key")}}
+        else:
+            signed_body = await self._get_signed_body(request)
+
         stamped_body = json.dumps(signed_body).encode()
         verified = signer.verify(key, crypto, stamped_body, signature)
 
@@ -115,7 +119,7 @@ class CustomInputHandlerVerifier(InputHandlerVerifier):
             return (False, json_error(401, "Signatures doesn't match"))
 
         body_dict: dict[str, dict[str, Any]] = signed_body
-        target_key = body_dict['params'].get("target_key", None)
+        target_key = (body_dict.get('params') and body_dict.get('params').get("target_key", None)) or headers_dict.get("Target-Key", None)
         if not target_key or target_key != module_key:
             reason = "Wrong target_key in body"
             log_reffusal(key_ss58, reason)
@@ -130,55 +134,40 @@ class CustomInputHandlerVerifier(InputHandlerVerifier):
             module_key: Ss58Address
     ):
         required_headers = ["x-signature", "x-key", "x-crypto"]
-        optional_headers = ["x-timestamp"]
+        optional_headers = ["x-timestamp", 'X-File-Size', 'Target-Key', 'X-File-Hash']
 
         match self._get_headers_dict(request.headers, required_headers, optional_headers):
             case (False, error):
-                return (False, error)
+                return (False, error)  # noqa F821
             case (True, headers_dict):
                 pass
 
-        match await self._check_signature(headers_dict, request, module_key):
+        match await self._check_signature(headers_dict, request, module_key):  # noqa F821
             case (False, error):
-                return (False, error)
+                return (False, error)  # noqa F821
             case (True, _):
                 pass
 
         match self._check_key_registered(
             self.subnets_whitelist,
-            headers_dict,
+            headers_dict,  # noqa F821
             self.blockchain_cache,
             self.host_key,
             self.use_testnet,
         ):
             case (False, error):
-                return (False, error)
+                return (False, error)  # noqa F821
             case (True, _):
                 pass
 
         return (True, None)
 
     async def _get_signed_body(self, request: Request):
-        body_bytes = await request.body()
-        request._body = body_bytes
-
-        content_type = request.headers.get("Content-Type")
-        if content_type and "multipart/form-data" in content_type:
-            body = await request.form()
-            body_dict = {}
-            for key in body:
-                if key == "chunk":
-                    body_dict[key] = await body[key].read()
-                else:
-                    body_dict[key] = body[key]
-
-            return {
-                "params": {
-                    "folder": body_dict["folder"],
-                    "chunk": calculate_hash(body_dict["chunk"]),
-                    "target_key": body_dict["target_key"]
-                }
-            }
+        if request.headers.get("X-File-Size", None):
+            body = {}
         else:
+            body_bytes = await request.body()
+            request._body = body_bytes
             body = await request.json()
-            return body
+
+        return body

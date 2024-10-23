@@ -1,56 +1,53 @@
-# MIT License
+#  MIT License
 #
-# Copyright (c) 2024 Dezen | freedom block by block
+#  Copyright (c) 2024 Dezen | freedom block by block
 #
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-# 
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
+#  Permission is hereby granted, free of charge, to any person obtaining a copy
+#  of this software and associated documentation files (the "Software"), to deal
+#  in the Software without restriction, including without limitation the rights
+#  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#  copies of the Software, and to permit persons to whom the Software is
+#  furnished to do so, subject to the following conditions:
 #
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
-
-import io
+#  The above copyright notice and this permission notice shall be included in all
+#  copies or substantial portions of the Software.
+#
+#  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+#  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#  SOFTWARE.
+import subprocess
 import sys
 import os
-import lzma
 import random
 import asyncio
 from pathlib import Path
 from getpass import getpass
-import py7zr
 import urllib3
 import requests
+import zstandard as zstd
 from substrateinterface import Keypair
 from nacl.exceptions import CryptoError
 
 from communex.compat.key import is_encrypted, classic_load_key
 
 import smartdrive
+from smartdrive.commune.utils import calculate_hash_sync
+from smartdrive.logging_config import logger
 from smartdrive.cli.errors import NoValidatorsAvailableException
 from smartdrive.cli.spinner import Spinner
-from smartdrive.commune.connection_pool import initialize_commune_connection_pool
+from smartdrive.cli.utils import compress_encrypt_and_save, decompress_decrypt_and_save
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_active_validators, EXTENDED_PING_TIMEOUT
 from smartdrive.models.event import StoreInputParams, RetrieveInputParams, RemoveInputParams
-from smartdrive.utils import MAX_FILE_SIZE
 from smartdrive.sign import sign_data
-from smartdrive.commune.utils import calculate_hash
+from smartdrive.utils import MAXIMUM_STORAGE, format_size
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-initialize_commune_connection_pool(testnet=False, max_pool_size=1, num_connections=1)
 
 
 def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
@@ -78,38 +75,28 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
     file_path = os.path.expanduser(file_path)
 
     if not Path(file_path).is_file():
-        print(f"Error: File {file_path} does not exist or is a directory.")
+        logger.error(f"File {file_path} does not exist or is a directory.")
         return
 
-    # TODO: Change in the future
-    if os.path.getsize(file_path) > MAX_FILE_SIZE:
-        print("Error: File size exceeds the maximum limit of 500 MB")
+    if os.path.getsize(file_path) > MAXIMUM_STORAGE:
+        logger.error(f"Error: File size exceeds the maximum limit of {format_size(MAXIMUM_STORAGE)}")
         return
 
     key = _get_key(key_name)
 
     # Step 1: Compress the file
-    spinner = Spinner("Compressing")
+    spinner = Spinner("Compressing and encrypting file")
     spinner.start()
 
+    temp_file_path = ""
     try:
-        data = io.BytesIO()
-        with py7zr.SevenZipFile(data, 'w', password=key.private_key.hex()) as archive:
-            archive.writeall(file_path, arcname=Path(file_path).name)  # Use the file name only
+        temp_file_path = compress_encrypt_and_save(file_path, key.private_key[:32])
+        file_hash = calculate_hash_sync(temp_file_path)
+        spinner.stop_with_message("Done!")
 
-        data.seek(0)
-        compressed_data = data.getvalue()
-
-        spinner.stop_with_message("¡Done!")
-
-        # Step 2: Sign the request
-        spinner = Spinner("Signing request")
-        spinner.start()
-
-        input_params = StoreInputParams(file=calculate_hash(compressed_data))
+        file_size_bytes = os.path.getsize(temp_file_path)
+        input_params = StoreInputParams(file_hash=file_hash, file_size_bytes=file_size_bytes)
         signed_data = sign_data(input_params.dict(), key)
-
-        spinner.stop_with_message("¡Done!")
 
         # Step 3: Send the request
         spinner = Spinner("Sending request")
@@ -119,37 +106,43 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
         headers = create_headers(signed_data, key, show_content_type=False)
 
         response = requests.post(
-            url=f"{validator_url}/store",
+            url=f"{validator_url}/store/request",
             headers=headers,
-            files={"file": data},
+            json=input_params.dict(),
             verify=False
         )
 
         response.raise_for_status()
-        spinner.stop_with_message("¡Done!")
+        message = response.json()
 
-        try:
-            message = response.json()
-        except ValueError:
-            print(f"Error: Unable to parse response JSON - {response.text}")
-            return
+        file_uuid = message.get("file_uuid")
+        store_request_event_uuid = message.get("store_request_event_uuid")
+        spinner.stop_with_message("Done!")
 
-        uuid = message.get('uuid')
-        if uuid:
-            print(f"Your data will be stored soon. Your file UUID is: {uuid}")
-        else:
-            print("Your data will be stored soon, but no file UUID was returned.")
+        if file_uuid and store_request_event_uuid:
+            logger.info(f"Your data will be stored soon in background. Your file UUID is: {file_uuid}")
+            subprocess.Popen(
+                [sys.executable, "smartdrive/cli/scripts/async_upload_file.py", temp_file_path, file_hash, str(file_size_bytes), store_request_event_uuid, key_name, str(testnet), file_uuid],
+                close_fds=True,
+                start_new_session=True
+            )
 
     except NoValidatorsAvailableException:
+        if temp_file_path and os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
         spinner.stop_with_message("Error: No validators available")
     except requests.RequestException as e:
         try:
+            if temp_file_path and os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
             error_message = e.response.json().get('detail', 'Unknown error')
             spinner.stop_with_message(f"Error: {error_message}.")
         except ValueError:
-            spinner.stop_with_message(f"Error: Network error.")
-    except Exception:
-        spinner.stop_with_message(f"Unexpected error.")
+            spinner.stop_with_message("Error: Network error.")
+    except Exception as e:
+        if temp_file_path and os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+        spinner.stop_with_message(f"Unexpected error. {e}")
 
 
 def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testnet: bool = False):
@@ -186,31 +179,24 @@ def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testn
         input_params = RetrieveInputParams(file_uuid=file_uuid)
         headers = create_headers(sign_data(input_params.dict(), key), key)
 
-        response = requests.get(f"{validator_url}/retrieve", params=input_params.dict(), headers=headers, verify=False)
+        response = requests.get(f"{validator_url}/retrieve", params=input_params.dict(), headers=headers, verify=False, stream=True)
 
         response.raise_for_status()
-        spinner.stop_with_message("¡Done!")
+        spinner.stop_with_message("Done!")
 
         # Step 2: Decompress and storing the file
-        spinner = Spinner("Decompressing")
+        spinner = Spinner("Decompressing and decrypting")
         spinner.start()
 
-        data = io.BytesIO(response.content)
-
         try:
-            with py7zr.SevenZipFile(data, 'r', password=key.private_key.hex()) as archive:
-                archive.extractall(path=file_path)
-                filename = archive.getnames()
+            final_file_path = decompress_decrypt_and_save(response.raw, key.private_key[:32], file_path)
 
-            if not file_path.endswith('/'):
-                file_path += '/'
+            spinner.stop_with_message("Done!")
+            logger.info(f"Data downloaded and decompressed successfully in {final_file_path}")
 
-            spinner.stop_with_message("¡Done!")
-            print(f"Data downloaded successfully in {file_path}{filename[0]}")
-
-        except lzma.LZMAError:
+        except zstd.ZstdError:
             spinner.stop_with_message("Error: Decompression failed.")
-            print("Error: Decompression failed. The data is corrupted or the key is incorrect.")
+            logger.error("Error: Decompression failed. The data is corrupted or the format is incorrect.")
             return
 
     except NoValidatorsAvailableException:
@@ -220,7 +206,7 @@ def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testn
             error_message = e.response.json().get('detail', 'Unknown error')
             spinner.stop_with_message(f"Error: {error_message}.")
         except ValueError:
-            spinner.stop_with_message(f"Error: Network error.")
+            spinner.stop_with_message("Error: Network error.")
     except Exception as e:
         spinner.stop_with_message(f"Unexpected error: {e}")
 
@@ -259,9 +245,9 @@ def remove_handler(file_uuid: str, key_name: str = None, testnet: bool = False):
         response = requests.delete(f"{validator_url}/remove", params=input_params.dict(), headers=headers, verify=False)
 
         response.raise_for_status()
-        spinner.stop_with_message("¡Done!")
+        spinner.stop_with_message("Done!")
 
-        print(f"File {file_uuid} will be removed.")
+        logger.info(f"File {file_uuid} will be removed.")
 
     except NoValidatorsAvailableException:
         spinner.stop_with_message("Error: No validators available")
@@ -270,7 +256,7 @@ def remove_handler(file_uuid: str, key_name: str = None, testnet: bool = False):
             error_message = e.response.json().get('detail', 'Unknown error')
             spinner.stop_with_message(f"Error: {error_message}.")
         except ValueError:
-            spinner.stop_with_message(f"Error: Network error.")
+            spinner.stop_with_message("Error: Network error.")
     except Exception as e:
         spinner.stop_with_message(f"Unexpected error: {e}")
 
@@ -296,10 +282,10 @@ def _get_key(key_name: str) -> Keypair:
     try:
         key = classic_load_key(key_name, password)
     except CryptoError:
-        print("Error: Decryption failed. Ciphertext failed verification.")
+        logger.error("Error: Decryption failed. Ciphertext failed verification.")
         exit(1)
     except FileNotFoundError:
-        print("Error: Key not found.")
+        logger.error("Error: Key not found.")
         exit(1)
 
     return key

@@ -1,24 +1,24 @@
-# MIT License
+#  MIT License
 #
-# Copyright (c) 2024 Dezen | freedom block by block
+#  Copyright (c) 2024 Dezen | freedom block by block
 #
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-# 
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
+#  Permission is hereby granted, free of charge, to any person obtaining a copy
+#  of this software and associated documentation files (the "Software"), to deal
+#  in the Software without restriction, including without limitation the rights
+#  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#  copies of the Software, and to permit persons to whom the Software is
+#  furnished to do so, subject to the following conditions:
 #
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
+#  The above copyright notice and this permission notice shall be included in all
+#  copies or substantial portions of the Software.
+#
+#  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+#  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#  SOFTWARE.
 
 import time
 import uuid
@@ -29,12 +29,13 @@ from communex.compat.key import classic_load_key
 from communex.types import Ss58Address
 
 from smartdrive.sign import sign_data
-from smartdrive.validator.api.exceptions import FileDoesNotExistException
+from smartdrive.validator.api.exceptions import FileDoesNotExistException, UnexpectedErrorException
 from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_from_public_key
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.models.event import RemoveEvent, RemoveInputParams, EventParams
 from smartdrive.validator.node.node import Node
+from smartdrive.validator.node.util.exceptions import InvalidSignatureException
 
 
 class RemoveAPI:
@@ -57,6 +58,7 @@ class RemoveAPI:
 
         Raises:
            FileDoesNotExistException: If the file does not exist or there are no miners with the files.
+           UnexpectedErrorException: If an unexpected error occurs.
         """
         user_public_key = request.headers.get("X-Key")
         input_signed_params = request.headers.get("X-Signature")
@@ -85,4 +87,7 @@ class RemoveAPI:
             input_signed_params=input_signed_params
         )
 
-        self._node.add_event(event)
+        try:
+            self._node.distribute_event(event)
+        except InvalidSignatureException:
+            raise UnexpectedErrorException

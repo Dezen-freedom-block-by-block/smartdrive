@@ -25,6 +25,9 @@ from substrateinterface import Keypair
 
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.commune.request import execute_miner_request
+from smartdrive.utils import calculate_storage_capacity, MAXIMUM_STORAGE
+from smartdrive.validator.api.exceptions import StorageLimitException, FileTooLargeException
+from smartdrive.validator.database.database import Database
 
 
 async def remove_chunk_request(keypair: Keypair, user_ss58_address: Ss58Address, miner: ModuleInfo, chunk_uuid: str) -> bool:
@@ -52,3 +55,32 @@ async def remove_chunk_request(keypair: Keypair, user_ss58_address: Ss58Address,
         }
     )
     return True if miner_answer else False
+
+
+def validate_storage_capacity(database: Database, user_ss58_address: str, file_size_bytes: int, total_stake: float, only_files: bool = False) -> None:
+    """
+    Validates if the user has enough available storage to store the file.
+
+    This function checks if the file size is below the maximum allowed file size (MAXIMUM_STORAGE),
+    and whether the user has sufficient storage capacity based on their stake. If either condition is not met,
+    it raises the appropriate exception.
+
+    Params:
+        database (Database): The database instance to query for the user's stored files.
+        user_ss58_address (str): The SS58 address of the user making the request.
+        file_size_bytes (int): The size of the file the user is attempting to store, in bytes.
+        total_stake (float): The total stake the user has in the COMAI system.
+        only_files (bool): Whether to only validate the files if the user has sufficient storage capacity.
+
+    Raises:
+        FileTooLargeException: If the file exceeds the maximum allowed storage size (MAXIMUM_STORAGE).
+        StorageLimitException: If the user's total stored files plus the new file exceed their available storage capacity.
+    """
+
+    if file_size_bytes > MAXIMUM_STORAGE:
+        raise FileTooLargeException
+
+    total_size_stored_by_user = database.get_total_file_size_by_user(user_ss58_address=user_ss58_address, only_files=only_files)
+    available_storage_of_user = calculate_storage_capacity(total_stake)
+    if total_size_stored_by_user + file_size_bytes > available_storage_of_user:
+        raise StorageLimitException(file_size_bytes, total_size_stored_by_user, available_storage_of_user)
