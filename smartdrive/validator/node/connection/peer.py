@@ -58,6 +58,7 @@ class Peer(threading.Thread):
     _database: Database = None
     _message_queue: queue.Queue = None
     _initial_sync_completed: Value = None
+    _running: bool = True
 
     def __init__(self, socket: SocketType, connection_identifier: Ss58Address, connection_pool: ConnectionPool, event_pool: EventPool, initial_sync_completed: Value):
         threading.Thread.__init__(self)
@@ -69,6 +70,7 @@ class Peer(threading.Thread):
         self._keypair = classic_load_key(config_manager.config.key)
         self._database = Database()
         self._message_queue = queue.Queue()
+        self._running = True
         threading.Thread(target=self._consume_queue).start()
 
     def run(self):
@@ -83,11 +85,15 @@ class Peer(threading.Thread):
             except Exception:
                 logger.error(f"Unexpected error in connection {self._connection_identifier}", exc_info=True)
                 break
+        self._running = False
 
     def _consume_queue(self):
-        while True:
-            json_message = self._message_queue.get()
-            self._process_message(json_message)
+        while self._running:
+            try:
+                json_message = self._message_queue.get(timeout=1)
+                self._process_message(json_message)
+            except queue.Empty:
+                continue
 
     def _process_message(self, json_message):
         try:
