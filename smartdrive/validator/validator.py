@@ -39,7 +39,8 @@ from smartdrive.commune.connection_pool import initialize_commune_connection_poo
 from smartdrive.models.block import Block, MAX_EVENTS_PER_BLOCK, block_to_block_event
 from smartdrive.models.event import RemoveEvent, EventParams, RemoveInputParams, StoreRequestEvent
 from smartdrive.models.utils import compile_miners_info_and_chunks
-from smartdrive.utils import DEFAULT_VALIDATOR_PATH, get_stake_from_user, calculate_storage_capacity
+from smartdrive.utils import DEFAULT_VALIDATOR_PATH, get_stake_from_user, calculate_storage_capacity, \
+    periodic_version_check
 from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.config import Config, config_manager
 from smartdrive.validator.database.database import Database
@@ -298,8 +299,6 @@ class Validator(Module):
 
 
 if __name__ == "__main__":
-    smartdrive.check_version()
-
     config = get_config()
     config_manager.initialize(config)
 
@@ -320,6 +319,7 @@ if __name__ == "__main__":
             await asyncio.sleep(VALIDATOR_INACTIVITY_TIMEOUT_SECONDS)
 
             await asyncio.gather(
+                periodic_version_check(),
                 validator.api.run_server(),
                 validator.run_steps()
             )

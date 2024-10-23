@@ -132,11 +132,12 @@ class PeerManager(multiprocessing.Process):
                     peer_socket.close()
                     return
 
+                # TODO: review later
                 # Check that the connection related to the validator modules is the same as address
-                if peer_address[0] != validator_connection.connection.ip:
-                    logger.info(f"Validator {ss58_address} connected from wrong address {peer_address}")
-                    peer_socket.close()
-                    return
+                # if peer_address[0] != validator_connection.connection.ip:
+                #     logger.info(f"Validator {ss58_address} connected from wrong address {peer_address}")
+                #     peer_socket.close()
+                #     return
 
                 try:
                     self._connection_pool.update_or_append(validator_connection.ss58_address, validator_connection, peer_socket)

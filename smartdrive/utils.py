@@ -19,9 +19,13 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
+import asyncio
+
 from communex.balance import from_nano
 from communex.types import Ss58Address
 
+import smartdrive
+from smartdrive import logger
 from smartdrive.commune.connection_pool import get_staketo
 from smartdrive.commune.models import ModuleInfo
 
@@ -33,6 +37,8 @@ MINIMUM_STAKE = 1  # 1 COMAI
 DEFAULT_MINER_PATH = "~/.smartdrive/miner"
 DEFAULT_VALIDATOR_PATH = "~/.smartdrive/validator"
 DEFAULT_CLIENT_PATH = "~/.smartdrive/client"
+
+INTERVAL_CHECK_VERSION_SECONDS = 12 * 60 * 60  # 12 hours
 
 
 def calculate_storage_capacity(stake: float) -> int:
@@ -83,3 +89,10 @@ async def get_stake_from_user(user_ss58_address: Ss58Address, validators: [Modul
     active_stakes = {address: from_nano(stake) for address, stake in staketo_modules.items() if address in validator_addresses and address != str(user_ss58_address)}
 
     return sum(active_stakes.values())
+
+
+async def periodic_version_check():
+    while True:
+        logger.info("Checking for updates...")
+        smartdrive.check_version(reload=True)
+        await asyncio.sleep(INTERVAL_CHECK_VERSION_SECONDS)

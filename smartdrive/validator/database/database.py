@@ -63,7 +63,8 @@ class Database:
 
                 create_file_table = '''
                     CREATE TABLE file (
-                        uuid TEXT PRIMARY KEY,
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        uuid TEXT UNIQUE,
                         user_ss58_address INTEGER,
                         total_chunks INTEGER,
                         file_size_bytes BIGINT,
@@ -73,7 +74,8 @@ class Database:
 
                 create_chunk_table = '''
                     CREATE TABLE chunk (
-                        uuid TEXT PRIMARY KEY,
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        uuid TEXT UNIQUE,
                         file_uuid TEXT,
                         event_uuid TEXT,
                         miner_ss58_address TEXT,
@@ -93,7 +95,8 @@ class Database:
 
                 create_event_table = '''
                     CREATE TABLE events (
-                        uuid TEXT PRIMARY KEY,
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        uuid TEXT UNIQUE,
                         validator_ss58_address TEXT NOT NULL,
                         event_type INTEGER NOT NULL,
                         file_uuid TEXT NOT NULL,
@@ -811,15 +814,15 @@ class Database:
             query = '''
                 SELECT
                     b.id AS block_id, b.signed_block, b.proposer_ss58_address,
-                    e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.event_signed_params, e.user_ss58_address, e.file_hash, e.input_signed_params, e.expiration_at, e.approved,
-                    c.uuid AS chunk_uuid, c.miner_ss58_address, c.chunk_index,
-                    COALESCE(e.file_size_bytes, f.file_size_bytes) AS file_size_bytes
+                    e.id AS event_id, e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.event_signed_params, e.user_ss58_address, e.file_hash, e.input_signed_params, e.expiration_at, e.approved,
+                    c.id AS chunk_id, c.uuid AS chunk_uuid, c.miner_ss58_address, c.chunk_index,
+                    f.id AS file_id, COALESCE(e.file_size_bytes, f.file_size_bytes) AS file_size_bytes
                 FROM block b
                 LEFT JOIN events e ON b.id = e.block_id
                 LEFT JOIN chunk c ON c.event_uuid = e.uuid
                 LEFT JOIN file f ON f.uuid = c.file_uuid
                 WHERE b.id BETWEEN ? AND ?
-                ORDER BY b.id, e.uuid, c.uuid, f.uuid
+                ORDER BY b.id, e.id, c.id, f.id
             '''
 
             cursor.execute(query, (start, end))

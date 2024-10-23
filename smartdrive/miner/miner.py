@@ -45,7 +45,7 @@ from smartdrive.commune.connection_pool import initialize_commune_connection_poo
 from smartdrive.commune.request import get_modules
 from smartdrive.miner.middleware.miner_middleware import MinerMiddleware
 from smartdrive.miner.utils import has_enough_space, get_directory_size, parse_body
-from smartdrive.utils import DEFAULT_MINER_PATH
+from smartdrive.utils import DEFAULT_MINER_PATH, periodic_version_check
 
 
 def get_config() -> Namespace:
@@ -288,8 +288,6 @@ class Miner(Module):
 
 
 if __name__ == "__main__":
-    smartdrive.check_version()
-
     config = get_config()
     miner = Miner(config)
 
@@ -303,6 +301,12 @@ if __name__ == "__main__":
         if key.ss58_address not in list(map(lambda module: module.ss58_address, registered_modules)):
             raise Exception(f"Your key: {key.ss58_address} is not registered.")
 
-        await miner.run_server(config)
+        async def run_tasks():
+            await asyncio.gather(
+                periodic_version_check(),
+                miner.run_server(config)
+            )
+
+        await run_tasks()
 
     asyncio.run(main())

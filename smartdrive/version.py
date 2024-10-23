@@ -19,10 +19,10 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
-
 import os
 import re
 import subprocess
+import sys
 from subprocess import run, Popen
 from pathlib import Path
 import tomli
@@ -70,15 +70,13 @@ def version_str_to_num(version: str) -> int:
     return (100 * int(version_split[0])) + (10 * int(version_split[1])) + int(version_split[2])
 
 
-def check_version(extra_args: [str] = None):
+def check_version(extra_args: [str] = None, reload: bool = False):
     """
     Check current version of the module on GitHub. If it is greater than the local version, download and update the module.
 
     Params:
         extra_args ([str]): Command to execute before exit.
     """
-    # TODO: remove return in production
-    return
     latest_version = get_latest_version()
 
     current_file_path = Path(__file__).resolve()
@@ -92,6 +90,11 @@ def check_version(extra_args: [str] = None):
         run(["pip", "install", "-e", "."], cwd=root_directory)
         if extra_args:
             Popen(extra_args, cwd=os.getcwd(), preexec_fn=os.setsid)
+
+        if reload:
+            logger.info("Reloading with new version...")
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+
         exit(0)
 
 
