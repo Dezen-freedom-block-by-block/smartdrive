@@ -82,7 +82,8 @@ class ConnectionPool:
     def release_client(self, client):
         with self.clients_lock:
             try:
-                self.pool.put(client)
+                # self.pool.put(client)
+                pass
             finally:
                 self.semaphore.release()
 

@@ -63,6 +63,9 @@ async def get_proposer_validator(keypair: Keypair, connected_modules: List[Modul
     if is_own_validator_truthful:
         truthful_validators.append(own_validator)
 
+    if len(truthful_validators) == 0 and len(all_validators) == 0:
+        return False, active_validators, []
+
     proposer_validator = max(truthful_validators or all_validators, key=lambda v: v.stake or 0)
 
     is_current_validator_proposer = proposer_validator.ss58_address == keypair.ss58_address
