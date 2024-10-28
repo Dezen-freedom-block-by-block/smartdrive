@@ -26,7 +26,7 @@ from communex.types import Ss58Address
 
 import smartdrive
 from smartdrive import logger
-from smartdrive.commune.connection_pool import get_staketo
+from smartdrive.commune.request import get_staketo
 from smartdrive.commune.models import ModuleInfo
 
 INITIAL_STORAGE = 50 * 1024 * 1024  # 50 MB

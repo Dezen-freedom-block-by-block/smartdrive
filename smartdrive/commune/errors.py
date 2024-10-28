@@ -22,3 +22,7 @@
 
 class CommuneNetworkUnreachable(Exception):
     pass
+
+
+class TimeoutException(Exception):
+    pass

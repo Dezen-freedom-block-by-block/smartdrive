@@ -35,7 +35,6 @@ from substrateinterface import Keypair
 import smartdrive
 from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.logging_config import logger
-from smartdrive.commune.connection_pool import initialize_commune_connection_pool
 from smartdrive.models.block import Block, MAX_EVENTS_PER_BLOCK, block_to_block_event
 from smartdrive.models.event import RemoveEvent, EventParams, RemoveInputParams, StoreRequestEvent
 from smartdrive.models.utils import compile_miners_info_and_chunks
@@ -301,8 +300,6 @@ class Validator(Module):
 if __name__ == "__main__":
     config = get_config()
     config_manager.initialize(config)
-
-    initialize_commune_connection_pool(config_manager.config.testnet)
 
     key = classic_load_key(config_manager.config.key)
 

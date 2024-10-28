@@ -41,7 +41,6 @@ from communex.module._rate_limiters.limiters import IpLimiterParams
 import smartdrive
 from smartdrive.check_file import check_file
 from smartdrive.logging_config import logger
-from smartdrive.commune.connection_pool import initialize_commune_connection_pool
 from smartdrive.commune.request import get_modules
 from smartdrive.miner.middleware.miner_middleware import MinerMiddleware
 from smartdrive.miner.utils import has_enough_space, get_directory_size, parse_body
@@ -290,8 +289,6 @@ class Miner(Module):
 if __name__ == "__main__":
     config = get_config()
     miner = Miner(config)
-
-    initialize_commune_connection_pool(config.testnet, num_connections=1, max_pool_size=1)
 
     key = classic_load_key(config.key_name)
 
