@@ -103,7 +103,7 @@ class PeerManager(multiprocessing.Process):
                 json_message = smartdrive.validator.node.connection.utils.utils.receive_msg(peer_socket)
                 message = Message(**json_message)
                 if message.body.code != MessageCode.MESSAGE_CODE_IDENTIFIER:
-                    logger.debug(f"Invalid message code received")
+                    logger.debug("Invalid message code received")
                     peer_socket.close()
                     return
 
@@ -145,9 +145,20 @@ class PeerManager(multiprocessing.Process):
                 #     return
 
                 try:
-                    self._connection_pool.update_or_append(validator_connection.ss58_address, validator_connection, peer_socket)
-                    # TODO: Send identification message confirmed
-                    Peer(peer_socket, ss58_address, self._connection_pool, self._event_pool, self._initial_sync_completed).start()
+                    connection = self._connection_pool.update_or_append(validator_connection.ss58_address, validator_connection, peer_socket)
+
+                    body = MessageBody(
+                        code=MessageCode.MESSAGE_CODE_IDENTIFIER_OK
+                    )
+                    body_sign = sign_data(body.dict(), self._keypair)
+                    message = Message(
+                        body=body,
+                        signature_hex=body_sign.hex(),
+                        public_key_hex=self._keypair.public_key.hex()
+                    )
+                    send_message(connection, message)
+
+                    Peer(connection, self._connection_pool, self._event_pool, self._initial_sync_completed).start()
                     logger.debug(f"Peer {ss58_address} connected from {peer_address}")
                 except ConnectionPoolMaxSizeReached:
                     logger.debug(f"Connection pool full for {ss58_address}", exc_info=True)
@@ -216,7 +227,7 @@ class PeerManager(multiprocessing.Process):
                         public_key_hex=self._keypair.public_key.hex()
                     )
 
-                    send_message(connection._socket, message)
+                    send_message(connection, message)
 
                 except Exception:
                     logger.debug("Error pinging node")
@@ -228,19 +239,18 @@ class PeerManager(multiprocessing.Process):
             sleep(PING_INTERVAL_SECONDS)
 
     def _connect_to_peer(self, validator: ModuleInfo):
-        not_yet_authenticated_peer_socket = None
+        peer_socket = None
 
         try:
-            not_yet_authenticated_peer_socket = connect_to_peer(self._keypair, validator)
-            # TODO: Wait for the identification message confirmed event, and then add it to the connection_pool and create Peer
-            self._connection_pool.update_or_append(validator.ss58_address, validator, not_yet_authenticated_peer_socket)
-            Peer(not_yet_authenticated_peer_socket, validator.ss58_address, self._connection_pool, self._event_pool, self._initial_sync_completed).start()
-            logger.debug(f"Peer {validator.ss58_address} connected and added to the pool")
-
+            peer_socket = connect_to_peer(self._keypair, validator)
+            if peer_socket:
+                connection = self._connection_pool.update_or_append(validator.ss58_address, validator, peer_socket)
+                Peer(connection, self._connection_pool, self._event_pool, self._initial_sync_completed).start()
+                logger.debug(f"Peer {validator.ss58_address} connected and added to the pool")
         except Exception:
             logger.debug(f"Error connecting to peer {validator.ss58_address}")
 
             self._connection_pool.remove(validator.ss58_address)
 
-            if not_yet_authenticated_peer_socket:
-                not_yet_authenticated_peer_socket.close()
+            if peer_socket:
+                peer_socket.close()

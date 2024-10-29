@@ -26,20 +26,23 @@ import socket
 import struct
 import threading
 from _socket import SocketType
+from typing import Union
 
 from substrateinterface import Keypair
 
 from smartdrive import logger
 from smartdrive.commune.models import ModuleInfo
-from smartdrive.sign import sign_data
+from smartdrive.commune.utils import get_ss58_address_from_public_key
+from smartdrive.sign import sign_data, verify_data_signature
 from smartdrive.validator.node.connection.connection_pool import Connection
-from smartdrive.validator.node.util.exceptions import ClientDisconnectedException, MessageException
+from smartdrive.validator.node.util.exceptions import ClientDisconnectedException, MessageException, \
+    InvalidSignatureException
 from smartdrive.validator.node.util.message import MessageBody, MessageCode, Message
 
 CONNECTION_TIMEOUT_SECONDS = 5
 
 
-def connect_to_peer(keypair: Keypair, module_info: ModuleInfo) -> SocketType:
+def connect_to_peer(keypair: Keypair, module_info: ModuleInfo) -> Union[SocketType, None]:
     peer_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     peer_socket.settimeout(CONNECTION_TIMEOUT_SECONDS)
@@ -60,13 +63,26 @@ def connect_to_peer(keypair: Keypair, module_info: ModuleInfo) -> SocketType:
         public_key_hex=keypair.public_key.hex()
     )
 
-    _send_json(peer_socket, message.dict())
+    try:
+        _send_json_with_socket(socket=peer_socket, obj=message.dict())
+        json_message = receive_msg(peer_socket)
+        message = Message(**json_message)
 
-    return peer_socket
+        signature_hex = message.signature_hex
+        public_key_hex = message.public_key_hex
+        ss58_address = get_ss58_address_from_public_key(public_key_hex)
 
+        is_verified_signature = verify_data_signature(message.body.dict(), signature_hex, ss58_address)
+        if not is_verified_signature:
+            raise InvalidSignatureException()
 
-def send_message(connection: Connection, message: Message):
-    threading.Thread(target=_send_json, args=(connection, message.dict(),)).start()
+        if message.body.code == MessageCode.MESSAGE_CODE_IDENTIFIER_OK:
+            return peer_socket
+
+    except Exception:
+        logger.info("Error connecting to peer socket", exc_info=True)
+
+    return None
 
 
 def receive_msg(sock):
@@ -85,26 +101,6 @@ def receive_msg(sock):
     return obj
 
 
-def _send_json(connection: Connection, obj: dict):
-    try:
-        msg = json.dumps(obj).encode('utf-8')
-        msg_len = len(msg)
-        packed_len = struct.pack('!I', msg_len)
-
-        with connection.get_socket() as _socket:
-            _, ready_to_write, _ = select.select([], [_socket], [], 5)
-            if ready_to_write:
-                _socket.sendall(packed_len + msg)
-            else:
-                raise TimeoutError("Socket send info time out")
-
-    except (BrokenPipeError, TimeoutError):
-        pass
-
-    except Exception:
-        logger.debug("Error sending json", exc_info=True)
-
-
 def _recv_all(sock, length):
     """ Helper function to receive all data for a given length. """
     data = bytearray()
@@ -114,3 +110,33 @@ def _recv_all(sock, length):
             raise ClientDisconnectedException('Client disconnected')
         data.extend(packet)
     return data
+
+
+def send_message(connection: Connection, message: Message):
+    threading.Thread(target=_send_json_with_connection, args=(connection, message.dict(),)).start()
+
+
+def _send_json_with_connection(connection: Connection, obj: dict):
+    with connection.get_socket() as _socket:
+        _send_data(socket=_socket, obj=obj)
+
+
+def _send_json_with_socket(socket: SocketType, obj: dict):
+    _send_data(socket=socket, obj=obj)
+
+
+def _send_data(socket: SocketType, obj: dict):
+    try:
+        msg = json.dumps(obj).encode('utf-8')
+        msg_len = len(msg)
+        packed_len = struct.pack('!I', msg_len)
+
+        _, ready_to_write, _ = select.select([], [socket], [], 5)
+        if ready_to_write:
+            socket.sendall(packed_len + msg)
+        else:
+            raise TimeoutError("Socket send info time out")
+    except (BrokenPipeError, TimeoutError):
+        pass
+    except Exception:
+        logger.debug("Error sending json", exc_info=True)

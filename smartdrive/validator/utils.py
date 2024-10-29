@@ -65,7 +65,7 @@ async def get_synced_blocks(start: int, connections: list[Connection], keypair, 
                 public_key_hex=keypair.public_key.hex()
             )
 
-            send_message(connection._socket, message)
+            send_message(connection, message)
         except Exception:
             logger.error("Error getting synced blocks", exc_info=True)
 

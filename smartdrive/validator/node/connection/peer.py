@@ -19,13 +19,13 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
+
 import queue
 import threading
 from _socket import SocketType
 from multiprocessing import Value
 
 from communex.compat.key import classic_load_key
-from communex.types import Ss58Address
 from substrateinterface import Keypair
 
 import smartdrive
@@ -37,7 +37,7 @@ from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.models.block import BlockEvent, block_event_to_block, Block
-from smartdrive.validator.node.connection.connection_pool import ConnectionPool
+from smartdrive.validator.node.connection.connection_pool import ConnectionPool, Connection
 from smartdrive.validator.node.event.event_pool import EventPool
 from smartdrive.validator.node.util.block_integrity import check_block_integrity
 from smartdrive.validator.node.util.exceptions import ClientDisconnectedException, MessageFormatException, InvalidSignatureException, BlockIntegrityException
@@ -51,7 +51,7 @@ class Peer(threading.Thread):
     MAX_VALIDATION_SYNC = 500
 
     _socket: SocketType = None
-    _connection_identifier: Ss58Address = None
+    _connection: Connection = None
     _connection_pool: ConnectionPool = None
     _event_pool: EventPool = None
     _keypair: Keypair = None
@@ -60,10 +60,9 @@ class Peer(threading.Thread):
     _initial_sync_completed: Value = None
     _running: bool = True
 
-    def __init__(self, socket: SocketType, connection_identifier: Ss58Address, connection_pool: ConnectionPool, event_pool: EventPool, initial_sync_completed: Value):
+    def __init__(self, connection: Connection, connection_pool: ConnectionPool, event_pool: EventPool, initial_sync_completed: Value):
         threading.Thread.__init__(self)
-        self._socket = socket
-        self._connection_identifier = connection_identifier
+        self._connection = connection
         self._connection_pool = connection_pool
         self._event_pool = event_pool
         self._initial_sync_completed = initial_sync_completed
@@ -80,10 +79,10 @@ class Peer(threading.Thread):
                 json_message = receive_msg(self._socket)
                 self._message_queue.put(json_message)
             except (ConnectionResetError, ConnectionAbortedError, ClientDisconnectedException):
-                logger.debug(f"Peer {self._connection_identifier} disconnected")
+                logger.debug(f"Peer {self._connection.module.ss58_address} disconnected")
                 break
             except Exception:
-                logger.error(f"Unexpected error in connection {self._connection_identifier}", exc_info=True)
+                logger.error(f"Unexpected error in connection {self._connection.module.ss58_address}", exc_info=True)
                 break
         self._running = False
 
@@ -132,10 +131,10 @@ class Peer(threading.Thread):
                     signature_hex=body_sign.hex(),
                     public_key_hex=self._keypair.public_key.hex()
                 )
-                send_message(self._socket, message)
+                send_message(self._connection, message)
 
             elif message.body.code == MessageCode.MESSAGE_CODE_PONG:
-                self._connection_pool.update_ping(self._connection_identifier)
+                self._connection_pool.update_ping(self._connection.module.ss58_address)
 
             elif message.body.code == MessageCode.MESSAGE_CODE_SYNC:
                 self._process_message_sync(message)
@@ -204,7 +203,7 @@ class Peer(threading.Thread):
                         signature_hex=body_sign.hex(),
                         public_key_hex=self._keypair.public_key.hex()
                     )
-                    send_message(self._socket, message)
+                    send_message(self._connection, message)
 
             for event in self._event_pool.get_all():
                 message_event = MessageEvent.from_json(event.dict(), event.get_event_action())
@@ -218,7 +217,7 @@ class Peer(threading.Thread):
                     signature_hex=body_sign.hex(),
                     public_key_hex=self._keypair.public_key.hex()
                 )
-                send_message(self._socket, message)
+                send_message(self._connection, message)
 
     def _process_message_sync_blocks_response(self, message: Message):
         if message.body.data["blocks"]:

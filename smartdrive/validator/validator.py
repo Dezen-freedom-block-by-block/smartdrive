@@ -186,7 +186,7 @@ class Validator(Module):
                         public_key_hex=self._key.public_key.hex()
                     )
                     for connection in self.node.get_connections():
-                        send_message(connection._socket, block_message)
+                        send_message(connection, block_message)
 
                     for event in block_events:
                         if isinstance(event, RemoveEvent):

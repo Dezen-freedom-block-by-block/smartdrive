@@ -90,7 +90,7 @@ class ConnectionPool:
     def get_modules(self) -> List[ModuleInfo]:
         return list(map(lambda connection: connection.module, self.get_all()))
 
-    def update_or_append(self, identifier: Ss58Address, module_info: ModuleInfo, socket: SocketType):
+    def update_or_append(self, identifier: Ss58Address, module_info: ModuleInfo, socket: SocketType) -> Connection:
         with self._lock:
             connection = Connection(module_info, time.monotonic(), socket, self._manager)
 
@@ -102,6 +102,8 @@ class ConnectionPool:
 
             else:
                 self._connections[identifier] = connection
+
+            return connection
 
     def update_ping(self, identifier):
         with self._lock:

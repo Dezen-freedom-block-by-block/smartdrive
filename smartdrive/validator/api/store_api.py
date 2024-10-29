@@ -253,7 +253,7 @@ class StoreAPI:
                         signature_hex=body_sign.hex(),
                         public_key_hex=self._key.public_key.hex()
                     )
-                    send_message(active_connection.socket, message)
+                    send_message(active_connection, message)
 
             return JSONResponse(content=None, status_code=200)  # status_code 204 throw errors
 

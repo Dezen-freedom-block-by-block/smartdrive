@@ -102,7 +102,7 @@ class Node:
                 public_key_hex=self._keypair.public_key.hex()
             )
 
-            send_message(connection._socket, message)
+            send_message(connection, message)
 
     def consume_events(self, count: int) -> List[Union[StoreEvent, RemoveEvent]]:
         return self._event_pool.consume_events(count)
