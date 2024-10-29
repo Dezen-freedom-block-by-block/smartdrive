@@ -70,7 +70,7 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
         Exception: For any other unexpected errors.
 
     """
-    smartdrive.check_version(sys.argv)
+    smartdrive.check_version()
 
     file_path = os.path.expanduser(file_path)
 
@@ -166,7 +166,7 @@ def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testn
         lzma.LZMAError: If decompression fails due to corrupted data or incorrect key.
         Exception: For any other unexpected errors.
     """
-    smartdrive.check_version(sys.argv)
+    smartdrive.check_version()
 
     key = _get_key(key_name)
 
@@ -229,7 +229,7 @@ def remove_handler(file_uuid: str, key_name: str = None, testnet: bool = False):
         requests.RequestException: If there is a network error during the request.
         Exception: For any other unexpected errors.
     """
-    smartdrive.check_version(sys.argv)
+    smartdrive.check_version()
 
     # Retrieve the key
     key = _get_key(key_name)

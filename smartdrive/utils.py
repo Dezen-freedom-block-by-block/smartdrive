@@ -19,6 +19,7 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
+
 import asyncio
 
 from communex.balance import from_nano
@@ -94,5 +95,5 @@ async def get_stake_from_user(user_ss58_address: Ss58Address, validators: [Modul
 async def periodic_version_check():
     while True:
         logger.info("Checking for updates...")
-        smartdrive.check_version(reload=True)
+        smartdrive.check_version()
         await asyncio.sleep(INTERVAL_CHECK_VERSION_SECONDS)

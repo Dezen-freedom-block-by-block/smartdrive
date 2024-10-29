@@ -63,18 +63,17 @@ comx module register <your-validator-name> <your-commune-key-name> --ip <your-ip
 
 2. Launch the validator (*at the root of the project*)
 ````
-python3 -m smartdrive.validator.validator --key-name <your-commune-key-name> --port <8001>
+pm2 start "python3 -m smartdrive.validator.validator --key-name <your-commune-key-name> --port <8001>"
 ````
+> [!IMPORTANT]  
+> We recommend using a process manager, such as [PM2](https://pm2.keymetrics.io/), to keep the validator running without interruption. With our automatic update detection, you won’t need to perform manual updates, as the system will handle version checks, apply updates, and restart the validator automatically.
 
 3. In order for the validators to connect to each other, it is necessary to open a TCP port. Since there is no way to know via any metadata associated with each Commune module which TCP port a validator is using, the system currently uses the port specified in the --port parameter plus 1. For example, if a user's --port parameter is set to 8001, they should open TCP port 8002.
-
-
 
 Other useful parameters:
 - --database-path: Path to the database.
 - --port: Default remote api port (Defaults to 8001).
 - --testnet: Use testnet or not.
-
 
 ## Running a Miner
 The miner is the muscle of the SmartDrive subnet, playing a crucial role in securely and distributed storing user information. As an essential component of the system, miners ensure that data remains accessible and protected against loss or corruption. Thanks to the miners, the network can offer a robust decentralized storage solution, where data is efficiently distributed across multiple nodes. In addition to storing data, miners are also responsible for maintaining the integrity of the information, quickly responding to requests for data retrieval and removal. In summary, miners provide the physical and operational infrastructure that enables the SmartDrive subnet to operate with security, efficiency, and resilience.
@@ -90,8 +89,12 @@ comx module register <your-miner-name> <your-commune-key-name> --ip <your-ip-add
 
 2. Launch the miner (*at the root of the project*)
 ````
-python3 -m smartdrive.miner.miner --key-name <your-commune-key-name> --port <8000>
+pm2 start "python3 -m smartdrive.miner.miner --key-name <your-commune-key-name> --port <8000>"
 ````
+
+> [!IMPORTANT]  
+> We recommend using a process manager, such as [PM2](https://pm2.keymetrics.io/), to keep the miner running without interruption. With our automatic update detection, you won’t need to perform manual updates, as the system will handle version checks, apply updates, and restart the miner automatically.
+
 Other useful parameters:
 - --data-path: Path to the data.
 - --max-size: Size (in GB) of path to fill.
