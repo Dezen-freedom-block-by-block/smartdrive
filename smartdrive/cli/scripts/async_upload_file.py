@@ -32,7 +32,6 @@ from substrateinterface import Keypair
 import smartdrive
 from smartdrive.cli.errors import NoValidatorsAvailableException
 from smartdrive.cli.handlers import _get_key
-from smartdrive.commune.connection_pool import initialize_commune_connection_pool
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.commune.request import get_active_validators, EXTENDED_PING_TIMEOUT
@@ -136,7 +135,6 @@ if __name__ == "__main__":
     testnet = sys.argv[6] == 'True'
     file_uuid = sys.argv[7]
     key = _get_key(key_name)
-    initialize_commune_connection_pool(testnet, num_connections=1, max_pool_size=1)
 
     async def main():
         await _check_permission_store(file_path, file_hash, file_size_bytes, store_request_event_uuid, key, testnet, file_uuid)

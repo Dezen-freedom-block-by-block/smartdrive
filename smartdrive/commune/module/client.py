@@ -108,3 +108,5 @@ class ModuleClient:
             raise Exception(f"The call took longer than the timeout of {timeout} second(s)").with_traceback(e.__traceback__)
         except aiohttp.ClientError as e:
             raise Exception(f"An error occurred: {e}").with_traceback(e.__traceback__)
+        except aiohttp.ClientSSLError as e:
+            raise Exception(f"SSL error occurred: {e}").with_traceback(e.__traceback__)

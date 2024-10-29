@@ -22,7 +22,7 @@
 
 from substrateinterface import Keypair
 
-from smartdrive.commune.connection_pool import vote
+from smartdrive.commune.request import vote
 from smartdrive.validator.evaluation.sigmoid import threshold_sigmoid_reward_distribution
 
 MAX_ALLOWED_WEIGHTS = 256
