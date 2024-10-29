@@ -47,7 +47,7 @@ RETRIES = 5
 TIMEOUT = 30
 
 
-async def get_filtered_modules(netuid: int, module_type: ModuleType, ss58_address: str = None) -> List[ModuleInfo]:
+async def get_filtered_modules(netuid: int, module_type: ModuleType, ss58_address: str = None, testnet=False) -> List[ModuleInfo]:
     """
     Retrieve a list of miners or validators.
 
@@ -66,7 +66,7 @@ async def get_filtered_modules(netuid: int, module_type: ModuleType, ss58_addres
     Raises:
         CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
-    modules = await get_modules(netuid)
+    modules = await get_modules(netuid, testnet=testnet)
     result = []
 
     for module in modules:
@@ -78,7 +78,7 @@ async def get_filtered_modules(netuid: int, module_type: ModuleType, ss58_addres
 
 
 # This function should only be called by the smartdrive client
-async def get_active_validators(key: Keypair, netuid: int, timeout=PING_TIMEOUT) -> List[ModuleInfo]:
+async def get_active_validators(key: Keypair, netuid: int, timeout=PING_TIMEOUT, testnet=False) -> List[ModuleInfo]:
     """
     Retrieve a list of active validators.
 
@@ -96,7 +96,7 @@ async def get_active_validators(key: Keypair, netuid: int, timeout=PING_TIMEOUT)
     Raises:
         CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
-    validators = await get_filtered_modules(netuid, ModuleType.VALIDATOR)
+    validators = await get_filtered_modules(netuid, ModuleType.VALIDATOR, testnet=testnet)
 
     async def _get_active_validators(validator):
         ping_response = await execute_miner_request(key, validator.connection, validator.ss58_address, "ping", timeout=timeout)
@@ -158,9 +158,9 @@ def make_client(node_url: str):
 def retry_on_failure(retries):
     def decorator(func):
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args, testnet=False, **kwargs):
             for i in range(retries):
-                client = make_client(get_node_url(use_testnet=config_manager.config.testnet))
+                client = make_client(get_node_url(use_testnet=testnet))
                 try:
                     result = await func(client, *args, **kwargs)
                     return result
@@ -217,7 +217,7 @@ async def _get_modules_with_timeout(client, request_dict, timeout=TIMEOUT):
         raise TimeoutException("Operation timed out")
 
 
-async def get_modules(netuid: int, timeout=TIMEOUT) -> List[ModuleInfo]:
+async def get_modules(netuid: int, timeout=TIMEOUT, testnet=False) -> List[ModuleInfo]:
     request_dict: dict[Any, Any] = {
         "SubspaceModule": [
             ("Keys", [netuid]),
@@ -228,7 +228,7 @@ async def get_modules(netuid: int, timeout=TIMEOUT) -> List[ModuleInfo]:
         ]
     }
     try:
-        result = await _get_modules_with_timeout(request_dict=request_dict, timeout=timeout)
+        result = await _get_modules_with_timeout(request_dict=request_dict, timeout=timeout, testnet=testnet)
         if result is not None:
 
             modules_info = []
