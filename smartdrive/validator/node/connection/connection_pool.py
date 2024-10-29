@@ -22,6 +22,7 @@
 
 import time
 from _socket import SocketType
+from contextlib import contextmanager
 from multiprocessing import Manager
 from multiprocessing.managers import DictProxy
 from typing import Optional, List
@@ -38,19 +39,27 @@ INACTIVITY_TIMEOUT_SECONDS = 10
 
 
 class Connection:
-    def __init__(self, module: ModuleInfo, socket: SocketType, ping: float):
+    def __init__(self, module: ModuleInfo, ping: float, socket: SocketType, manager: Manager):
         self.module = module
-        self.socket = socket
         self.ping = ping
+        self._socket = socket
+        self._lock = manager.Lock()
+        self._manager = manager
 
     def __repr__(self):
-        return f"Connection(module={self.module}, socket={self.socket}, ping={self.ping})"
+        return f"Connection(module={self.module}, socket={self._socket}, ping={self.ping})"
+
+    @contextmanager
+    def get_socket(self):
+        with self._lock:
+            yield self._socket
 
 
 class ConnectionPool:
 
     def __init__(self, manager: Manager, cache_size):
         self._connections: DictProxy[Ss58Address, Connection] = manager.dict()
+        self._manager = manager
         self._cache_size = cache_size
         self._lock: LockProxyWrapper = manager.Lock()
 
@@ -83,7 +92,7 @@ class ConnectionPool:
 
     def update_or_append(self, identifier: Ss58Address, module_info: ModuleInfo, socket: SocketType):
         with self._lock:
-            connection = Connection(module_info, socket, time.monotonic())
+            connection = Connection(module_info, time.monotonic(), socket, self._manager)
 
             if identifier not in self._connections:
                 if len(self._connections) <= self._cache_size:
@@ -103,9 +112,8 @@ class ConnectionPool:
                 connection.ping = _time
                 self._connections[identifier] = connection
 
-    def remove(self, identifier: Ss58Address) -> Optional[SocketType]:
-        connection = self._connections.pop(identifier, None)
-        return connection.socket if connection else None
+    def remove(self, identifier: Ss58Address):
+        self._connections.pop(identifier, None)
 
     def remove_multiple(self, identifiers: list[Ss58Address]) -> list[SocketType]:
         sockets = []
@@ -113,14 +121,14 @@ class ConnectionPool:
             for identifier in identifiers:
                 connection = self._connections.pop(identifier, None)
                 if connection:
-                    sockets.append(connection.socket)
+                    sockets.append(connection._socket)
         return sockets
 
     def remove_inactive(self) -> list[SocketType]:
         with self._lock:
             current_time = time.monotonic()
             connections_to_remove = [identifier for identifier, c in self._connections.items() if current_time - c.ping > INACTIVITY_TIMEOUT_SECONDS]
-            sockets_to_remove = [self._connections[identifier].socket for identifier in connections_to_remove]
+            sockets_to_remove = [self._connections[identifier]._socket for identifier in connections_to_remove]
 
             for identifier in connections_to_remove:
                 del self._connections[identifier]
