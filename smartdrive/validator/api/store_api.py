@@ -68,6 +68,7 @@ MINER_STORE_TIMEOUT_SECONDS = 2 * 60
 TIME_EXPIRATION_STORE_REQUEST_EVENT_SECONDS = 20 * 60
 MAX_CHUNK_SIZE = 100 * 1024 * 1024  # Max chunk size to store, 100 MB
 MAX_SIMULTANEOUS_UPLOADS = 4
+MAX_SIMULTANEOUS_VALIDATIONS = 15
 
 
 class StoreAPI:
@@ -280,7 +281,7 @@ async def store_new_file(
     stored_chunks_results = []
     stored_miner_with_chunk_uuid: List[Tuple[ModuleInfo, str]] = []
 
-    semaphore = asyncio.Semaphore(MAX_SIMULTANEOUS_UPLOADS)
+    semaphore = asyncio.Semaphore(MAX_SIMULTANEOUS_VALIDATIONS if validating else MAX_SIMULTANEOUS_UPLOADS)
 
     validations_events_per_validator: List[List[ValidationEvent]] = []
     chunks_params: List[ChunkParams] = []
@@ -330,8 +331,14 @@ async def store_new_file(
 
     try:
         if validating:
-            await asyncio.gather(*[handle_store_request(miner, file, 0) for miner in miners],
-                                 return_exceptions=True)
+            async def gather_with_semaphore(miners, file):
+                async def handle_with_limit(miner):
+                    async with semaphore:
+                        return await handle_store_request(miner, file, 0)
+
+                await asyncio.gather(*[handle_with_limit(miner) for miner in miners], return_exceptions=True)
+
+            await gather_with_semaphore(miners, file)
             if not stored_chunks_results:
                 return None, []
 
