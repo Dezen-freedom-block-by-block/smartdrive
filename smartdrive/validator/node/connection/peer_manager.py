@@ -107,13 +107,13 @@ class PeerManager(multiprocessing.Process):
                     peer_socket.close()
                     return
 
-                signature_hex = message["signature_hex"]
-                public_key_hex = message["public_key_hex"]
+                signature_hex = message.signature_hex
+                public_key_hex = message.public_key_hex
                 ss58_address = get_ss58_address_from_public_key(public_key_hex)
 
                 logger.debug(f"Identification message received {ss58_address}")
 
-                is_verified_signature = verify_data_signature(message["body"], signature_hex, ss58_address)
+                is_verified_signature = verify_data_signature(message.body.dict(), signature_hex, ss58_address)
                 if not is_verified_signature:
                     logger.debug(f"Invalid signature for {ss58_address}")
                     peer_socket.close()

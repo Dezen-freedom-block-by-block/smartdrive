@@ -39,20 +39,19 @@ INACTIVITY_TIMEOUT_SECONDS = 10
 
 
 class Connection:
-    def __init__(self, module: ModuleInfo, ping: float, socket: SocketType, manager: Manager):
+    def __init__(self, module: ModuleInfo, ping: float, socket: SocketType, write_lock: LockProxyWrapper):
         self.module = module
         self.ping = ping
-        self._socket = socket
-        self._lock = manager.Lock()
-        self._manager = manager
+        self.socket = socket
+        self._write_lock = write_lock
 
     def __repr__(self):
-        return f"Connection(module={self.module}, socket={self._socket}, ping={self.ping})"
+        return f"Connection(module={self.module}, socket={self.socket}, ping={self.ping})"
 
     @contextmanager
-    def get_socket(self):
-        with self._lock:
-            yield self._socket
+    def get_socket_with_write_lock(self):
+        with self._write_lock:
+            yield self.socket
 
 
 class ConnectionPool:
@@ -92,7 +91,7 @@ class ConnectionPool:
 
     def update_or_append(self, identifier: Ss58Address, module_info: ModuleInfo, socket: SocketType) -> Connection:
         with self._lock:
-            connection = Connection(module_info, time.monotonic(), socket, self._manager)
+            connection = Connection(module_info, time.monotonic(), socket, self._manager.Lock())
 
             if identifier not in self._connections:
                 if len(self._connections) <= self._cache_size:
@@ -123,14 +122,14 @@ class ConnectionPool:
             for identifier in identifiers:
                 connection = self._connections.pop(identifier, None)
                 if connection:
-                    sockets.append(connection._socket)
+                    sockets.append(connection.socket)
         return sockets
 
     def remove_inactive(self) -> list[SocketType]:
         with self._lock:
             current_time = time.monotonic()
             connections_to_remove = [identifier for identifier, c in self._connections.items() if current_time - c.ping > INACTIVITY_TIMEOUT_SECONDS]
-            sockets_to_remove = [self._connections[identifier]._socket for identifier in connections_to_remove]
+            sockets_to_remove = [self._connections[identifier].socket for identifier in connections_to_remove]
 
             for identifier in connections_to_remove:
                 del self._connections[identifier]

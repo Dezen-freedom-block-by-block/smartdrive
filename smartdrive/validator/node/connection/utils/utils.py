@@ -117,7 +117,7 @@ def send_message(connection: Connection, message: Message):
 
 
 def _send_json_with_connection(connection: Connection, obj: dict):
-    with connection.get_socket() as _socket:
+    with connection.get_socket_with_write_lock() as _socket:
         _send_data(socket=_socket, obj=obj)
 
 

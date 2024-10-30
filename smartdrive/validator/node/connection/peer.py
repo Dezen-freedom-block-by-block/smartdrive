@@ -76,7 +76,7 @@ class Peer(threading.Thread):
         while True:
             try:
                 # Here the process is waiting till a new message is received
-                json_message = receive_msg(self._socket)
+                json_message = receive_msg(self._connection.socket)
                 self._message_queue.put(json_message)
             except (ConnectionResetError, ConnectionAbortedError, ClientDisconnectedException):
                 logger.debug(f"Peer {self._connection.module.ss58_address} disconnected")
