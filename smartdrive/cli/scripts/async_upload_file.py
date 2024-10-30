@@ -115,7 +115,7 @@ async def _get_validator_url(key: Keypair, testnet: bool = False) -> str:
     netuid = smartdrive.TESTNET_NETUID if testnet else smartdrive.NETUID
 
     try:
-        validators = await get_active_validators(key, netuid, EXTENDED_PING_TIMEOUT)
+        validators = await get_active_validators(key, netuid, testnet, EXTENDED_PING_TIMEOUT)
     except CommuneNetworkUnreachable:
         raise NoValidatorsAvailableException
 

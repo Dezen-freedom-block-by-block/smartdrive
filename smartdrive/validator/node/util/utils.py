@@ -56,7 +56,7 @@ async def get_proposer_validator(keypair: Keypair, connected_modules: List[Modul
 
     # Since the list of active validators never includes the current validator, we need to locate our own
     # validator within the complete list.
-    all_validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
+    all_validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR, config_manager.config.testnet)
     own_validator = next((v for v in all_validators if v.ss58_address == keypair.ss58_address), None)
 
     is_own_validator_truthful = own_validator and own_validator.stake >= TRUTHFUL_STAKE_AMOUNT

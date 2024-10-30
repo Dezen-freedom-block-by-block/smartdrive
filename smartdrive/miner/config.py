@@ -20,43 +20,31 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 
-import asyncio
-
-import smartdrive
-from smartdrive import logger
-
-INITIAL_STORAGE = 50 * 1024 * 1024  # 50 MB
-MAXIMUM_STORAGE = 2 * 1024 * 1024 * 1024  # 2 GB
-ADDITIONAL_STORAGE_PER_COMAI = 0.1 * 1024 * 1024  # 0.1 MB
-MINIMUM_STAKE = 1  # 1 COMAI
-
-DEFAULT_MINER_PATH = "~/.smartdrive/miner"
-DEFAULT_VALIDATOR_PATH = "~/.smartdrive/validator"
-DEFAULT_CLIENT_PATH = "~/.smartdrive/client"
-
-INTERVAL_CHECK_VERSION_SECONDS = 12 * 60 * 60  # 12 hours
+from multiprocessing import Manager
 
 
-def format_size(size_in_bytes: int) -> str:
-    """
-    Format the size from bytes to a human-readable format (MB or GB).
-
-    Params:
-        size_in_bytes (int): The size in bytes.
-
-    Returns:
-        str: The size formatted in MB or GB.
-    """
-    size_in_mb = size_in_bytes / (1024 * 1024)
-    if size_in_mb >= 1024:
-        size_in_gb = size_in_mb / 1024
-        return f"{size_in_gb:.2f} GB"
-    else:
-        return f"{size_in_mb:.2f} MB"
+class Config:
+    def __init__(self, key: str, data_path: str, max_size: float, port: int, testnet: bool, netuid: int):
+        self.key: str = key
+        self.data_path: str = data_path
+        self.max_size: float = max_size
+        self.port: int = port
+        self.testnet: bool = testnet
+        self.netuid: int = netuid
 
 
-async def periodic_version_check():
-    while True:
-        logger.info("Checking for updates...")
-        smartdrive.check_version()
-        await asyncio.sleep(INTERVAL_CHECK_VERSION_SECONDS)
+class ConfigManager:
+    def __init__(self):
+        self.manager = Manager()
+        self.config = self.manager.Namespace()
+
+    def initialize(self, config: Config):
+        self.config.key = config.key
+        self.config.data_path = config.data_path
+        self.config.max_size = config.max_size
+        self.config.port = config.port
+        self.config.testnet = config.testnet
+        self.config.netuid = config.netuid
+
+
+config_manager = ConfigManager()

@@ -702,6 +702,14 @@ class Database:
                 cursor = connection.cursor()
                 connection.execute('BEGIN TRANSACTION')
 
+                if block.block_number > 1:
+                    cursor.execute('SELECT id FROM block WHERE ROWID = (SELECT MAX(ROWID) FROM block)')
+                    last_block = cursor.fetchone()
+                    if last_block and last_block["id"] != block.block_number - 1:
+                        logger.error(f"Block number sequence error: expected {last_block['id'] + 1}, got {block.block_number}")
+                        connection.rollback()
+                        return False
+
                 cursor.execute(
                     'INSERT INTO block (id, proposer_ss58_address, signed_block) VALUES (?, ?, ?)',
                     (block.block_number, block.proposer_ss58_address, block.signed_block)

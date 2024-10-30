@@ -27,7 +27,7 @@ from smartdrive.commune.request import get_filtered_modules
 from smartdrive.models.block import Block
 from smartdrive.models.event import UserEvent, StoreEvent, RemoveEvent, StoreRequestEvent
 from smartdrive.sign import verify_data_signature
-from smartdrive.utils import get_stake_from_user, calculate_storage_capacity
+from smartdrive.validator.utils import get_stake_from_user, calculate_storage_capacity
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.models.models import ModuleType
@@ -67,7 +67,7 @@ def get_invalid_events(events: List[Union[StoreEvent, RemoveEvent, StoreRequestE
                 storage_requests_users.add(event.user_ss58_address)
 
         if storage_requests_users:
-            validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
+            validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR, config_manager.config.testnet)
 
             total_stakes = {}
             for user_ss58_address in storage_requests_users:

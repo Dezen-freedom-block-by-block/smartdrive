@@ -25,7 +25,8 @@ from substrateinterface import Keypair
 
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.commune.request import execute_miner_request
-from smartdrive.utils import calculate_storage_capacity, MAXIMUM_STORAGE
+from smartdrive.utils import MAXIMUM_STORAGE
+from smartdrive.validator.utils import calculate_storage_capacity
 from smartdrive.validator.api.exceptions import StorageLimitException, FileTooLargeException
 from smartdrive.validator.database.database import Database
 
