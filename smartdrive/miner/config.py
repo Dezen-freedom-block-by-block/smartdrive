@@ -20,7 +20,10 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 
+import multiprocessing
 from multiprocessing import Manager
+
+multiprocessing.set_start_method("fork")
 
 
 class Config:
