@@ -120,7 +120,7 @@ class PeerManager(multiprocessing.Process):
                     peer_socket.close()
                     return
 
-                validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
+                validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR, config_manager.config.testnet)
                 if not validators:
                     logger.debug("No active validators found")
                     peer_socket.close()
@@ -165,7 +165,7 @@ class PeerManager(multiprocessing.Process):
         async def discovery():
             while True:
                 try:
-                    validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
+                    validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR, config_manager.config.testnet)
                     validators_ss58_addresses = {validator.ss58_address for validator in validators}
 
                     unregistered_validators_ss8_addresses = [ss58_address for ss58_address in self._connection_pool.get_identifiers() if ss58_address not in validators_ss58_addresses]

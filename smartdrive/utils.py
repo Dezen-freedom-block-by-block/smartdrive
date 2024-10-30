@@ -29,6 +29,7 @@ import smartdrive
 from smartdrive import logger
 from smartdrive.commune.request import get_staketo
 from smartdrive.commune.models import ModuleInfo
+from smartdrive.validator.config import config_manager
 
 INITIAL_STORAGE = 50 * 1024 * 1024  # 50 MB
 MAXIMUM_STORAGE = 2 * 1024 * 1024 * 1024  # 2 GB
@@ -85,7 +86,7 @@ def format_size(size_in_bytes: int) -> str:
 
 
 async def get_stake_from_user(user_ss58_address: Ss58Address, validators: [ModuleInfo]):
-    staketo_modules = await get_staketo(user_ss58_address)
+    staketo_modules = await get_staketo(user_ss58_address, config_manager.config.testnet)
     validator_addresses = {validator.ss58_address for validator in validators}
     active_stakes = {address: from_nano(stake) for address, stake in staketo_modules.items() if address in validator_addresses and address != str(user_ss58_address)}
 

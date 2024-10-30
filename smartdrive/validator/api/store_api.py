@@ -204,7 +204,7 @@ class StoreAPI:
         )
 
         try:
-            miners = await get_filtered_modules(config_manager.config.netuid, ModuleType.MINER, self._key.ss58_address)
+            miners = await get_filtered_modules(config_manager.config.netuid, ModuleType.MINER, config_manager.config.testnet, self._key.ss58_address)
         except CommuneNetworkUnreachable:
             raise HTTPCommuneNetworkUnreachable
 

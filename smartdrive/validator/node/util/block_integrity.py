@@ -67,7 +67,7 @@ def get_invalid_events(events: List[Union[StoreEvent, RemoveEvent, StoreRequestE
                 storage_requests_users.add(event.user_ss58_address)
 
         if storage_requests_users:
-            validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR)
+            validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR, config_manager.config.testnet)
 
             total_stakes = {}
             for user_ss58_address in storage_requests_users:

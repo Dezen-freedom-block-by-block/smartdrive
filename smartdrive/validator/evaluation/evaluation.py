@@ -23,6 +23,7 @@
 from substrateinterface import Keypair
 
 from smartdrive.commune.request import vote
+from smartdrive.validator.config import config_manager
 from smartdrive.validator.evaluation.sigmoid import threshold_sigmoid_reward_distribution
 
 MAX_ALLOWED_WEIGHTS = 256
@@ -49,13 +50,12 @@ def score_miners(result_miners: dict[int, bool]) -> dict[int, float]:
     return score_dict
 
 
-async def set_weights(score_dict: dict[int, float], netuid: int, key: Keypair):
+async def set_weights(score_dict: dict[int, float], key: Keypair):
     """
     Set weights for miners based on their scores.
 
     Params:
         score_dict (dict[int, float]): A dictionary mapping miner UIDs to their scores.
-        netuid (int): The network UID.
         key (Keypair): The keypair for signing transactions.
     """
 
@@ -78,7 +78,7 @@ async def set_weights(score_dict: dict[int, float], netuid: int, key: Keypair):
     uids = list(weighted_scores.keys())
     weights = list(weighted_scores.values())
 
-    await vote(key, uids, weights, netuid)
+    await vote(key, uids, weights, config_manager.config.netuid, config_manager.config.testnet)
 
 
 def _cut_to_max_allowed_uids(score_dict: dict[int, float]) -> dict[int, float]:

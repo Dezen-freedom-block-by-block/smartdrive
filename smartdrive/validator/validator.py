@@ -192,7 +192,7 @@ class Validator(Module):
                         if isinstance(event, RemoveEvent):
                             # Only deletions are chosen, since as the block is processed before, the deletion is already marked for these events.
                             chunks = self._database.get_chunks(file_uuid=event.event_params.file_uuid, only_not_removed=False)
-                            miners = await get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
+                            miners = await get_filtered_modules(config_manager.config.netuid, ModuleType.MINER, config_manager.config.testnet)
                             miners_info_with_chunk = compile_miners_info_and_chunks(miners, chunks)
 
                             for miner in miners_info_with_chunk:
@@ -211,7 +211,7 @@ class Validator(Module):
 
     async def validate_vote_task(self):
         miners = [
-            miner for miner in await get_filtered_modules(config_manager.config.netuid, ModuleType.MINER)
+            miner for miner in await get_filtered_modules(config_manager.config.netuid, ModuleType.MINER, config_manager.config.testnet)
             if miner.ss58_address != self._key.ss58_address
         ]
 
@@ -224,7 +224,7 @@ class Validator(Module):
         if result_miners:
             score_dict = score_miners(result_miners=result_miners)
             if score_dict:
-                await set_weights(score_dict, config_manager.config.netuid, self._key)
+                await set_weights(score_dict, self._key)
 
     async def check_stake_task(self):
         """
@@ -304,7 +304,7 @@ if __name__ == "__main__":
     key = classic_load_key(config_manager.config.key)
 
     async def main():
-        registered_modules = await get_modules(config_manager.config.netuid)
+        registered_modules = await get_modules(config_manager.config.netuid, config_manager.config.testnet)
 
         if key.ss58_address not in [module.ss58_address for module in registered_modules]:
             raise Exception(f"Your key: {key.ss58_address} is not registered.")

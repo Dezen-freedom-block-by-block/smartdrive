@@ -26,7 +26,6 @@ import time
 import uuid
 import shutil
 import argparse
-from argparse import Namespace
 import os
 
 import aiofiles
@@ -42,12 +41,13 @@ import smartdrive
 from smartdrive.check_file import check_file
 from smartdrive.logging_config import logger
 from smartdrive.commune.request import get_modules
+from smartdrive.miner.config import config_manager, Config
 from smartdrive.miner.middleware.miner_middleware import MinerMiddleware
 from smartdrive.miner.utils import has_enough_space, get_directory_size, parse_body
 from smartdrive.utils import DEFAULT_MINER_PATH, periodic_version_check
 
 
-def get_config() -> Namespace:
+def get_config() -> Config:
     """
     Configure the miner's settings from command line arguments.
 
@@ -55,9 +55,7 @@ def get_config() -> Namespace:
     from the command line, sets default values, and returns the resulting configuration object.
 
     Returns:
-        argparse.Namespace: An object containing the configuration parameters for the miner,
-                            including data path, key name, miner name, maximum size, API port,
-                            and network UID.
+        Config: An object containing the configuration parameters for the miner
 
     Raises:
         SystemExit: If the required arguments are not provided or if there are other errors
@@ -71,49 +69,53 @@ def get_config() -> Namespace:
     parser.add_argument("--port", type=int, default=8000, required=False, help="Default api port.")
     parser.add_argument("--testnet", action='store_true', help="Use testnet or not.")
 
-    config = parser.parse_args()
-    config.data_path = os.path.expanduser(config.data_path)
+    args = parser.parse_args()
+    args.data_path = os.path.expanduser(args.data_path)
 
-    if config.data_path:
-        os.makedirs(config.data_path, exist_ok=True)
+    if args.data_path:
+        os.makedirs(args.data_path, exist_ok=True)
 
-    config.netuid = smartdrive.TESTNET_NETUID if config.testnet else smartdrive.NETUID
+    args.netuid = smartdrive.TESTNET_NETUID if args.testnet else smartdrive.NETUID
 
-    return config
+    _config = Config(
+        key=args.key_name,
+        data_path=args.data_path,
+        max_size=args.max_size,
+        port=args.port,
+        testnet=args.testnet,
+        netuid=args.netuid
+    )
+
+    return _config
 
 
 class Miner(Module):
-    def __init__(self, config):
+    def __init__(self):
         """
         Initialize the miner network with the given configuration.
 
         This constructor initializes the miner network, ensuring that the data path exists and that there is enough disk space available.
-
-        Params:
-            config: The configuration object containing settings such as data path and maximum storage size.
 
         Raises:
             Exception: If there is not enough disk space available.
         """
         super().__init__()
 
-        self.config = config
+        if not os.path.exists(config_manager.config.data_path):
+            os.makedirs(config_manager.config.data_path)
 
-        if not os.path.exists(self.config.data_path):
-            os.makedirs(self.config.data_path)
-
-        total, used, free = shutil.disk_usage(self.config.data_path)
+        total, used, free = shutil.disk_usage(config_manager.config.data_path)
         free_gb = free / (2 ** 30)
 
-        if free_gb < self.config.max_size:
-            raise Exception(f"Not enough disk space. Free space: ~{free_gb:.2f} GB, required: {self.config.max_size} GB")
+        if free_gb < config_manager.config.max_size:
+            raise Exception(f"Not enough disk space. Free space: ~{free_gb:.2f} GB, required: {config_manager.config.max_size} GB")
 
         # Additional check to ensure the current used space does not exceed the max size
-        current_dir_size = get_directory_size(self.config.data_path)
-        max_size_bytes = self.config.max_size * 1024 * 1024 * 1024
+        current_dir_size = get_directory_size(config_manager.config.data_path)
+        max_size_bytes = config_manager.config.max_size * 1024 * 1024 * 1024
 
         if current_dir_size >= max_size_bytes:
-            raise Exception(f"Current directory size exceeds the maximum allowed size. Current size: ~{current_dir_size / (2 ** 30):.2f} GB, allowed: {self.config.max_size} GB")
+            raise Exception(f"Current directory size exceeds the maximum allowed size. Current size: ~{current_dir_size / (2 ** 30):.2f} GB, allowed: {config_manager.config.max_size} GB")
 
     async def run_server(self, config) -> None:
         """
@@ -157,10 +159,10 @@ class Miner(Module):
             original_file_size = int(request.headers.get("X-File-Size"))
             original_file_hash = request.headers.get("X-File-Hash")
 
-            if not has_enough_space(original_file_size, self.config.max_size, self.config.data_path):
+            if not has_enough_space(original_file_size, config_manager.config.max_size, config_manager.config.data_path):
                 raise HTTPException(status_code=409, detail="Not enough space to store the file")
 
-            client_dir = os.path.join(self.config.data_path, folder)
+            client_dir = os.path.join(config_manager.config.data_path, folder)
             if not os.path.exists(client_dir):
                 os.makedirs(client_dir)
 
@@ -207,7 +209,7 @@ class Miner(Module):
             body_bytes = await request.body()
             body = parse_body(body_bytes)
 
-            chunk_path = os.path.join(self.config.data_path, body["folder"], body["chunk_uuid"])
+            chunk_path = os.path.join(config_manager.config.data_path, body["folder"], body["chunk_uuid"])
             os.remove(chunk_path)
 
             return {"message": "Chunk deleted successfully"}
@@ -235,7 +237,7 @@ class Miner(Module):
             body_bytes = await request.body()
             body = parse_body(body_bytes)
 
-            chunk_path = os.path.join(self.config.data_path, body["folder"], body["chunk_uuid"])
+            chunk_path = os.path.join(config_manager.config.data_path, body["folder"], body["chunk_uuid"])
 
             def iterfile():
                 with open(chunk_path, 'rb') as chunk_file:
@@ -274,7 +276,7 @@ class Miner(Module):
             body = parse_body(body_bytes)
             start = int(body["start"])
             end = int(body["end"])
-            chunk_path = os.path.join(self.config.data_path, body["folder"], body["chunk_uuid"])
+            chunk_path = os.path.join(config_manager.config.data_path, body["folder"], body["chunk_uuid"])
             with open(chunk_path, 'rb') as chunk_file:
                 chunk_file.seek(start)
                 chunk = chunk_file.read(end - start)
@@ -288,12 +290,14 @@ class Miner(Module):
 
 if __name__ == "__main__":
     config = get_config()
-    miner = Miner(config)
+    config_manager.initialize(config)
 
-    key = classic_load_key(config.key_name)
+    miner = Miner()
+
+    key = classic_load_key(config.key)
 
     async def main():
-        registered_modules = await get_modules(config.netuid)
+        registered_modules = await get_modules(config.netuid, config.testnet)
 
         if key.ss58_address not in list(map(lambda module: module.ss58_address, registered_modules)):
             raise Exception(f"Your key: {key.ss58_address} is not registered.")
