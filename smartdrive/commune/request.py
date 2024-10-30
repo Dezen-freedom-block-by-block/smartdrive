@@ -37,7 +37,6 @@ from smartdrive.commune.errors import CommuneNetworkUnreachable, TimeoutExceptio
 from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.commune.module.client import ModuleClient
 from smartdrive.commune.utils import _get_ip_port
-from smartdrive.validator.config import config_manager
 from smartdrive.validator.models.models import ModuleType
 
 PING_TIMEOUT = 5
@@ -47,7 +46,7 @@ RETRIES = 5
 TIMEOUT = 30
 
 
-async def get_filtered_modules(netuid: int, module_type: ModuleType, ss58_address: str = None) -> List[ModuleInfo]:
+async def get_filtered_modules(netuid: int, module_type: ModuleType, testnet: bool, ss58_address: str = None) -> List[ModuleInfo]:
     """
     Retrieve a list of miners or validators.
 
@@ -58,6 +57,7 @@ async def get_filtered_modules(netuid: int, module_type: ModuleType, ss58_addres
     Params:
         netuid (int): Network identifier used for the queries.
         module_type (ModuleType): ModuleType.MINER or ModuleType.VALIDATOR.
+        testnet (bool): Flag indicating if environment is testnet or not.
         ss58_address (str): Own Ss58 address.
 
     Returns:
@@ -66,7 +66,7 @@ async def get_filtered_modules(netuid: int, module_type: ModuleType, ss58_addres
     Raises:
         CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
-    modules = await get_modules(netuid)
+    modules = await get_modules(netuid, testnet)
     result = []
 
     for module in modules:
@@ -78,7 +78,7 @@ async def get_filtered_modules(netuid: int, module_type: ModuleType, ss58_addres
 
 
 # This function should only be called by the smartdrive client
-async def get_active_validators(key: Keypair, netuid: int, timeout=PING_TIMEOUT) -> List[ModuleInfo]:
+async def get_active_validators(key: Keypair, netuid: int, testnet: bool, timeout=PING_TIMEOUT) -> List[ModuleInfo]:
     """
     Retrieve a list of active validators.
 
@@ -96,7 +96,7 @@ async def get_active_validators(key: Keypair, netuid: int, timeout=PING_TIMEOUT)
     Raises:
         CommuneNetworkUnreachable: Raised if a valid result cannot be obtained from the network.
     """
-    validators = await get_filtered_modules(netuid, ModuleType.VALIDATOR)
+    validators = await get_filtered_modules(netuid, ModuleType.VALIDATOR, testnet)
 
     async def _get_active_validators(validator):
         ping_response = await execute_miner_request(key, validator.connection, validator.ss58_address, "ping", timeout=timeout)
@@ -159,8 +159,12 @@ def retry_on_failure(retries):
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
+            testnet = kwargs.get("testnet", None)
+            if testnet is None:
+                raise Exception("No testnet parameter provided in decorator's method")
+
             for i in range(retries):
-                client = make_client(get_node_url(use_testnet=config_manager.config.testnet))
+                client = make_client(get_node_url(use_testnet=testnet))
                 try:
                     result = await func(client, *args, **kwargs)
                     return result
@@ -173,7 +177,7 @@ def retry_on_failure(retries):
 
 
 @retry_on_failure(retries=RETRIES)
-async def _get_staketo_with_timeout(client, ss58_address, timeout=TIMEOUT):
+async def _get_staketo_with_timeout(client, ss58_address, testnet, timeout=TIMEOUT):
     loop = asyncio.get_running_loop()
     try:
         return await asyncio.wait_for(loop.run_in_executor(None, client.get_staketo, ss58_address), timeout=timeout)
@@ -181,9 +185,9 @@ async def _get_staketo_with_timeout(client, ss58_address, timeout=TIMEOUT):
         raise TimeoutException("Operation timed out")
 
 
-async def get_staketo(ss58_address: Ss58Address, timeout=TIMEOUT) -> Dict[str, int]:
+async def get_staketo(ss58_address: Ss58Address, testnet: bool, timeout=TIMEOUT) -> Dict[str, int]:
     try:
-        result = await _get_staketo_with_timeout(ss58_address=ss58_address, timeout=timeout)
+        result = await _get_staketo_with_timeout(ss58_address=ss58_address, testnet=testnet, timeout=timeout)
         if result is not None:
             return result
     except Exception:
@@ -192,7 +196,7 @@ async def get_staketo(ss58_address: Ss58Address, timeout=TIMEOUT) -> Dict[str, i
 
 
 @retry_on_failure(retries=RETRIES)
-async def _vote_with_timeout(client, key, uids, weights, netuid, timeout=TIMEOUT):
+async def _vote_with_timeout(client, key, uids, weights, netuid, testnet, timeout=TIMEOUT):
     loop = asyncio.get_running_loop()
     try:
         return await asyncio.wait_for(loop.run_in_executor(None, client.vote, key, uids, weights, netuid), timeout=timeout)
@@ -200,16 +204,16 @@ async def _vote_with_timeout(client, key, uids, weights, netuid, timeout=TIMEOUT
         raise TimeoutException("Operation timed out")
 
 
-async def vote(key: Keypair, uids: List[int], weights: List[int], netuid: int, timeout=TIMEOUT):
+async def vote(key: Keypair, uids: List[int], weights: List[int], netuid: int, testnet: bool, timeout=TIMEOUT):
     logger.info(f"Voting uids: {uids} - weights: {weights}")
     try:
-        await _vote_with_timeout(key=key, uids=uids, weights=weights, netuid=netuid, timeout=timeout)
+        await _vote_with_timeout(key=key, uids=uids, weights=weights, netuid=netuid, testnet=testnet, timeout=timeout)
     except Exception:
         logger.error("Error voting", exc_info=True)
 
 
 @retry_on_failure(retries=RETRIES)
-async def _get_modules_with_timeout(client, request_dict, timeout=TIMEOUT):
+async def _get_modules_with_timeout(client, request_dict, testnet, timeout=TIMEOUT):
     loop = asyncio.get_running_loop()
     try:
         return await asyncio.wait_for(loop.run_in_executor(None, client.query_batch_map, request_dict), timeout=timeout)
@@ -217,7 +221,7 @@ async def _get_modules_with_timeout(client, request_dict, timeout=TIMEOUT):
         raise TimeoutException("Operation timed out")
 
 
-async def get_modules(netuid: int, timeout=TIMEOUT) -> List[ModuleInfo]:
+async def get_modules(netuid: int, testnet: bool, timeout=TIMEOUT) -> List[ModuleInfo]:
     request_dict: dict[Any, Any] = {
         "SubspaceModule": [
             ("Keys", [netuid]),
@@ -228,7 +232,7 @@ async def get_modules(netuid: int, timeout=TIMEOUT) -> List[ModuleInfo]:
         ]
     }
     try:
-        result = await _get_modules_with_timeout(request_dict=request_dict, timeout=timeout)
+        result = await _get_modules_with_timeout(request_dict=request_dict, testnet=testnet, timeout=timeout)
         if result is not None:
 
             modules_info = []

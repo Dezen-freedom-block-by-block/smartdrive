@@ -23,8 +23,16 @@
 import asyncio
 import random
 
+from communex.balance import from_nano
+from communex.types import Ss58Address
+
+from smartdrive.commune.models import ModuleInfo
+from smartdrive.commune.request import get_staketo
+
 from smartdrive.logging_config import logger
 from smartdrive.sign import sign_data
+from smartdrive.utils import MINIMUM_STAKE, INITIAL_STORAGE, ADDITIONAL_STORAGE_PER_COMAI, MAXIMUM_STORAGE
+from smartdrive.validator.config import config_manager
 from smartdrive.validator.node.connection.connection_pool import Connection
 from smartdrive.validator.node.connection.utils.utils import send_message
 from smartdrive.validator.node.util.message import MessageCode, MessageBody, Message
@@ -83,3 +91,35 @@ def get_file_expiration() -> int:
     min_ms = 30 * 60 * 1000
     max_ms = 1 * 60 * 60 * 1000
     return random.randint(min_ms, max_ms)
+
+
+async def get_stake_from_user(user_ss58_address: Ss58Address, validators: [ModuleInfo]):
+    staketo_modules = await get_staketo(user_ss58_address, config_manager.config.testnet)
+    validator_addresses = {validator.ss58_address for validator in validators}
+    active_stakes = {address: from_nano(stake) for address, stake in staketo_modules.items() if address in validator_addresses and address != str(user_ss58_address)}
+
+    return sum(active_stakes.values())
+
+
+def calculate_storage_capacity(stake: float) -> int:
+    """
+    Calculates the storage capacity based on the user's stake,
+    with a maximum limit of MAXIMUM_STORAGE.
+
+    Params:
+        stake (float): The current user's stake in COMAI.
+
+    Returns:
+        int: The total storage capacity in bytes, capped at MAXIMUM_STORAGE.
+    """
+    if stake < MINIMUM_STAKE:
+        return 0
+
+    total_storage_bytes = INITIAL_STORAGE
+
+    additional_comai = stake - MINIMUM_STAKE
+    if additional_comai > 0:
+        total_storage_bytes += additional_comai * ADDITIONAL_STORAGE_PER_COMAI
+
+    # Limit the total storage to MAXIMUM_STORAGE in bytes
+    return int(min(total_storage_bytes, MAXIMUM_STORAGE))
