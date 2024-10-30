@@ -58,6 +58,7 @@ class PeerManager(multiprocessing.Process):
     _connection_pool: ConnectionPool = None
     _initial_sync_completed: Value = None
     _keypair: Keypair = None
+    _connecting_validators: set = None
 
     def __init__(self, event_pool: EventPool, initial_sync_completed: Value, connection_pool: ConnectionPool):
         multiprocessing.Process.__init__(self)
@@ -65,6 +66,7 @@ class PeerManager(multiprocessing.Process):
         self._connection_pool = connection_pool
         self._initial_sync_completed = initial_sync_completed
         self._keypair = classic_load_key(config_manager.config.key)
+        self._connecting_validators = set()
 
     def run(self):
         listening_socket = None
@@ -196,7 +198,9 @@ class PeerManager(multiprocessing.Process):
                         if validator.ss58_address not in connected_ss58_addresses and validator.ss58_address != self._keypair.ss58_address
                     ]
                     for validator in new_registered_validators:
-                        threading.Thread(target=self._connect_to_peer, args=(validator,)).start()
+                        if validator.ss58_address not in self._connecting_validators:
+                            self._connecting_validators.add(validator.ss58_address)
+                            threading.Thread(target=self._connect_to_peer, args=(validator,)).start()
 
                 except Exception:
                     logger.error("Error discovering new validators", exc_info=True)
@@ -254,3 +258,5 @@ class PeerManager(multiprocessing.Process):
 
             if peer_socket:
                 peer_socket.close()
+        finally:
+            self._connecting_validators.discard(validator.ss58_address)

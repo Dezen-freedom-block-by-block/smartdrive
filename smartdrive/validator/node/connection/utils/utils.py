@@ -63,24 +63,20 @@ def connect_to_peer(keypair: Keypair, module_info: ModuleInfo) -> Union[SocketTy
         public_key_hex=keypair.public_key.hex()
     )
 
-    try:
-        _send_json_with_socket(socket=peer_socket, obj=message.dict())
-        json_message = receive_msg(peer_socket)
-        message = Message(**json_message)
+    _send_json_with_socket(socket=peer_socket, obj=message.dict())
+    json_message = receive_msg(peer_socket)
+    message = Message(**json_message)
 
-        signature_hex = message.signature_hex
-        public_key_hex = message.public_key_hex
-        ss58_address = get_ss58_address_from_public_key(public_key_hex)
+    signature_hex = message.signature_hex
+    public_key_hex = message.public_key_hex
+    ss58_address = get_ss58_address_from_public_key(public_key_hex)
 
-        is_verified_signature = verify_data_signature(message.body.dict(), signature_hex, ss58_address)
-        if not is_verified_signature:
-            raise InvalidSignatureException()
+    is_verified_signature = verify_data_signature(message.body.dict(), signature_hex, ss58_address)
+    if not is_verified_signature:
+        raise InvalidSignatureException()
 
-        if message.body.code == MessageCode.MESSAGE_CODE_IDENTIFIER_OK:
-            return peer_socket
-
-    except Exception:
-        logger.info("Error connecting to peer socket", exc_info=True)
+    if message.body.code == MessageCode.MESSAGE_CODE_IDENTIFIER_OK:
+        return peer_socket
 
     return None
 
