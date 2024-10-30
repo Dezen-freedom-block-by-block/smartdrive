@@ -27,7 +27,7 @@ from smartdrive.commune.request import get_filtered_modules
 from smartdrive.models.block import Block
 from smartdrive.models.event import UserEvent, StoreEvent, RemoveEvent, StoreRequestEvent
 from smartdrive.sign import verify_data_signature
-from smartdrive.utils import get_stake_from_user, calculate_storage_capacity
+from smartdrive.validator.utils import get_stake_from_user, calculate_storage_capacity
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.validator.models.models import ModuleType

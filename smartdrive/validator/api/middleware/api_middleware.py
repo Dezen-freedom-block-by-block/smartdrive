@@ -33,7 +33,8 @@ from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.request import get_filtered_modules
 from smartdrive.commune.utils import get_ss58_address_from_public_key
 from smartdrive.sign import verify_data_signature
-from smartdrive.utils import MINIMUM_STAKE, get_stake_from_user
+from smartdrive.utils import MINIMUM_STAKE
+from smartdrive.validator.utils import get_stake_from_user
 from smartdrive.validator.api.endpoints import PING_ENDPOINT, STORE_ENDPOINT, STORE_REQUEST_ENDPOINT
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.models.models import ModuleType

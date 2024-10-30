@@ -45,7 +45,7 @@ class ConfigManager:
 
     def initialize(self, config: Config):
         self.config.key = config.key
-        self.config.data_path = config.database_path
+        self.config.database_path = config.database_path
         self.config.port = config.port
         self.config.testnet = config.testnet
         self.config.netuid = config.netuid
