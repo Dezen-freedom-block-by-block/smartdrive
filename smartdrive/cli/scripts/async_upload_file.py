@@ -29,7 +29,7 @@ import requests
 from substrateinterface import Keypair
 
 from smartdrive.cli.handlers import _get_key
-from smartdrive.utils import _get_validator_url
+from smartdrive.utils import _get_validator_url_async
 from smartdrive.commune.module._protocol import create_headers
 from smartdrive.models.event import StoreInputParams
 from smartdrive.sign import sign_data
@@ -45,7 +45,7 @@ async def _check_permission_store(file_path: str, file_hash: str, file_size_byte
             input_params = {"store_request_event_uuid": store_request_event_uuid}
             signed_data = sign_data(input_params, key)
             headers = create_headers(signed_data, key, show_content_type=False)
-            validator_url = _get_validator_url(key=key, testnet=testnet)
+            validator_url = await _get_validator_url_async(key=key, testnet=testnet)
 
             response = requests.get(
                 url=f"{validator_url}/store/check-permission",
@@ -82,7 +82,7 @@ async def _store_file(file_path: str, file_hash: str, file_size_bytes: int, keyp
             headers["X-File-Size"] = str(file_size_bytes)
             headers["X-Event-UUID"] = event_uuid
             headers["X-File-UUID"] = file_uuid
-            validator_url = _get_validator_url(key=key, testnet=testnet)
+            validator_url = await _get_validator_url_async(key=key, testnet=testnet)
 
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(connect=5, sock_connect=5, total=20 * 60)) as session:
                 async with aiofiles.open(file_path, 'rb') as file:
