@@ -94,7 +94,7 @@ class APIMiddleware(BaseHTTPMiddleware):
 
         if request.url.path in [STORE_REQUEST_ENDPOINT, STORE_ENDPOINT]:
             try:
-                validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR, config_manager.config.testnet)
+                validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR, config_manager.config.testnet, without_address=True)
             except CommuneNetworkUnreachable:
                 return _error_response(404, "Currently the Commune network is unreachable")
 
