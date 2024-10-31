@@ -35,7 +35,7 @@ class ConnectionInfo:
 
 
 class ModuleInfo:
-    def __init__(self, uid: str, ss58_address: Ss58Address, connection: ConnectionInfo, incentives: Optional[int] = None, dividends: Optional[int] = None, stake: Optional[int] = None):
+    def __init__(self, uid: str, ss58_address: Ss58Address, connection: Optional[ConnectionInfo] = None, incentives: Optional[int] = None, dividends: Optional[int] = None, stake: Optional[int] = None):
         self.uid = uid
         self.ss58_address = ss58_address
         self.connection = connection

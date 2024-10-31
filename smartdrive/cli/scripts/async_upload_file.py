@@ -21,7 +21,6 @@
 #  SOFTWARE.
 import asyncio
 import os
-import random
 import sys
 
 import aiofiles
@@ -29,12 +28,9 @@ import aiohttp
 import requests
 from substrateinterface import Keypair
 
-import smartdrive
-from smartdrive.cli.errors import NoValidatorsAvailableException
 from smartdrive.cli.handlers import _get_key
-from smartdrive.commune.errors import CommuneNetworkUnreachable
+from smartdrive.utils import _get_validator_url
 from smartdrive.commune.module._protocol import create_headers
-from smartdrive.commune.request import get_active_validators, EXTENDED_PING_TIMEOUT
 from smartdrive.models.event import StoreInputParams
 from smartdrive.sign import sign_data
 
@@ -49,7 +45,7 @@ async def _check_permission_store(file_path: str, file_hash: str, file_size_byte
             input_params = {"store_request_event_uuid": store_request_event_uuid}
             signed_data = sign_data(input_params, key)
             headers = create_headers(signed_data, key, show_content_type=False)
-            validator_url = await _get_validator_url(key=key, testnet=testnet)
+            validator_url = _get_validator_url(key=key, testnet=testnet)
 
             response = requests.get(
                 url=f"{validator_url}/store/check-permission",
@@ -86,7 +82,7 @@ async def _store_file(file_path: str, file_hash: str, file_size_bytes: int, keyp
             headers["X-File-Size"] = str(file_size_bytes)
             headers["X-Event-UUID"] = event_uuid
             headers["X-File-UUID"] = file_uuid
-            validator_url = await _get_validator_url(key=key, testnet=testnet)
+            validator_url = _get_validator_url(key=key, testnet=testnet)
 
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(connect=5, sock_connect=5, total=20 * 60)) as session:
                 async with aiofiles.open(file_path, 'rb') as file:
@@ -99,31 +95,6 @@ async def _store_file(file_path: str, file_hash: str, file_size_bytes: int, keyp
 
     if os.path.exists(file_path):
         os.remove(file_path)
-
-
-async def _get_validator_url(key: Keypair, testnet: bool = False) -> str:
-    """
-    Get the URL of an active validator.
-
-    Params:
-        key (Keypair): The keypair object.
-        testnet (bool, optional): Flag to indicate if the testnet should be used.
-
-    Returns:
-        str: The URL of an active validator.
-    """
-    netuid = smartdrive.TESTNET_NETUID if testnet else smartdrive.NETUID
-
-    try:
-        validators = await get_active_validators(key, netuid, testnet, EXTENDED_PING_TIMEOUT)
-    except CommuneNetworkUnreachable:
-        raise NoValidatorsAvailableException
-
-    if not validators:
-        raise NoValidatorsAvailableException
-
-    validator = random.choice(validators)
-    return f"https://{validator.connection.ip}:{validator.connection.port}"
 
 
 if __name__ == "__main__":

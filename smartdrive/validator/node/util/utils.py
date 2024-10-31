@@ -33,7 +33,7 @@ from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.node.connection.connection_pool import INACTIVITY_TIMEOUT_SECONDS as VALIDATOR_INACTIVITY_TIMEOUT_SECONDS
 
 
-async def get_proposer_validator(keypair: Keypair, connected_modules: List[ModuleInfo]) -> Tuple[bool, List[ModuleInfo], List[ModuleInfo]]:
+async def get_proposer_validator(keypair: Keypair, connected_modules: List[ModuleInfo], without_address: bool = False) -> Tuple[bool, List[ModuleInfo], List[ModuleInfo]]:
     """
     Determines the proposer validator based on the validators' stake.
 
@@ -41,6 +41,7 @@ async def get_proposer_validator(keypair: Keypair, connected_modules: List[Modul
         is_current_validator_proposer (bool): True if the current validator is the proposer, False otherwise.
         active_validators (List[ModuleInfo]): List of currently active validators.
         all_validators (List[ModuleInfo]): List of all validators in the network.
+        without_address (bool): Flag indicating return validator without address or not
     """
     # Retrieving all active validators is crucial, so we attempt it an optimal number of times.
     # Between each attempt, we wait VALIDATOR_INACTIVITY_TIMEOUT_SECONDS / 2,
@@ -56,7 +57,7 @@ async def get_proposer_validator(keypair: Keypair, connected_modules: List[Modul
 
     # Since the list of active validators never includes the current validator, we need to locate our own
     # validator within the complete list.
-    all_validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR, config_manager.config.testnet)
+    all_validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR, config_manager.config.testnet, without_address=without_address)
     own_validator = next((v for v in all_validators if v.ss58_address == keypair.ss58_address), None)
 
     is_own_validator_truthful = own_validator and own_validator.stake >= TRUTHFUL_STAKE_AMOUNT

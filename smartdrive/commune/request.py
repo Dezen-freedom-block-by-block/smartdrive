@@ -46,7 +46,7 @@ RETRIES = 5
 TIMEOUT = 30
 
 
-async def get_filtered_modules(netuid: int, module_type: ModuleType, testnet: bool, ss58_address: str = None) -> List[ModuleInfo]:
+async def get_filtered_modules(netuid: int, module_type: ModuleType, testnet: bool, ss58_address: str = None, without_address: bool = False) -> List[ModuleInfo]:
     """
     Retrieve a list of miners or validators.
 
@@ -59,6 +59,7 @@ async def get_filtered_modules(netuid: int, module_type: ModuleType, testnet: bo
         module_type (ModuleType): ModuleType.MINER or ModuleType.VALIDATOR.
         testnet (bool): Flag indicating if environment is testnet or not.
         ss58_address (str): Own Ss58 address.
+        without_address (bool): Flag indicating return module without address or not.
 
     Returns:
         List[ModuleInfo]: A list of `ModuleInfo` objects representing miners.
@@ -71,7 +72,9 @@ async def get_filtered_modules(netuid: int, module_type: ModuleType, testnet: bo
 
     for module in modules:
         condition = module.incentives > module.dividends if module_type == ModuleType.MINER else module.incentives < module.dividends
-        if (module.incentives == module.dividends == 0 or condition) and (ss58_address is None or module.ss58_address != ss58_address):
+        if (module.incentives == module.dividends == 0 or condition) and \
+           (ss58_address is None or module.ss58_address != ss58_address) and \
+           (without_address or module.connection is not None):
             result.append(module)
 
     return result
@@ -253,11 +256,12 @@ async def get_modules(netuid: int, testnet: bool, timeout=TIMEOUT) -> List[Modul
                     dividend = uid_to_dividend[netuid][uid]
                     stake_from = ss58_to_stakefrom.get(key, [])
                     stake = sum(stake for _, stake in stake_from)
+                    connection = None
 
                     if address:
                         connection = _get_ip_port(address)
-                        if connection:
-                            modules_info.append(ModuleInfo(uid, key, connection, incentive, dividend, stake))
+
+                    modules_info.append(ModuleInfo(uid, key, connection, incentive, dividend, stake))
 
                 return modules_info
 
