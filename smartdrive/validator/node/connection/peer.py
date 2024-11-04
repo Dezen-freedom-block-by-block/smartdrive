@@ -22,8 +22,10 @@
 
 import queue
 import threading
+import time
 from _socket import SocketType
 from multiprocessing import Value
+from typing import Optional
 
 from communex.compat.key import classic_load_key
 from substrateinterface import Keypair
@@ -49,6 +51,7 @@ from smartdrive.validator.node.connection.utils.utils import send_message, recei
 class Peer(threading.Thread):
     MAX_BLOCKS_SYNC = 500
     MAX_VALIDATION_SYNC = 500
+    MAX_SYNC_TIMEOUT_SECONDS: int = 600  # 10 minutes
 
     _socket: SocketType = None
     _connection: Connection = None
@@ -59,6 +62,9 @@ class Peer(threading.Thread):
     _message_queue: queue.Queue = None
     _initial_sync_completed: Value = None
     _running: bool = True
+    _is_syncing: bool = False
+    _sync_lock: threading.Lock = threading.Lock()
+    _sync_start_time: Optional[float] = None
 
     def __init__(self, connection: Connection, connection_pool: ConnectionPool, event_pool: EventPool, initial_sync_completed: Value):
         threading.Thread.__init__(self)
@@ -167,16 +173,30 @@ class Peer(threading.Thread):
 
             local_block_number = self._database.get_last_block_number() or 0
             if block.block_number - 1 != local_block_number:
+                with Peer._sync_lock:
+                    if Peer._is_syncing:
+                        if time.monotonic() - Peer._sync_start_time < self.MAX_SYNC_TIMEOUT_SECONDS:
+                            logger.debug("Synchronization is already in progress. Skipping new sync request.")
+                            return
+
+                    Peer._is_syncing = True
+                    Peer._sync_start_time = time.monotonic()
+
                 prepare_sync_blocks(start=local_block_number + 1, end=block.block_number, active_connections=self._connection_pool.get_all(), keypair=self._keypair)
             else:
                 self._database.create_block(block)
                 self._event_pool.remove_multiple(block.events)
+
+                with Peer._sync_lock:
+                    Peer._is_syncing = False
 
                 if not self._initial_sync_completed.value:
                     self._initial_sync_completed.value = True
 
         except BlockIntegrityException:
             logger.error(exc_info=True)
+            with self._sync_lock:
+                self._is_syncing = False
 
     def _process_message_sync(self, message: Message):
         start = int(message.body.data['start'])
