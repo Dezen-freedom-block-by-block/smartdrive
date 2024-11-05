@@ -65,6 +65,7 @@ class Peer(threading.Thread):
     _is_syncing: bool = False
     _sync_lock: threading.Lock = threading.Lock()
     _sync_start_time: Optional[float] = None
+    _expected_block_number: int = None
 
     def __init__(self, connection: Connection, connection_pool: ConnectionPool, event_pool: EventPool, initial_sync_completed: Value):
         threading.Thread.__init__(self)
@@ -178,9 +179,9 @@ class Peer(threading.Thread):
                         if time.monotonic() - Peer._sync_start_time < self.MAX_SYNC_TIMEOUT_SECONDS:
                             logger.debug("Synchronization is already in progress. Skipping new sync request.")
                             return
-
                     Peer._is_syncing = True
                     Peer._sync_start_time = time.monotonic()
+                    Peer._expected_block_number = block.block_number
 
                 prepare_sync_blocks(start=local_block_number + 1, end=block.block_number, active_connections=self._connection_pool.get_all(), keypair=self._keypair)
             else:
@@ -189,6 +190,7 @@ class Peer(threading.Thread):
 
                 with Peer._sync_lock:
                     Peer._is_syncing = False
+                    Peer._expected_block_number = None
 
                 if not self._initial_sync_completed.value:
                     self._initial_sync_completed.value = True
@@ -255,3 +257,7 @@ class Peer(threading.Thread):
                 except BlockIntegrityException as e:
                     logger.error(e, exc_info=True)
                     return
+
+                if Peer._expected_block_number and Peer._expected_block_number == block.block_number:
+                    Peer._is_syncing = False
+                    Peer._expected_block_number = None
