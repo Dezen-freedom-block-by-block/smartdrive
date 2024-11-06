@@ -40,7 +40,7 @@ DEFAULT_MINER_PATH = "~/.smartdrive/miner"
 DEFAULT_VALIDATOR_PATH = "~/.smartdrive/validator"
 DEFAULT_CLIENT_PATH = "~/.smartdrive/client"
 
-INTERVAL_CHECK_VERSION_SECONDS = 12 * 60 * 60  # 12 hours
+INTERVAL_CHECK_VERSION_SECONDS = 30 * 60  # 30 min
 
 
 def format_size(size_in_bytes: int) -> str:
