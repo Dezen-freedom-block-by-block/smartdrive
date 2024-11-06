@@ -35,6 +35,7 @@ class MessageCode(Enum):
     MESSAGE_CODE_SYNC = 5
     MESSAGE_CODE_SYNC_BLOCKS_RESPONSE = 6
     MESSAGE_CODE_VALIDATION_EVENTS = 7
+    MESSAGE_CODE_IDENTIFIER_OK = 8
 
 
 class MessageBody(BaseModel):

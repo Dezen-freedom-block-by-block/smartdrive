@@ -58,6 +58,7 @@ class PeerManager(multiprocessing.Process):
     _connection_pool: ConnectionPool = None
     _initial_sync_completed: Value = None
     _keypair: Keypair = None
+    _connecting_validators: set = None
 
     def __init__(self, event_pool: EventPool, initial_sync_completed: Value, connection_pool: ConnectionPool):
         multiprocessing.Process.__init__(self)
@@ -65,6 +66,7 @@ class PeerManager(multiprocessing.Process):
         self._connection_pool = connection_pool
         self._initial_sync_completed = initial_sync_completed
         self._keypair = classic_load_key(config_manager.config.key)
+        self._connecting_validators = set()
 
     def run(self):
         listening_socket = None
@@ -100,15 +102,20 @@ class PeerManager(multiprocessing.Process):
                     peer_socket.close()
                     return
 
-                identification_message = smartdrive.validator.node.connection.utils.utils.receive_msg(peer_socket)
+                json_message = smartdrive.validator.node.connection.utils.utils.receive_msg(peer_socket)
+                message = Message(**json_message)
+                if message.body.code != MessageCode.MESSAGE_CODE_IDENTIFIER:
+                    logger.debug("Invalid message code received")
+                    peer_socket.close()
+                    return
 
-                signature_hex = identification_message["signature_hex"]
-                public_key_hex = identification_message["public_key_hex"]
+                signature_hex = message.signature_hex
+                public_key_hex = message.public_key_hex
                 ss58_address = get_ss58_address_from_public_key(public_key_hex)
 
                 logger.debug(f"Identification message received {ss58_address}")
 
-                is_verified_signature = verify_data_signature(identification_message["body"], signature_hex, ss58_address)
+                is_verified_signature = verify_data_signature(message.body.dict(), signature_hex, ss58_address)
                 if not is_verified_signature:
                     logger.debug(f"Invalid signature for {ss58_address}")
                     peer_socket.close()
@@ -140,8 +147,20 @@ class PeerManager(multiprocessing.Process):
                 #     return
 
                 try:
-                    self._connection_pool.update_or_append(validator_connection.ss58_address, validator_connection, peer_socket)
-                    Peer(peer_socket, ss58_address, self._connection_pool, self._event_pool, self._initial_sync_completed).start()
+                    connection = self._connection_pool.update_or_append(validator_connection.ss58_address, validator_connection, peer_socket)
+
+                    body = MessageBody(
+                        code=MessageCode.MESSAGE_CODE_IDENTIFIER_OK
+                    )
+                    body_sign = sign_data(body.dict(), self._keypair)
+                    message = Message(
+                        body=body,
+                        signature_hex=body_sign.hex(),
+                        public_key_hex=self._keypair.public_key.hex()
+                    )
+                    send_message(connection, message)
+
+                    Peer(connection, self._connection_pool, self._event_pool, self._initial_sync_completed).start()
                     logger.debug(f"Peer {ss58_address} connected from {peer_address}")
                 except ConnectionPoolMaxSizeReached:
                     logger.debug(f"Connection pool full for {ss58_address}", exc_info=True)
@@ -179,7 +198,9 @@ class PeerManager(multiprocessing.Process):
                         if validator.ss58_address not in connected_ss58_addresses and validator.ss58_address != self._keypair.ss58_address
                     ]
                     for validator in new_registered_validators:
-                        threading.Thread(target=self._connect_to_peer, args=(validator,)).start()
+                        if validator.ss58_address not in self._connecting_validators:
+                            self._connecting_validators.add(validator.ss58_address)
+                            threading.Thread(target=self._connect_to_peer, args=(validator,)).start()
 
                 except Exception:
                     logger.error("Error discovering new validators", exc_info=True)
@@ -210,7 +231,7 @@ class PeerManager(multiprocessing.Process):
                         public_key_hex=self._keypair.public_key.hex()
                     )
 
-                    send_message(connection.socket, message)
+                    send_message(connection, message)
 
                 except Exception:
                     logger.debug("Error pinging node")
@@ -226,10 +247,10 @@ class PeerManager(multiprocessing.Process):
 
         try:
             peer_socket = connect_to_peer(self._keypair, validator)
-            self._connection_pool.update_or_append(validator.ss58_address, validator, peer_socket)
-            Peer(peer_socket, validator.ss58_address, self._connection_pool, self._event_pool, self._initial_sync_completed).start()
-            logger.debug(f"Peer {validator.ss58_address} connected and added to the pool")
-
+            if peer_socket:
+                connection = self._connection_pool.update_or_append(validator.ss58_address, validator, peer_socket)
+                Peer(connection, self._connection_pool, self._event_pool, self._initial_sync_completed).start()
+                logger.debug(f"Peer {validator.ss58_address} connected and added to the pool")
         except Exception:
             logger.debug(f"Error connecting to peer {validator.ss58_address}")
 
@@ -237,3 +258,5 @@ class PeerManager(multiprocessing.Process):
 
             if peer_socket:
                 peer_socket.close()
+        finally:
+            self._connecting_validators.discard(validator.ss58_address)

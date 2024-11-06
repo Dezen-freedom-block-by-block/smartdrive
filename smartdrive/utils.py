@@ -21,9 +21,15 @@
 #  SOFTWARE.
 
 import asyncio
+import random
+
+from substrateinterface import Keypair
 
 import smartdrive
 from smartdrive import logger
+from smartdrive.cli.errors import NoValidatorsAvailableException
+from smartdrive.commune.errors import CommuneNetworkUnreachable
+from smartdrive.commune.request import get_active_validators, EXTENDED_PING_TIMEOUT
 
 INITIAL_STORAGE = 50 * 1024 * 1024  # 50 MB
 MAXIMUM_STORAGE = 2 * 1024 * 1024 * 1024  # 2 GB
@@ -34,7 +40,7 @@ DEFAULT_MINER_PATH = "~/.smartdrive/miner"
 DEFAULT_VALIDATOR_PATH = "~/.smartdrive/validator"
 DEFAULT_CLIENT_PATH = "~/.smartdrive/client"
 
-INTERVAL_CHECK_VERSION_SECONDS = 12 * 60 * 60  # 12 hours
+INTERVAL_CHECK_VERSION_SECONDS = 30 * 60  # 30 min
 
 
 def format_size(size_in_bytes: int) -> str:
@@ -60,3 +66,52 @@ async def periodic_version_check():
         logger.info("Checking for updates...")
         smartdrive.check_version()
         await asyncio.sleep(INTERVAL_CHECK_VERSION_SECONDS)
+
+
+async def _get_validator_url_async(key: Keypair, testnet: bool = False) -> str:
+    """
+    Get the URL of an active validator asynchronously.
+
+    Params:
+        key (Keypair): The keypair object.
+        testnet (bool, optional): Flag to indicate if the testnet should be used.
+
+    Returns:
+        str: The URL of an active validator.
+    """
+    netuid = smartdrive.TESTNET_NETUID if testnet else smartdrive.NETUID
+
+    try:
+        validators = await get_active_validators(key, netuid, testnet, EXTENDED_PING_TIMEOUT)
+        valid_validators = [validator for validator in validators if validator.connection is not None]
+    except CommuneNetworkUnreachable:
+        raise NoValidatorsAvailableException
+
+    if not valid_validators:
+        raise NoValidatorsAvailableException
+
+    validator = random.choice(valid_validators)
+    return f"https://{validator.connection.ip}:{validator.connection.port}"
+
+
+def _get_validator_url(key: Keypair, testnet: bool = False) -> str:
+    """
+    Get the URL of an active validator synchronously.
+
+    Params:
+        key (Keypair): The keypair object.
+        testnet (bool, optional): Flag to indicate if the testnet should be used.
+
+    Returns:
+        str: The URL of an active validator.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop:
+        coro = _get_validator_url_async(key, testnet)
+        return loop.run_until_complete(asyncio.ensure_future(coro))
+    else:
+        return asyncio.run(_get_validator_url_async(key, testnet))

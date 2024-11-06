@@ -19,13 +19,15 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
+
 import queue
 import threading
+import time
 from _socket import SocketType
 from multiprocessing import Value
+from typing import Optional
 
 from communex.compat.key import classic_load_key
-from communex.types import Ss58Address
 from substrateinterface import Keypair
 
 import smartdrive
@@ -37,7 +39,7 @@ from smartdrive.validator.api.middleware.api_middleware import get_ss58_address_
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.database.database import Database
 from smartdrive.models.block import BlockEvent, block_event_to_block, Block
-from smartdrive.validator.node.connection.connection_pool import ConnectionPool
+from smartdrive.validator.node.connection.connection_pool import ConnectionPool, Connection
 from smartdrive.validator.node.event.event_pool import EventPool
 from smartdrive.validator.node.util.block_integrity import check_block_integrity
 from smartdrive.validator.node.util.exceptions import ClientDisconnectedException, MessageFormatException, InvalidSignatureException, BlockIntegrityException
@@ -49,9 +51,10 @@ from smartdrive.validator.node.connection.utils.utils import send_message, recei
 class Peer(threading.Thread):
     MAX_BLOCKS_SYNC = 500
     MAX_VALIDATION_SYNC = 500
+    MAX_SYNC_TIMEOUT_SECONDS: int = 600  # 10 minutes
 
     _socket: SocketType = None
-    _connection_identifier: Ss58Address = None
+    _connection: Connection = None
     _connection_pool: ConnectionPool = None
     _event_pool: EventPool = None
     _keypair: Keypair = None
@@ -59,11 +62,14 @@ class Peer(threading.Thread):
     _message_queue: queue.Queue = None
     _initial_sync_completed: Value = None
     _running: bool = True
+    _is_syncing: bool = False
+    _sync_lock: threading.Lock = threading.Lock()
+    _sync_start_time: Optional[float] = None
+    _expected_block_number: int = None
 
-    def __init__(self, socket: SocketType, connection_identifier: Ss58Address, connection_pool: ConnectionPool, event_pool: EventPool, initial_sync_completed: Value):
+    def __init__(self, connection: Connection, connection_pool: ConnectionPool, event_pool: EventPool, initial_sync_completed: Value):
         threading.Thread.__init__(self)
-        self._socket = socket
-        self._connection_identifier = connection_identifier
+        self._connection = connection
         self._connection_pool = connection_pool
         self._event_pool = event_pool
         self._initial_sync_completed = initial_sync_completed
@@ -77,13 +83,13 @@ class Peer(threading.Thread):
         while True:
             try:
                 # Here the process is waiting till a new message is received
-                json_message = receive_msg(self._socket)
+                json_message = receive_msg(self._connection.socket)
                 self._message_queue.put(json_message)
             except (ConnectionResetError, ConnectionAbortedError, ClientDisconnectedException):
-                logger.debug(f"Peer {self._connection_identifier} disconnected")
+                logger.debug(f"Peer {self._connection.module.ss58_address} disconnected")
                 break
             except Exception:
-                logger.error(f"Unexpected error in connection {self._connection_identifier}", exc_info=True)
+                logger.error(f"Unexpected error in connection {self._connection.module.ss58_address}", exc_info=True)
                 break
         self._running = False
 
@@ -132,10 +138,10 @@ class Peer(threading.Thread):
                     signature_hex=body_sign.hex(),
                     public_key_hex=self._keypair.public_key.hex()
                 )
-                send_message(self._socket, message)
+                send_message(self._connection, message)
 
             elif message.body.code == MessageCode.MESSAGE_CODE_PONG:
-                self._connection_pool.update_ping(self._connection_identifier)
+                self._connection_pool.update_ping(self._connection.module.ss58_address)
 
             elif message.body.code == MessageCode.MESSAGE_CODE_SYNC:
                 self._process_message_sync(message)
@@ -168,16 +174,31 @@ class Peer(threading.Thread):
 
             local_block_number = self._database.get_last_block_number() or 0
             if block.block_number - 1 != local_block_number:
+                with Peer._sync_lock:
+                    if Peer._is_syncing:
+                        if time.monotonic() - Peer._sync_start_time < self.MAX_SYNC_TIMEOUT_SECONDS:
+                            logger.debug("Synchronization is already in progress. Skipping new sync request.")
+                            return
+                    Peer._is_syncing = True
+                    Peer._sync_start_time = time.monotonic()
+                    Peer._expected_block_number = block.block_number
+
                 prepare_sync_blocks(start=local_block_number + 1, end=block.block_number, active_connections=self._connection_pool.get_all(), keypair=self._keypair)
             else:
                 self._database.create_block(block)
                 self._event_pool.remove_multiple(block.events)
+
+                with Peer._sync_lock:
+                    Peer._is_syncing = False
+                    Peer._expected_block_number = None
 
                 if not self._initial_sync_completed.value:
                     self._initial_sync_completed.value = True
 
         except BlockIntegrityException:
             logger.error(exc_info=True)
+            with self._sync_lock:
+                self._is_syncing = False
 
     def _process_message_sync(self, message: Message):
         start = int(message.body.data['start'])
@@ -204,7 +225,7 @@ class Peer(threading.Thread):
                         signature_hex=body_sign.hex(),
                         public_key_hex=self._keypair.public_key.hex()
                     )
-                    send_message(self._socket, message)
+                    send_message(self._connection, message)
 
             for event in self._event_pool.get_all():
                 message_event = MessageEvent.from_json(event.dict(), event.get_event_action())
@@ -218,7 +239,7 @@ class Peer(threading.Thread):
                     signature_hex=body_sign.hex(),
                     public_key_hex=self._keypair.public_key.hex()
                 )
-                send_message(self._socket, message)
+                send_message(self._connection, message)
 
     def _process_message_sync_blocks_response(self, message: Message):
         if message.body.data["blocks"]:
@@ -236,3 +257,7 @@ class Peer(threading.Thread):
                 except BlockIntegrityException as e:
                     logger.error(e, exc_info=True)
                     return
+
+                if Peer._expected_block_number and Peer._expected_block_number == block.block_number:
+                    Peer._is_syncing = False
+                    Peer._expected_block_number = None
