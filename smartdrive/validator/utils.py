@@ -22,6 +22,7 @@
 
 import asyncio
 import random
+from typing import List
 
 from communex.balance import from_nano
 from communex.types import Ss58Address
@@ -55,7 +56,7 @@ def prepare_sync_blocks(start, keypair, end=None, active_connections=None):
         asyncio.run(_prepare_sync_blocks())
 
 
-async def get_synced_blocks(start: int, connections: list[Connection], keypair, end: int = None):
+async def get_synced_blocks(start: int, connections: List[Connection], keypair, end: int = None):
     async def _get_synced_blocks(connection: Connection):
         try:
             body = MessageBody(

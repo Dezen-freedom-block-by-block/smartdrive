@@ -69,11 +69,11 @@ class ConnectionPool:
 
         return None
 
-    def get_all(self) -> list[Connection]:
+    def get_all(self) -> List[Connection]:
         # Ignore the warning, the values method is returning the values not a list[tuple[_KT, _VT]]
         return self._connections.values()
 
-    def get_identifiers(self) -> list[Ss58Address]:
+    def get_identifiers(self) -> List[Ss58Address]:
         return self._connections.keys()
 
     def get_actives(self, identifier) -> Optional[Connection]:
@@ -116,7 +116,7 @@ class ConnectionPool:
     def remove(self, identifier: Ss58Address):
         self._connections.pop(identifier, None)
 
-    def remove_multiple(self, identifiers: list[Ss58Address]) -> list[SocketType]:
+    def remove_multiple(self, identifiers: List[Ss58Address]) -> List[SocketType]:
         sockets = []
         with self._lock:
             for identifier in identifiers:
@@ -125,7 +125,7 @@ class ConnectionPool:
                     sockets.append(connection.socket)
         return sockets
 
-    def remove_inactive(self) -> list[SocketType]:
+    def remove_inactive(self) -> List[SocketType]:
         with self._lock:
             current_time = time.monotonic()
             connections_to_remove = [identifier for identifier, c in self._connections.items() if current_time - c.ping > INACTIVITY_TIMEOUT_SECONDS]

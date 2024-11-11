@@ -22,7 +22,7 @@
 
 import json
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, List
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -39,10 +39,10 @@ from communex.module import _signer as signer
 class CustomInputHandlerVerifier(InputHandlerVerifier):
     def __init__(
             self,
-            subnets_whitelist: list[int] | None,
+            subnets_whitelist: List[int] | None,
             module_key: Ss58Address,
             request_staleness: int,
-            blockchain_cache: TTLDict[str, list[Ss58Address]],
+            blockchain_cache: TTLDict[str, List[Ss58Address]],
             host_key: Keypair,
             use_testnet: bool,
     ):
