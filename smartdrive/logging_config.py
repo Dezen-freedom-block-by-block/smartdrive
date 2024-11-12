@@ -21,11 +21,21 @@
 #  SOFTWARE.
 
 import logging
+import sys
 
 logger = logging.getLogger('smartdrive')
-logger.setLevel(logging.INFO)
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
+
 formatter = logging.Formatter('%(levelname)s: %(message)s')
-console_handler.setFormatter(formatter)
-logger.addHandler(console_handler)
+
+out_handler = logging.StreamHandler(sys.stdout)
+out_handler.setLevel(logging.DEBUG)
+out_handler.addFilter((lambda record: record.levelno <= logging.INFO))
+out_handler.setFormatter(formatter)
+
+err_handler = logging.StreamHandler(sys.stderr)
+err_handler.setLevel(logging.WARNING)
+err_handler.setFormatter(formatter)
+
+logger.addHandler(out_handler)
+logger.addHandler(err_handler)
