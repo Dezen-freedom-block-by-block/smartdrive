@@ -53,7 +53,7 @@ class PeerManager(multiprocessing.Process):
     MAX_N_CONNECTIONS = MAX_ALLOWED_UIDS - 1
     IDENTIFIER_TIMEOUT_SECONDS = 5
     CONNECTION_PROCESS_TIMEOUT_SECONDS = 10
-    TCP_RESTART_INTERVAL_SECONDS = 12 * 60 * 60  # 12 hours
+    TCP_RESTART_INTERVAL_SECONDS = 8 * 60 * 60  # 8 hours
 
     _event_pool: EventPool = None
     _connection_pool: ConnectionPool = None
