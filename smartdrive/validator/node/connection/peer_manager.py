@@ -53,6 +53,7 @@ class PeerManager(multiprocessing.Process):
     MAX_N_CONNECTIONS = MAX_ALLOWED_UIDS - 1
     IDENTIFIER_TIMEOUT_SECONDS = 5
     CONNECTION_PROCESS_TIMEOUT_SECONDS = 10
+    TCP_RESTART_INTERVAL_SECONDS = 8 * 60 * 60  # 8 hours
 
     _event_pool: EventPool = None
     _connection_pool: ConnectionPool = None
@@ -74,6 +75,7 @@ class PeerManager(multiprocessing.Process):
         try:
             threading.Thread(target=self._discovery).start()
             threading.Thread(target=self._periodically_ping_nodes).start()
+            threading.Thread(target=self._restart_connections_periodically).start()
 
             listening_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             listening_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -241,6 +243,22 @@ class PeerManager(multiprocessing.Process):
                 inactive_connection.close()
 
             sleep(PING_INTERVAL_SECONDS)
+
+    def _restart_connections_periodically(self):
+        while True:
+            sleep(self.TCP_RESTART_INTERVAL_SECONDS)
+            connections = self._connection_pool.get_all()
+            for connection in connections:
+                try:
+                    _, writable, _ = select.select([], [connection.socket], [], 5)
+                    if writable:
+                        logger.info(f"Restarting connection to {connection.module.ss58_address}")
+                        self._connection_pool.remove(connection.module.ss58_address)
+                        connection.socket.shutdown(socket.SHUT_RDWR)
+                        connection.socket.close()
+
+                except Exception as e:
+                    logger.error(f"Error restarting connection for {connection.module.ss58_address}: {e}")
 
     def _connect_to_peer(self, validator: ModuleInfo):
         peer_socket = None

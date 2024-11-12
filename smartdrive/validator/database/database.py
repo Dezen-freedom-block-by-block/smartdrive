@@ -224,7 +224,7 @@ class Database:
                 connection.close()
         return result
 
-    def get_files_by_user(self, user_ss58_address: str) -> list[File]:
+    def get_files_by_user(self, user_ss58_address: str) -> List[File]:
         """
         Get all files and their associated chunks from the database for a specific user
         identified by their SS58 address.
@@ -292,7 +292,7 @@ class Database:
 
         return result
 
-    def get_unique_user_ss58_addresses(self) -> list[str]:
+    def get_unique_user_ss58_addresses(self) -> List[str]:
         """
         Get all unique user_ss58_address from the database.
 
@@ -454,7 +454,7 @@ class Database:
         Raises:
             sqlite3.Error: If there is an error accessing the database.
         """
-        validation_events: list[ValidationEvent] = []
+        validation_events: List[ValidationEvent] = []
         connection = None
         try:
             connection = sqlite3.connect(self._database_file_path)
@@ -589,7 +589,7 @@ class Database:
         Raises:
             sqlite3.Error: If there is an error accessing the database.
         """
-        validation_events: list[ValidationEvent] = []
+        validation_events: List[ValidationEvent] = []
         connection = None
         try:
             connection = sqlite3.connect(self._database_file_path)
@@ -871,7 +871,7 @@ class Database:
             if connection:
                 connection.close()
 
-    def insert_validation_events(self, validation_events: list[ValidationEvent]) -> bool:
+    def insert_validation_events(self, validation_events: List[ValidationEvent]) -> bool:
         """
         Insert a list of validation events into the validation table.
 
@@ -909,7 +909,7 @@ class Database:
             if connection:
                 connection.close()
 
-    def get_random_validation_events_without_expiration_per_miners(self, miners: list[ModuleInfo]) -> list[ValidationEvent] | None:
+    def get_random_validation_events_without_expiration_per_miners(self, miners: List[ModuleInfo]) -> List[ValidationEvent] | None:
         """
         Retrieves only one random validation event per miner for the given registered miners from the database.
 

@@ -19,12 +19,13 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
+from typing import List
 
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.validator.models.models import MinerWithChunk
 
 
-def compile_miners_info_and_chunks(miners: list[ModuleInfo], miner_chunks: list[MinerWithChunk]) -> list:
+def compile_miners_info_and_chunks(miners: List[ModuleInfo], miner_chunks: List[MinerWithChunk]) -> List:
     """
     This function matches active miners with their corresponding chunks and compiles
     the relevant information into a list of dictionaries.

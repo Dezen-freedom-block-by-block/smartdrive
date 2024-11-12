@@ -20,7 +20,7 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 
-from typing import Union
+from typing import Union, List
 from pydantic import BaseModel
 
 from communex.types import Ss58Address
@@ -33,13 +33,13 @@ MAX_EVENTS_PER_BLOCK = 100
 
 class Block(BaseModel):
     block_number: int
-    events: list[Union[StoreEvent, RemoveEvent, StoreRequestEvent]]
+    events: List[Union[StoreEvent, RemoveEvent, StoreRequestEvent]]
     signed_block: str
     proposer_ss58_address: Ss58Address
 
 
 class BlockEvent(Block):
-    events: list[MessageEvent]
+    events: List[MessageEvent]
 
 
 def block_to_block_event(block: Block) -> BlockEvent:

@@ -41,7 +41,7 @@ from smartdrive.validator.database.database import Database
 from smartdrive.validator.evaluation.utils import generate_data
 
 
-async def validate(miners: list[ModuleInfo], database: Database, key: Keypair) -> Optional[dict[int, bool]]:
+async def validate(miners: List[ModuleInfo], database: Database, key: Keypair) -> Optional[dict[int, bool]]:
     """
     This function retrieves the current validations from the network and performs the following processes:
     1. Separates the current validations into validations with expiration and validations without expiration.
@@ -182,7 +182,7 @@ async def _remove_expired_validations(validation_events_expired: List[Validation
     await asyncio.gather(*tasks, return_exceptions=True)
 
 
-async def _validate_miners(validation_events_not_expired: list[ValidationEvent], miners: list[ModuleInfo], keypair: Keypair) -> dict[int, bool]:
+async def _validate_miners(validation_events_not_expired: List[ValidationEvent], miners: List[ModuleInfo], keypair: Keypair) -> dict[int, bool]:
     """
     Validates the stored chunks across miners.
 
@@ -220,7 +220,7 @@ async def _validate_miners(validation_events_not_expired: list[ValidationEvent],
     return result_miners
 
 
-def _determine_miners_to_store(validations_with_expiration: list[ValidationEvent], validation_events_expired: list[ValidationEvent], miners: list[ModuleInfo]):
+def _determine_miners_to_store(validations_with_expiration: List[ValidationEvent], validation_events_expired: List[ValidationEvent], miners: List[ModuleInfo]):
     """
     Determines which miners should store new files.
 

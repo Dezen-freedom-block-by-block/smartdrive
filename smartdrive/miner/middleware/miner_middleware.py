@@ -23,7 +23,7 @@
 import random
 from substrateinterface import Keypair
 from fastapi import Request, Response
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, List
 from starlette.types import ASGIApp
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -46,13 +46,13 @@ class MinerMiddleware(BaseHTTPMiddleware):
             app: ASGIApp,
             key: Keypair,
             max_request_staleness: int = 120,
-            whitelist: list[Ss58Address] | None = None,
-            blacklist: list[Ss58Address] | None = None,
-            subnets_whitelist: list[int] | None = None,
+            whitelist: List[Ss58Address] | None = None,
+            blacklist: List[Ss58Address] | None = None,
+            subnets_whitelist: List[int] | None = None,
             lower_ttl: int = 600,
             upper_ttl: int = 700,
             limiter: StakeLimiterParams | IpLimiterParams = StakeLimiterParams(),
-            ip_blacklist: list[str] | None = None,
+            ip_blacklist: List[str] | None = None,
             use_testnet: bool = False
     ):
         super().__init__(app)
@@ -60,10 +60,10 @@ class MinerMiddleware(BaseHTTPMiddleware):
         self.key = key
         self.max_request_staleness = max_request_staleness
         ttl = random.randint(lower_ttl, upper_ttl)
-        self._blockchain_cache = TTLDict[str, list[Ss58Address]](ttl)
+        self._blockchain_cache = TTLDict[str, List[Ss58Address]](ttl)
         self._ip_blacklist = ip_blacklist
-        whitelist_: list[Ss58Address] = [] if whitelist is None else whitelist
-        blacklist_: list[Ss58Address] = [] if blacklist is None else blacklist
+        whitelist_: List[Ss58Address] = [] if whitelist is None else whitelist
+        blacklist_: List[Ss58Address] = [] if blacklist is None else blacklist
         self._whitelist = whitelist_
         self._blacklist = blacklist_
 

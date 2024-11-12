@@ -12,7 +12,7 @@ from smartdrive.commune.models import ModuleInfo, ConnectionInfo
 from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 
 
-def filter_truthful_validators(active_validators: list[ModuleInfo]) -> List[ModuleInfo]:
+def filter_truthful_validators(active_validators: List[ModuleInfo]) -> List[ModuleInfo]:
     return list(filter(lambda validator: validator.stake > TRUTHFUL_STAKE_AMOUNT, active_validators))
 
 
