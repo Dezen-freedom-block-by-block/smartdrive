@@ -40,6 +40,7 @@ from communex.types import Ss58Address
 class Database:
     _database_file_path = None
     _database_export_file_path = None
+    LATEST_SCHEMA_VERSION = 1
 
     def __init__(self):
         """
@@ -55,7 +56,25 @@ class Database:
         self._database_file_path = config_manager.config.database_file
         self._database_export_file_path = config_manager.config.database_export_file
 
-        if not self._database_exists():
+        if self._database_exists():
+            create_version_table = '''
+                CREATE TABLE IF NOT EXISTS schema_version (
+                    version INTEGER PRIMARY KEY
+                )
+            '''
+
+            connection = sqlite3.connect(self._database_file_path)
+            with connection:
+                cursor = connection.cursor()
+                cursor.execute("PRAGMA auto_vacuum=FULL;")
+                try:
+                    _create_table_if_not_exists(cursor, 'schema_version', create_version_table)
+                    connection.commit()
+
+                except sqlite3.Error:
+                    logger.error("Database error", exc_info=True)
+                    raise
+        else:
             connection = sqlite3.connect(self._database_file_path)
             with connection:
                 cursor = connection.cursor()
@@ -138,6 +157,56 @@ class Database:
                     logger.error("Database error", exc_info=True)
                     self._delete_database()
                     raise
+
+        self._run_migrations()
+
+    def _run_migrations(self):
+        migrations = {
+            1: self._migrate_to_version_1
+        }
+
+        connection = sqlite3.connect(self._database_file_path)
+        with connection:
+            cursor = connection.cursor()
+            current_version = self._get_current_version(cursor=cursor)
+
+            for version in sorted(migrations.keys()):
+                if current_version < self.LATEST_SCHEMA_VERSION and current_version < version:
+                    migrations[version](cursor)
+                    current_version = version
+                    cursor.execute("INSERT INTO schema_version (version) VALUES (?)", (version,))
+                    connection.commit()
+                    logger.info(f"Database schema updated to version {version}")
+
+    def _migrate_to_version_1(self, cursor: Cursor):
+        # Initial version of database
+        pass
+
+    def _get_current_version(self, cursor: Cursor) -> int:
+        """
+        Get the current schema version of the database.
+
+        This function retrieves the maximum version number from the schema_version table,
+        representing the current version of the database schema.
+
+        Params:
+            cursor: The database cursor to execute the query.
+
+        Returns:
+            int: The current schema version. Returns 0 if no version is found.
+
+        Raises:
+            None explicitly, but logs an error message if an SQLite error occurs.
+        """
+        try:
+            cursor.execute("SELECT MAX(version) FROM schema_version")
+            row = cursor.fetchone()
+            current_version = row[0] if row and row[0] is not None else 0
+        except sqlite3.Error:
+            logger.error("Database error while retrieving schema version", exc_info=True)
+            current_version = 0
+
+        return current_version
 
     def _database_exists(self) -> bool:
         """
