@@ -23,7 +23,6 @@
 import os
 import re
 import subprocess
-from subprocess import run
 from pathlib import Path
 import tomli
 import requests
@@ -82,10 +81,14 @@ def check_version():
     # If version in GitHub is greater, update module.
     if version_str_to_num(__version__) < version_str_to_num(latest_version) and latest_version is not None:
         logger.info(f"Updating to the latest version ({latest_version})...")
-        subprocess.run(["git", "reset", "--hard"], cwd=root_directory)
-        run(["git", "pull"], cwd=root_directory)
-        run(["pip", "install", "-e", "."], cwd=root_directory)
-        exit(0)
+        try:
+            subprocess.run(["git", "reset", "--hard"], cwd=root_directory, check=True)
+            subprocess.run(["git", "pull"], cwd=root_directory, timeout=60, check=True)
+            subprocess.run(["pip", "install", "-e", "."], cwd=root_directory, timeout=60, check=True)
+        except Exception as e:
+            logger.error(f"Unexpected error during installation: {e}")
+        else:
+            exit(0)
 
 
 def get_latest_version() -> str:
