@@ -56,25 +56,7 @@ class Database:
         self._database_file_path = config_manager.config.database_file
         self._database_export_file_path = config_manager.config.database_export_file
 
-        if self._database_exists():
-            create_version_table = '''
-                CREATE TABLE IF NOT EXISTS schema_version (
-                    version INTEGER PRIMARY KEY
-                )
-            '''
-
-            connection = sqlite3.connect(self._database_file_path)
-            with connection:
-                cursor = connection.cursor()
-                cursor.execute("PRAGMA auto_vacuum=FULL;")
-                try:
-                    _create_table_if_not_exists(cursor, 'schema_version', create_version_table)
-                    connection.commit()
-
-                except sqlite3.Error:
-                    logger.error("Database error", exc_info=True)
-                    raise
-        else:
+        if not self._database_exists():
             connection = sqlite3.connect(self._database_file_path)
             with connection:
                 cursor = connection.cursor()
@@ -179,8 +161,20 @@ class Database:
                     logger.info(f"Database schema updated to version {version}")
 
     def _migrate_to_version_1(self, cursor: Cursor):
-        # Initial version of database
-        pass
+        """
+        Migration for version 1.
+        Adds schema_version table.
+        """
+        try:
+            create_version_table = '''
+                CREATE TABLE schema_version (
+                    version INTEGER PRIMARY KEY
+                )
+            '''
+            _create_table_if_not_exists(cursor, 'schema_version', create_version_table)
+        except sqlite3.Error as e:
+            logger.error("Error during migration to version 1", exc_info=True)
+            raise e
 
     def _get_current_version(self, cursor: Cursor) -> int:
         """
