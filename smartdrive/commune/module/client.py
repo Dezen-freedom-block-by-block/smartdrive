@@ -38,6 +38,8 @@ requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 
 class ModuleClient:
+    CONNECTION_TIMEOUT_SECONDS = 15
+
     host: str
     port: int
     key: Keypair
@@ -77,7 +79,7 @@ class ModuleClient:
             else:
                 raise Exception(f"Unknown content type: {content_type}")
         try:
-            async with ClientSession(timeout=aiohttp.ClientTimeout(connect=5, sock_connect=5, total=timeout)) as session:
+            async with ClientSession(timeout=aiohttp.ClientTimeout(connect=self.CONNECTION_TIMEOUT_SECONDS, sock_connect=self.CONNECTION_TIMEOUT_SECONDS, total=timeout)) as session:
                 if file:
                     file_size = os.path.getsize(file["chunk"])
                     file_hash = await calculate_hash(file["chunk"])
