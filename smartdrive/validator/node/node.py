@@ -21,7 +21,6 @@
 #  SOFTWARE.
 
 import multiprocessing
-from multiprocessing import Value
 from typing import Union, List
 
 from communex.compat.key import classic_load_key
@@ -35,7 +34,8 @@ from smartdrive.validator.database.database import Database
 from smartdrive.validator.node.connection.connection_pool import ConnectionPool, Connection
 from smartdrive.validator.node.connection.peer_manager import PeerManager
 from smartdrive.validator.node.event.event_pool import EventPool
-from smartdrive.validator.node.util.block_integrity import verify_event_signatures
+from smartdrive.validator.node.sync_service import SyncService
+from smartdrive.validator.node.block.integrity import verify_event_signatures
 from smartdrive.validator.node.util.message import MessageCode, Message, MessageBody
 from smartdrive.validator.node.connection.utils.utils import send_message
 
@@ -44,7 +44,7 @@ class Node:
     _keypair: Keypair
     _event_pool: EventPool = None
     connection_pool: ConnectionPool = None
-    initial_sync_completed: Value = None
+    sync_service: SyncService = None
     _database: Database = None
 
     def __init__(self):
@@ -53,13 +53,13 @@ class Node:
         manager = multiprocessing.Manager()
         self._event_pool = EventPool(manager)
         self.connection_pool = ConnectionPool(manager=manager, cache_size=PeerManager.MAX_N_CONNECTIONS)
-        self.initial_sync_completed = Value('b', False)
+        self.sync_service = SyncService()
         self._database = Database()
 
         connection_manager = PeerManager(
             event_pool=self._event_pool,
             connection_pool=self.connection_pool,
-            initial_sync_completed=self.initial_sync_completed
+            sync_service=self.sync_service
         )
         connection_manager.daemon = True
         connection_manager.start()

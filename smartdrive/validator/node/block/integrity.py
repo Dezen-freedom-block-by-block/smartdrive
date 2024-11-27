@@ -34,16 +34,19 @@ from smartdrive.validator.models.models import ModuleType
 from smartdrive.validator.node.util.exceptions import BlockIntegrityException, InvalidSignatureException, InvalidStorageRequestException
 
 
-def check_block_integrity(block: Block, database: Database):
-    if get_invalid_events(block.events, database):
-        raise BlockIntegrityException(f"Invalid events in {block}")
+def check_block_integrity(previous_block: Block, current_block: Block, database: Database):
+    if get_invalid_events(current_block.events, database):
+        raise BlockIntegrityException(f"Invalid events in {current_block}")
 
     if not verify_data_signature(
-            data={"block_number": block.block_number, "events": [event.dict() for event in block.events]},
-            signature_hex=block.signed_block,
-            ss58_address=block.proposer_ss58_address
+            data={"block_number": current_block.block_number, "events": [event.dict() for event in current_block.events]},
+            signature_hex=current_block.signed_block,
+            ss58_address=current_block.proposer_ss58_address
     ):
-        raise BlockIntegrityException(f"Block {block.block_number} data signature not verified")
+        raise BlockIntegrityException(f"Block {current_block.block_number} data signature not verified")
+
+    if not is_block_valid(previous_block=previous_block, current_block=current_block):
+        raise BlockIntegrityException(f"Block {current_block.block_number} is not valid")
 
 
 def get_invalid_events(events: List[Union[StoreEvent, RemoveEvent, StoreRequestEvent]], database: Database) -> Union[List[Tuple[Union[StoreEvent, RemoveEvent, StoreRequestEvent], Exception]], asyncio.Task]:
@@ -126,3 +129,11 @@ def verify_event_signatures(event: Union[StoreEvent, RemoveEvent, StoreRequestEv
 
     if not input_params_verified or not event_params_verified:
         raise InvalidSignatureException()
+
+
+def is_block_valid(previous_block: Block, current_block: Block) -> bool:
+    # Check if the hash of the current block is correct or the current block points to the correct previous block
+    if (current_block.hash != current_block.create_hash()) or (current_block.previous_hash != previous_block.hash):
+        return False
+
+    return True

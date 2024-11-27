@@ -19,7 +19,7 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
-
+import json
 import os
 import sqlite3
 import time
@@ -40,7 +40,7 @@ from communex.types import Ss58Address
 class Database:
     _database_file_path = None
     _database_export_file_path = None
-    LATEST_SCHEMA_VERSION = 1
+    LATEST_SCHEMA_VERSION = 2
 
     def __init__(self):
         """
@@ -144,7 +144,8 @@ class Database:
 
     def _run_migrations(self):
         migrations = {
-            1: self._migrate_to_version_1
+            1: self._migrate_to_version_1,
+            2: self._migrate_to_version_2
         }
 
         connection = sqlite3.connect(self._database_file_path)
@@ -176,6 +177,40 @@ class Database:
             logger.error("Error during migration to version 1", exc_info=True)
             raise e
 
+    def _migrate_to_version_2(self, cursor: Cursor):
+        """
+        Migration for version 2.
+        Adds 'previous_hash' and 'hash' fields to the 'block' table.
+        """
+        try:
+            cursor.execute("ALTER TABLE block ADD COLUMN previous_hash TEXT")
+            cursor.execute("ALTER TABLE block ADD COLUMN hash TEXT")
+
+            tables_to_clear = ["chunk", "file", "events", "block"]
+            for table in tables_to_clear:
+                cursor.execute(f"DELETE FROM {table}")
+
+            if os.path.exists("genesis_block.json"):
+                with open("genesis_block.json", 'r') as file:
+                    data = json.load(file)
+                    genesis_block = Block.from_json(data)
+
+                if not genesis_block:
+                    raise ValueError("Invalid genesis block data")
+
+                cursor.execute('''
+                    INSERT INTO block (id, proposer_ss58_address, signed_block, hash, previous_hash)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (
+                    genesis_block.block_number,
+                    genesis_block.proposer_ss58_address,
+                    genesis_block.signed_block,
+                    genesis_block.hash,
+                    genesis_block.previous_hash
+                ))
+        except sqlite3.Error:
+            logger.error("Error during migration to version 2", exc_info=True)
+
     def _get_current_version(self, cursor: Cursor) -> int:
         """
         Get the current schema version of the database.
@@ -193,6 +228,10 @@ class Database:
             None explicitly, but logs an error message if an SQLite error occurs.
         """
         try:
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'")
+            if not cursor.fetchone():
+                return 0
+
             cursor.execute("SELECT MAX(version) FROM schema_version")
             row = cursor.fetchone()
             current_version = row[0] if row and row[0] is not None else 0
@@ -723,33 +762,12 @@ class Database:
             cursor.execute("DELETE FROM validation WHERE file_uuid = ?", (file_uuid,))
             return True
 
-    def get_last_block_number(self) -> Optional[int]:
-        """
-        Retrieves the latest database block number, if exists.
-
-        Returns:
-            Optional[int]: The latest database block number as an integer if successful, or None if
-            an error occurs or if the 'block' table is empty.
-        """
-        connection = None
-        try:
-            connection = sqlite3.connect(self._database_file_path)
-            cursor = connection.cursor()
-            cursor.execute("SELECT id FROM block ORDER BY id DESC LIMIT 1")
-            result = cursor.fetchone()
-            return result[0] if result else None
-        except sqlite3.Error:
-            logger.error("Database error", exc_info=True)
-            return None
-        finally:
-            if connection:
-                connection.close()
-
-    def create_block(self, block: Block) -> bool:
+    def create_block(self, previous_hash: str, block: Block) -> bool:
         """
         Creates a block in the database with its associated events.
 
         Parameters:
+            previous_hash (str): The previous block's hash.
             block (Block): The block to be created in the database.
 
         Returns:
@@ -774,8 +792,8 @@ class Database:
                         return False
 
                 cursor.execute(
-                    'INSERT INTO block (id, proposer_ss58_address, signed_block) VALUES (?, ?, ?)',
-                    (block.block_number, block.proposer_ss58_address, block.signed_block)
+                    'INSERT INTO block (id, proposer_ss58_address, signed_block, previous_hash, hash) VALUES (?, ?, ?, ?, ?)',
+                    (block.block_number, block.proposer_ss58_address, block.signed_block, previous_hash, block.hash)
                 )
 
                 for event in block.events:
@@ -865,13 +883,86 @@ class Database:
             (event.uuid, validator_ss58_address, event_type, file_uuid, event_signed_params, user_ss58_address, file_hash, input_signed_params, block_id, file_size_bytes, expiration_at, approved)
         )
 
-    def get_blocks(self, start: int, end: int) -> Optional[List[Block]]:
-        """
-        Retrieve blocks and their associated events from the database.
+    def remove_block(self, block_number: int):
+        connection = None
+        try:
+            connection = sqlite3.connect(self._database_file_path)
+            connection.row_factory = sqlite3.Row
+            cursor = connection.cursor()
 
-        Params:
-            start (int): The starting block ID.
-            end (int): The ending block ID.
+            cursor.execute('SELECT id, hash FROM block WHERE id = ?', (block_number,))
+            block = cursor.fetchone()
+            if not block:
+                return
+
+            cursor.execute(
+                '''
+                DELETE FROM chunk
+                WHERE event_uuid IN (
+                    SELECT uuid
+                    FROM events
+                    WHERE block_id = ?
+                )
+                ''',
+                (block_number,)
+            )
+
+            cursor.execute(
+                '''
+                DELETE FROM file
+                WHERE uuid IN (
+                    SELECT file_uuid
+                    FROM events
+                    WHERE block_id = ?
+                )
+                ''',
+                (block_number,)
+            )
+
+            cursor.execute(
+                '''
+                DELETE FROM events
+                WHERE block_id = ?
+                ''',
+                (block_number,)
+            )
+
+            cursor.execute(
+                '''
+                DELETE FROM block
+                WHERE id = ?
+                ''',
+                (block_number,)
+            )
+
+            connection.commit()
+            logger.info(f"Block {block_number} and its associated data successfully removed.")
+
+        except sqlite3.Error as e:
+            if connection:
+                connection.rollback()
+            logger.error(f"Failed to remove block {block_number}: {e}", exc_info=True)
+        finally:
+            if connection:
+                connection.close()
+
+    def get_blocks(
+            self,
+            start: int = None,
+            end: int = None,
+            block_hash: str = None,
+            include_events: bool = True,
+            last_block_only: bool = False
+    ) -> Optional[List[Block]]:
+        """
+        Generalized function to retrieve blocks from the database.
+
+        Args:
+            start (int, optional): The starting block ID (inclusive).
+            end (int, optional): The ending block ID (inclusive).
+            block_hash (str, optional): The hash of the block to retrieve.
+            include_events (bool): Whether to include events and related data.
+            last_block_only (bool): Whether to retrieve only the last block.
 
         Returns:
             Optional[List[Block]]: A list of Block objects, or None if there is a database error.
@@ -882,22 +973,62 @@ class Database:
             connection.row_factory = sqlite3.Row
             cursor = connection.cursor()
 
-            query = '''
+            base_query = '''
                 SELECT
-                    b.id AS block_id, b.signed_block, b.proposer_ss58_address,
-                    e.id AS event_id, e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid, e.event_signed_params, e.user_ss58_address, e.file_hash, e.input_signed_params, e.expiration_at, e.approved,
+                    b.id AS block_id, b.signed_block, b.proposer_ss58_address, b.hash, b.previous_hash
+            '''
+            if include_events:
+                base_query += ''',
+                    e.id AS event_id, e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid,
+                    e.event_signed_params, e.user_ss58_address, e.file_hash, e.input_signed_params, e.expiration_at, e.approved,
                     c.id AS chunk_id, c.uuid AS chunk_uuid, c.miner_ss58_address, c.chunk_index,
                     f.id AS file_id, COALESCE(e.file_size_bytes, f.file_size_bytes) AS file_size_bytes
+                '''
+                base_query += '''
                 FROM block b
                 LEFT JOIN events e ON b.id = e.block_id
                 LEFT JOIN chunk c ON c.event_uuid = e.uuid
                 LEFT JOIN file f ON f.uuid = c.file_uuid
-                WHERE b.id BETWEEN ? AND ?
-                ORDER BY b.id, e.id, c.id, f.id
-            '''
+                '''
+            else:
+                base_query += '''
+                FROM block b
+                '''
 
-            cursor.execute(query, (start, end))
+            conditions = []
+            if block_hash:
+                conditions.append("b.hash = ?")
+            if start is not None and end is not None:
+                conditions.append("b.id BETWEEN ? AND ?")
+
+            if conditions:
+                base_query += " WHERE " + " AND ".join(conditions)
+
+            if last_block_only:
+                base_query += '''
+                    ORDER BY b.id DESC LIMIT 1
+                '''
+            else:
+                base_query += '''
+                    ORDER BY b.id
+                '''
+                if include_events:
+                    base_query += ''',
+                        e.id,
+                        c.id,
+                        f.id
+                    '''
+
+            if block_hash:
+                cursor.execute(base_query, (block_hash,))
+            elif start is not None and end is not None:
+                cursor.execute(base_query, (start, end))
+            else:
+                cursor.execute(base_query)
+
             rows = cursor.fetchall()
+            if not rows:
+                return None
 
             blocks = {}
             events = {}
@@ -909,27 +1040,56 @@ class Database:
                         events=[],
                         signed_block=row["signed_block"],
                         proposer_ss58_address=Ss58Address(row["proposer_ss58_address"]),
+                        hash=row["hash"],
+                        previous_hash=row["previous_hash"],
                     )
 
-                event_uuid = row['event_uuid']
-                if event_uuid:
-                    if event_uuid not in events:
-                        events[event_uuid] = self._build_event_from_row(row)
-                        blocks[block_id].events.append(events[event_uuid])
+                if include_events:
+                    event_uuid = row['event_uuid']
+                    if event_uuid:
+                        if event_uuid not in events:
+                            events[event_uuid] = self._build_event_from_row(row)
+                            blocks[block_id].events.append(events[event_uuid])
 
-                    if isinstance(events[event_uuid].event_params, StoreParams):
-                        chunk = ChunkParams(
-                            uuid=row['chunk_uuid'],
-                            chunk_index=row['chunk_index'],
-                            miner_ss58_address=row['miner_ss58_address']
-                        )
-                        events[event_uuid].event_params.chunks_params.append(chunk)
+                        if isinstance(events[event_uuid].event_params, StoreParams):
+                            chunk = ChunkParams(
+                                uuid=row['chunk_uuid'],
+                                chunk_index=row['chunk_index'],
+                                miner_ss58_address=row['miner_ss58_address']
+                            )
+                            events[event_uuid].event_params.chunks_params.append(chunk)
 
             return list(blocks.values())
 
         except sqlite3.Error:
             logger.error("Database error", exc_info=True)
             return None
+        finally:
+            if connection:
+                connection.close()
+
+    def get_total_event_count(self) -> int:
+        """
+        Returns the total number of events stored in the database.
+
+        Returns:
+            int: Total count of events.
+        """
+        connection = None
+        try:
+            connection = sqlite3.connect(self._database_file_path)
+            cursor = connection.cursor()
+            query = """
+                SELECT COUNT(*)
+                FROM events e
+                INNER JOIN block b ON e.block_id = b.id
+            """
+            cursor.execute(query)
+            result = cursor.fetchone()
+            return result[0] if result else 0
+        except sqlite3.Error:
+            logger.error("Database error while counting total events", exc_info=True)
+            return 0
         finally:
             if connection:
                 connection.close()
