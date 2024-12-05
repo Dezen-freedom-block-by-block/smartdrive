@@ -31,6 +31,7 @@ from communex.types import Ss58Address
 
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.validator.node.connection.utils.lock_proxy_wrapper import LockProxyWrapper
+from smartdrive.validator.node.sync_service import SyncService
 from smartdrive.validator.node.util.exceptions import ConnectionPoolMaxSizeReached
 
 # Warning: PING_INTERVAL_SECONDS should always be considerably less than INACTIVITY_TIMEOUT_SECONDS
@@ -56,11 +57,12 @@ class Connection:
 
 class ConnectionPool:
 
-    def __init__(self, manager: Manager, cache_size):
+    def __init__(self, manager: Manager, cache_size, sync_service: SyncService):
         self._connections: DictProxy[Ss58Address, Connection] = manager.dict()
         self._manager = manager
         self._cache_size = cache_size
         self._lock: LockProxyWrapper = manager.Lock()
+        self._sync_service = sync_service
 
     def get(self, identifier) -> Optional[Connection]:
         with self._lock:
@@ -115,6 +117,7 @@ class ConnectionPool:
 
     def remove(self, identifier: Ss58Address):
         self._connections.pop(identifier, None)
+        self._sync_service.remove_validator_data(identifier)
 
     def remove_multiple(self, identifiers: List[Ss58Address]) -> List[SocketType]:
         sockets = []
@@ -123,6 +126,7 @@ class ConnectionPool:
                 connection = self._connections.pop(identifier, None)
                 if connection:
                     sockets.append(connection.socket)
+                self._sync_service.remove_validator_data(identifier)
         return sockets
 
     def remove_inactive(self) -> List[SocketType]:
@@ -133,4 +137,5 @@ class ConnectionPool:
 
             for identifier in connections_to_remove:
                 del self._connections[identifier]
-            return sockets_to_remove
+                self._sync_service.remove_validator_data(identifier)
+        return sockets_to_remove

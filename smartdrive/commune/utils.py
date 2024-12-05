@@ -4,6 +4,7 @@ import re
 from typing import List, Optional
 
 import aiofiles
+from communex.balance import from_nano
 from communex.types import Ss58Address
 from substrateinterface.utils.ss58 import is_valid_ss58_address, ss58_encode
 
@@ -13,7 +14,7 @@ from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
 
 
 def filter_truthful_validators(active_validators: List[ModuleInfo]) -> List[ModuleInfo]:
-    return list(filter(lambda validator: validator.stake > TRUTHFUL_STAKE_AMOUNT, active_validators))
+    return list(filter(lambda validator: from_nano(validator.stake) > TRUTHFUL_STAKE_AMOUNT, active_validators))
 
 
 def _extract_address(string: str) -> Optional[List[str]]:

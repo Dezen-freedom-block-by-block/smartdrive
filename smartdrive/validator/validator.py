@@ -42,8 +42,7 @@ from smartdrive.utils import DEFAULT_VALIDATOR_PATH, periodic_version_check
 from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.config import Config, config_manager
 from smartdrive.validator.database.database import Database
-from smartdrive.validator.node.block.fork import find_common_block_and_resolve_fork, request_block_hashes, \
-    detect_potential_fork
+from smartdrive.validator.node.block.fork import handle_consensus_and_resolve_fork, ChainState, evaluate_local_chain
 from smartdrive.validator.node.connection.utils.utils import send_message
 from smartdrive.validator.node.node import Node
 from smartdrive.validator.api.api import API
@@ -143,12 +142,19 @@ class Validator(Module):
                 logger.error("Error checking stake", exc_info=True)
 
             try:
-                is_current_validator_proposer, active_validators, _ = await get_proposer_validator(self._key, self.node.connection_pool.get_modules())
+                is_current_validator_proposer, active_validators, _ = await get_proposer_validator(
+                    keypair=self._key,
+                    connected_modules=self.node.connection_pool.get_modules(),
+                    sync_service=self.node.sync_service
+                )
                 if is_current_validator_proposer:
                     get_blocks = self._database.get_blocks(last_block_only=True, include_events=False)
                     last_block = get_blocks[0] if get_blocks else None
                     new_block_number = (last_block.block_number if last_block is not None else 0) + 1
 
+                    # The has_proposed_block variable will help to always enter the update condition the first time
+                    # the user is a proposer, because the ideal is to still ask the other validators in case there is
+                    # a block that has not been synchronized
                     if not self.node.sync_service.is_synced() or not self._has_proposed_block:
                         if self.node.sync_service.is_syncing() or self.node.sync_service.is_fork_syncing():
                             logger.debug("Synchronization already in progress, skipping new request.")
@@ -157,60 +163,50 @@ class Validator(Module):
 
                         self._has_proposed_block = True
 
-                        # The has_proposed_block variable will help to always enter the update condition the first time
-                        # the user is a proposer, because the ideal is to still ask the other validators in case there is
-                        # a block that has not been synchronized
                         if active_validators:
                             request_last_block(key=self._key, connections=self.node.get_connections())
                             await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS / 2)
 
-                            if not self.node.sync_service.evaluate_initial_sync(
-                                    current_block_number=last_block.block_number,
-                                    current_block_hash=last_block.hash
-                            ):
-
-                                if detect_potential_fork(
-                                    sync_service=self.node.sync_service,
-                                    last_block=last_block,
-                                    current_total_event_count=self._database.get_total_event_count()
-                                ):
-                                    logger.info("Potential fork detected. Requesting additional data to resolve.")
-                                    self.node.sync_service.start_sync(is_fork_syncing=True)
-                                    highest_block_validator = self.node.sync_service.get_highest_block_validator()
-                                    highest_block_data = self.node.sync_service.get_last_block_other_validator().get(highest_block_validator)
-
-                                    if highest_block_data:
-                                        start_block = min(last_block.block_number, highest_block_data["block_number"])
-                                        end_block = max(last_block.block_number, highest_block_data["block_number"])
-                                        request_block_hashes(
-                                            start_block=start_block,
-                                            end_block=end_block,
-                                            keypair=self._key,
-                                            active_connections=self.node.get_connections(),
-                                            sync_service=self.node.sync_service
-                                        )
-                                        await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS / 2)
-
-                                        find_common_block_and_resolve_fork(
-                                            database=self._database,
-                                            sync_service=self.node.sync_service,
-                                            local_block=last_block,
-                                            active_connections=self.node.get_connections(),
-                                            keypair=self._key
-                                        )
-                                        await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS / 2)
-                                        continue
-                                else:
-                                    self.node.sync_service.start_sync()
+                            sync_status = evaluate_local_chain(
+                                local_block=last_block,
+                                sync_service=self.node.sync_service,
+                                active_connections=self.node.get_connections(),
+                                database=self._database,
+                                local_validator_ss58_address=self._key.ss58_address
+                            )
+                            if sync_status == ChainState.OUT_OF_SYNC:
+                                logger.info("Out of sync. Starting synchronization process.")
+                                self.node.sync_service.start_sync()
+                                try:
                                     prepare_sync_blocks(
                                         start=last_block.block_number + 1,
-                                        end=self.node.sync_service.get_expected_end_block(),
                                         active_connections=self.node.get_connections(),
                                         sync_service=self.node.sync_service,
-                                        keypair=self._key
+                                        keypair=self._key,
+                                        request_last_block_to_validators=False
                                     )
-                                    await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS / 2)
-                                    continue
+                                except Exception:
+                                    logger.error("Error starting synchronization process", exc_info=True)
+
+                                await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS / 2)
+                                continue
+
+                            elif sync_status == ChainState.FORK_DETECTED:
+                                logger.info("Potential fork detected. Requesting additional data to resolve.")
+                                handle_consensus_and_resolve_fork(
+                                    sync_service=self.node .sync_service,
+                                    database=self._database,
+                                    local_block=last_block,
+                                    active_connections=self.node.get_connections(),
+                                    keypair=self._key,
+                                )
+                                await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS / 2)
+                                continue
+                            elif sync_status == ChainState.SYNCHRONIZED:
+                                logger.info("Local chain is synchronized.")
+                                self.node.sync_service.complete_sync(is_synced=True)
+
+                            continue
                         else:
                             self._has_proposed_block = True
                             self.node.sync_service.complete_sync(is_synced=True)
@@ -304,13 +300,14 @@ class Validator(Module):
             6. Continues to the next user and repeats the process.
             7. After processing all users, the function sleeps for the configured time before starting the process again.
         """
-        is_current_validator_proposer, _, validators = await get_proposer_validator(self._key, self.node.connection_pool.get_modules())
+        all_validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR, config_manager.config.testnet)
+        is_current_validator_proposer = self.node.sync_service.get_current_proposer() == self._key.ss58_address
 
         if is_current_validator_proposer:
             user_ss58_addresses = self._database.get_unique_user_ss58_addresses()
 
             for user_ss58_address in user_ss58_addresses:
-                total_stake = await get_stake_from_user(user_ss58_address=Ss58Address(user_ss58_address), validators=validators)
+                total_stake = await get_stake_from_user(user_ss58_address=Ss58Address(user_ss58_address), validators=all_validators)
                 total_size_stored_by_user = self._database.get_total_file_size_by_user(user_ss58_address=user_ss58_address, only_files=True)
                 available_storage_of_user = calculate_storage_capacity(total_stake)
 

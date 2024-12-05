@@ -52,8 +52,8 @@ class Node:
 
         manager = multiprocessing.Manager()
         self._event_pool = EventPool(manager)
-        self.connection_pool = ConnectionPool(manager=manager, cache_size=PeerManager.MAX_N_CONNECTIONS)
         self.sync_service = SyncService()
+        self.connection_pool = ConnectionPool(manager=manager, cache_size=PeerManager.MAX_N_CONNECTIONS, sync_service=self.sync_service)
         self._database = Database()
 
         connection_manager = PeerManager(

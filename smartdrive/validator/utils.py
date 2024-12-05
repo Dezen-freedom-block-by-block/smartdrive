@@ -22,6 +22,7 @@
 
 import asyncio
 import random
+import time
 from typing import List
 
 from communex.balance import from_nano
@@ -41,8 +42,22 @@ from smartdrive.validator.node.sync_service import SyncService
 from smartdrive.validator.node.util.message import MessageCode, MessageBody, Message
 
 
-def prepare_sync_blocks(start, keypair, sync_service: SyncService, end=None, active_connections=None):
-    highest_block_validator = sync_service.get_highest_block_validator()
+def prepare_sync_blocks(
+        start: int,
+        keypair: Keypair,
+        sync_service: SyncService,
+        active_connections,
+        end: int = None,
+        validator: str = None,
+        request_last_block_to_validators: bool = True
+):
+    if request_last_block_to_validators:
+        request_last_block(key=keypair, connections=active_connections)
+        time.sleep(10)
+
+    highest_validator, highest_block_number = sync_service.get_highest_block_validator()
+    expected_end = end if end else highest_block_number
+    highest_block_validator = validator if validator else highest_validator
     connection = next((connection for connection in active_connections if connection.module.ss58_address == highest_block_validator), None)
 
     if not connection:
@@ -51,7 +66,7 @@ def prepare_sync_blocks(start, keypair, sync_service: SyncService, end=None, act
     async def _prepare_sync_blocks():
         if not connection:
             return
-        await get_synced_blocks(start, connection, keypair, end)
+        await get_synced_blocks(start, connection, keypair, expected_end)
 
     try:
         loop = asyncio.get_running_loop()

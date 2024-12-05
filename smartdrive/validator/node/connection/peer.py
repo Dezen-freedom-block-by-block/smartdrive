@@ -41,7 +41,7 @@ from smartdrive.validator.node.connection.connection_pool import ConnectionPool,
 from smartdrive.validator.node.event.event_pool import EventPool
 from smartdrive.validator.node.sync_service import SyncService
 from smartdrive.validator.node.block.integrity import check_block_integrity
-from smartdrive.validator.node.block.fork import find_common_block_and_resolve_fork
+from smartdrive.validator.node.block.fork import handle_consensus_and_resolve_fork
 from smartdrive.validator.node.util.exceptions import ClientDisconnectedException, MessageFormatException, InvalidSignatureException, BlockIntegrityException
 from smartdrive.validator.node.util.message import MessageCode, Message, MessageBody
 from smartdrive.validator.utils import prepare_sync_blocks
@@ -132,7 +132,7 @@ class Peer(threading.Thread):
                 raise InvalidSignatureException()
 
             if message.body.code == MessageCode.MESSAGE_CODE_BLOCK:
-                self._process_message_block(message)
+                self._process_message_block(message=message, validator_ss58_address=ss58_address)
 
             elif message.body.code == MessageCode.MESSAGE_CODE_EVENT:
                 message_event = MessageEvent.from_json(message.body.data["event"], Action(message.body.data["event_action"]))
@@ -163,7 +163,7 @@ class Peer(threading.Thread):
                 self._process_message_sync(message)
 
             elif message.body.code == MessageCode.MESSAGE_CODE_SYNC_RESPONSE:
-                self._process_message_sync_blocks_response(message)
+                self._process_message_sync_response(message=message, validator_ss58_address=ss58_address)
 
             elif message.body.code == MessageCode.MESSAGE_CODE_VALIDATION_EVENTS:
                 validation_events = [ValidationEvent(**validation_event) for validation_event in message.body.data["list"]]
@@ -177,16 +177,16 @@ class Peer(threading.Thread):
                 self._process_message_last_block_response(message=message, validator_ss58_address=ss58_address)
 
             elif message.body.code == MessageCode.MESSAGE_CODE_FORK_BLOCK_DATA:
-                self._process_fork_block_data(message=message)
+                self._process_message_fork_block_data(message=message)
 
             elif message.body.code == MessageCode.MESSAGE_CODE_FORK_BLOCK_DATA_RESPONSE:
-                self._process_fork_block_data_response(message=message)
+                self._process_message_fork_block_data_response(message=message, validator_ss58_address=ss58_address)
 
         except Exception:
             logger.error("Can not process an incoming message", exc_info=True)
 
-    def _process_message_block(self, message: Message):
-        if self._sync_service.is_syncing() or self._sync_service.is_fork_syncing():
+    def _process_message_block(self, message: Message, validator_ss58_address: str):
+        if self._sync_service.is_syncing() or self._sync_service.is_fork_syncing() or self._sync_service.is_validator_suspicious(validator_ss58_address):
             return
 
         block_event = BlockEvent(
@@ -205,42 +205,52 @@ class Peer(threading.Thread):
             return
 
         try:
-            if block.block_number > previous_block.block_number and block.block_number - 1 != previous_block.block_number:
+            if block.block_number > previous_block.block_number + 1:
                 self._sync_service.start_sync()
                 prepare_sync_blocks(
                     start=previous_block.block_number + 1,
                     end=block.block_number,
                     active_connections=self._connection_pool.get_all(),
                     sync_service=self._sync_service,
-                    keypair=self._keypair
+                    keypair=self._keypair,
+                    validator=block.proposer_ss58_address
                 )
             elif previous_block.hash != block.previous_hash:
                 self._sync_service.add_to_remote_chain(
-                    {
+                    validator_ss58_address=validator_ss58_address,
+                    block_map={
                         block.block_number: {
                             "hash": block.hash,
                             "event_count": len(block.events)
                         }
                     }
                 )
-                self._sync_service.start_sync(is_fork_syncing=True)
-                find_common_block_and_resolve_fork(
+                handle_consensus_and_resolve_fork(
                     database=self._database,
-                    sync_service=self._sync_service,
                     local_block=previous_block,
-                    keypair=self._keypair,
-                    active_connections=self._connection_pool.get_all()
+                    sync_service=self._sync_service,
+                    active_connections=self._connection_pool.get_all(),
+                    keypair=self._keypair
                 )
                 return
             else:
-                check_block_integrity(previous_block=previous_block, current_block=block, database=self._database)
+                try:
+                    check_block_integrity(previous_block=previous_block, current_block=block, database=self._database)
+                except Exception as e:
+                    self._sync_service.mark_as_suspicious(validator=validator_ss58_address)
+                    self._sync_service.complete_sync(is_synced=False)
+
+                    if isinstance(e, BlockIntegrityException):
+                        raise
+
+                    return
+
                 self._database.create_block(previous_hash=previous_block.hash, block=block)
                 self._event_pool.remove_multiple(block.events)
                 self._sync_service.complete_sync(is_synced=True)
 
         except BlockIntegrityException:
             logger.error("BlockIntegrityError", exc_info=True)
-            self._sync_service.complete_sync(is_synced=False)
 
     def _process_message_sync(self, message: Message):
         start = int(message.body.data['start'])
@@ -290,15 +300,15 @@ class Peer(threading.Thread):
                 )
                 send_message(self._connection, message)
 
-    def _process_message_sync_blocks_response(self, message: Message):
-        if self._sync_service.is_fork_syncing():
+    def _process_message_sync_response(self, message: Message, validator_ss58_address: str):
+        if self._sync_service.is_fork_syncing() or self._sync_service.is_validator_suspicious(validator_ss58_address):
             return
 
         blocks = message.body.data["blocks"]
 
         if blocks:
             expected_end_block = message.body.data.get("expected_end_block", None)
-            if expected_end_block and self._sync_service.get_expected_end_block() == 0:
+            if expected_end_block:
                 self._sync_service.start_sync()
 
             for i, block in enumerate(blocks):
@@ -311,9 +321,9 @@ class Peer(threading.Thread):
                     previous_block = Block(**blocks[i - 1])
 
                 if previous_block.hash != block.previous_hash:
-                    self._sync_service.start_sync(is_fork_syncing=True)
                     self._sync_service.add_to_remote_chain(
-                        {
+                        validator_ss58_address=validator_ss58_address,
+                        block_map={
                             b["block_number"]: {
                                 "hash": b["hash"],
                                 "event_count": len(b["events"])
@@ -321,9 +331,10 @@ class Peer(threading.Thread):
                             for b in blocks
                         }
                     )
-                    find_common_block_and_resolve_fork(
-                        database=self._database,
+
+                    handle_consensus_and_resolve_fork(
                         sync_service=self._sync_service,
+                        database=self._database,
                         local_block=previous_block,
                         active_connections=self._connection_pool.get_all(),
                         keypair=self._keypair
@@ -339,15 +350,19 @@ class Peer(threading.Thread):
                     self._database.create_block(previous_hash=previous_block.hash, block=block)
                     self._event_pool.remove_multiple(block.events)
 
-                except BlockIntegrityException as e:
+                except Exception as e:
+                    self._sync_service.mark_as_suspicious(validator=validator_ss58_address)
                     self._sync_service.complete_sync(is_synced=False)
-                    logger.error(e, exc_info=True)
+
+                    if isinstance(e, BlockIntegrityException):
+                        logger.error(e, exc_info=True)
+
                     return
 
                 get_blocks = self._database.get_blocks(last_block_only=True, include_events=False)
                 last_block = get_blocks[0] if get_blocks else None
-                finish_sync = block.block_number >= last_block.block_number
-                if finish_sync:
+
+                if expected_end_block and expected_end_block == last_block.block_number:
                     self._sync_service.complete_sync(is_synced=True)
 
     def _process_message_last_block(self):
@@ -391,7 +406,7 @@ class Peer(threading.Thread):
         except Exception as e:
             logger.error(f"Error processing sync status response: {e}", exc_info=True)
 
-    def _process_fork_block_data(self, message: Message):
+    def _process_message_fork_block_data(self, message: Message):
         start_block = message.body.data.get("start_block")
         end_block = message.body.data.get("end_block")
 
@@ -419,33 +434,31 @@ class Peer(threading.Thread):
                     signature_hex=body_sign.hex(),
                     public_key_hex=self._keypair.public_key.hex()
                 )
-
                 send_message(self._connection, response_message)
         except Exception as e:
             logger.error(f"Error processing block hashes request: {e}", exc_info=True)
 
-    def _process_fork_block_data_response(self, message: Message):
+    def _process_message_fork_block_data_response(self, message: Message, validator_ss58_address: str):
         block_data = message.body.data.get("block_data", [])
 
         if not block_data:
             return
 
         try:
-            self._sync_service.add_to_remote_chain(
-                {
-                    block["block_number"]: {
-                        "hash": block["hash"],
-                        "event_count": block["event_count"]
-                    }
-                    for block in block_data
+            block_map = {
+                block["block_number"]: {
+                    "hash": block["hash"],
+                    "event_count": block["event_count"]
                 }
-            )
+                for block in block_data
+            }
 
+            self._sync_service.add_to_remote_chain(validator_ss58_address, block_map)
             get_blocks = self._database.get_blocks(last_block_only=True)
             local_block = get_blocks[0] if get_blocks else None
-            find_common_block_and_resolve_fork(
-                database=self._database,
+            handle_consensus_and_resolve_fork(
                 sync_service=self._sync_service,
+                database=self._database,
                 local_block=local_block,
                 active_connections=self._connection_pool.get_all(),
                 keypair=self._keypair
