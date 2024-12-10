@@ -25,7 +25,6 @@ import multiprocessing
 import socket
 import select
 import threading
-from multiprocessing import Value
 from time import sleep
 
 from communex.compat.key import classic_load_key
@@ -44,6 +43,7 @@ from smartdrive.validator.node.connection.peer import Peer
 from smartdrive.validator.node.connection.connection_pool import ConnectionPool, PING_INTERVAL_SECONDS
 from smartdrive.validator.node.connection.utils.utils import connect_to_peer
 from smartdrive.validator.node.event.event_pool import EventPool
+from smartdrive.validator.node.sync_service import SyncService
 from smartdrive.validator.node.util.exceptions import ConnectionPoolMaxSizeReached
 from smartdrive.validator.node.util.message import MessageBody, Message, MessageCode
 from smartdrive.validator.node.connection.utils.utils import send_message
@@ -57,15 +57,15 @@ class PeerManager(multiprocessing.Process):
 
     _event_pool: EventPool = None
     _connection_pool: ConnectionPool = None
-    _initial_sync_completed: Value = None
+    _sync_service: SyncService = None
     _keypair: Keypair = None
     _connecting_validators: set = None
 
-    def __init__(self, event_pool: EventPool, initial_sync_completed: Value, connection_pool: ConnectionPool):
+    def __init__(self, event_pool: EventPool, sync_service: SyncService, connection_pool: ConnectionPool):
         multiprocessing.Process.__init__(self)
         self._event_pool = event_pool
         self._connection_pool = connection_pool
-        self._initial_sync_completed = initial_sync_completed
+        self._sync_service = sync_service
         self._keypair = classic_load_key(config_manager.config.key)
         self._connecting_validators = set()
 
@@ -162,7 +162,7 @@ class PeerManager(multiprocessing.Process):
                     )
                     send_message(connection, message)
 
-                    Peer(connection, self._connection_pool, self._event_pool, self._initial_sync_completed).start()
+                    Peer(connection, self._connection_pool, self._event_pool, self._sync_service).start()
                     logger.debug(f"Peer {ss58_address} connected from {peer_address}")
                 except ConnectionPoolMaxSizeReached:
                     logger.debug(f"Connection pool full for {ss58_address}", exc_info=True)
@@ -267,7 +267,7 @@ class PeerManager(multiprocessing.Process):
             peer_socket = connect_to_peer(self._keypair, validator)
             if peer_socket:
                 connection = self._connection_pool.update_or_append(validator.ss58_address, validator, peer_socket)
-                Peer(connection, self._connection_pool, self._event_pool, self._initial_sync_completed).start()
+                Peer(connection, self._connection_pool, self._event_pool, self._sync_service).start()
                 logger.debug(f"Peer {validator.ss58_address} connected and added to the pool")
         except Exception:
             logger.debug(f"Error connecting to peer {validator.ss58_address}")

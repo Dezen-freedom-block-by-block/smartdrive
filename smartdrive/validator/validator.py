@@ -42,18 +42,19 @@ from smartdrive.utils import DEFAULT_VALIDATOR_PATH, periodic_version_check
 from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.config import Config, config_manager
 from smartdrive.validator.database.database import Database
+from smartdrive.validator.node.block.fork import handle_consensus_and_resolve_fork, ChainState, evaluate_local_chain
 from smartdrive.validator.node.connection.utils.utils import send_message
 from smartdrive.validator.node.node import Node
 from smartdrive.validator.api.api import API
 from smartdrive.validator.evaluation.evaluation import score_miners, set_weights
-from smartdrive.validator.node.connection.connection_pool import INACTIVITY_TIMEOUT_SECONDS as VALIDATOR_INACTIVITY_TIMEOUT_SECONDS
 from smartdrive.validator.models.models import ModuleType
-from smartdrive.validator.node.util.block_integrity import get_invalid_events
+from smartdrive.validator.node.block.integrity import get_invalid_events
 from smartdrive.validator.node.util.exceptions import InvalidSignatureException, InvalidStorageRequestException
 from smartdrive.validator.node.util.message import MessageBody, MessageCode, Message
 from smartdrive.validator.node.util.utils import get_proposer_validator
 from smartdrive.validator.validation import validate
-from smartdrive.validator.utils import prepare_sync_blocks, get_stake_from_user, calculate_storage_capacity
+from smartdrive.validator.utils import prepare_sync_blocks, get_stake_from_user, calculate_storage_capacity, \
+    request_last_block
 from smartdrive.sign import sign_data
 from smartdrive.commune.request import get_filtered_modules, get_modules
 
@@ -94,12 +95,14 @@ class Validator(Module):
     BLOCK_INTERVAL_SECONDS = 30
     VALIDATION_VOTE_INTERVAL_SECONDS = 10 * 60  # 10 minutes
     SLEEP_TIME_CHECK_STAKE_SECONDS = 1 * 60 * 60  # 1 hour
+    VALIDATOR_DELAY_SECONDS = 20
 
     _config = None
     _key: Keypair = None
     _database: Database = None
     api: API = None
     node: Node = None
+    _has_proposed_block: bool = None
 
     def __init__(self):
         super().__init__()
@@ -107,6 +110,7 @@ class Validator(Module):
         self._database = Database()
         self.node = Node()
         self.api = API(self.node)
+        self._has_proposed_block = False
 
     async def run_steps(self):
         """
@@ -138,24 +142,74 @@ class Validator(Module):
                 logger.error("Error checking stake", exc_info=True)
 
             try:
-                is_current_validator_proposer, active_validators, all_validators = await get_proposer_validator(self._key, self.node.connection_pool.get_modules())
+                is_current_validator_proposer, active_validators, _ = await get_proposer_validator(
+                    keypair=self._key,
+                    connected_modules=self.node.connection_pool.get_modules(),
+                    sync_service=self.node.sync_service
+                )
                 if is_current_validator_proposer:
-                    new_block_number = (self._database.get_last_block_number() or 0) + 1
+                    get_blocks = self._database.get_blocks(last_block_only=True, include_events=False)
+                    last_block = get_blocks[0] if get_blocks else None
+                    new_block_number = (last_block.block_number if last_block is not None else 0) + 1
 
-                    # Trigger the initial sync and reiterate the loop after BLOCK_INTERVAL_SECONDS to verify if
-                    # initial_sync_completed has been set to True. This is needed since the response to the
-                    # prepare_sync_blocks will be in the background via TCP.
-                    # TODO: Improve initial sync
-                    if not self.node.initial_sync_completed.value:
-                        self.node.initial_sync_completed.value = True
-                        if active_validators:
-                            prepare_sync_blocks(
-                                start=new_block_number,
-                                active_connections=self.node.get_connections(),
-                                keypair=self._key
-                            )
+                    # The has_proposed_block variable will help to always enter the update condition the first time
+                    # the user is a proposer, because the ideal is to still ask the other validators in case there is
+                    # a block that has not been synchronized
+                    if not self.node.sync_service.is_synced() or not self._has_proposed_block:
+                        if self.node.sync_service.is_syncing() or self.node.sync_service.is_fork_syncing():
+                            logger.debug("Synchronization already in progress, skipping new request.")
                             await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS)
                             continue
+
+                        self._has_proposed_block = True
+
+                        if active_validators:
+                            request_last_block(key=self._key, connections=self.node.get_connections())
+                            await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS / 2)
+
+                            sync_status = evaluate_local_chain(
+                                local_block=last_block,
+                                sync_service=self.node.sync_service,
+                                active_connections=self.node.get_connections(),
+                                database=self._database,
+                                local_validator_ss58_address=self._key.ss58_address
+                            )
+                            if sync_status == ChainState.OUT_OF_SYNC:
+                                logger.info("Out of sync. Starting synchronization process.")
+                                self.node.sync_service.start_sync()
+                                try:
+                                    prepare_sync_blocks(
+                                        start=last_block.block_number + 1,
+                                        active_connections=self.node.get_connections(),
+                                        sync_service=self.node.sync_service,
+                                        keypair=self._key,
+                                        request_last_block_to_validators=False
+                                    )
+                                except Exception:
+                                    logger.error("Error starting synchronization process", exc_info=True)
+
+                                await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS / 2)
+                                continue
+
+                            elif sync_status == ChainState.FORK_DETECTED:
+                                logger.info("Potential fork detected. Requesting additional data to resolve.")
+                                handle_consensus_and_resolve_fork(
+                                    sync_service=self.node .sync_service,
+                                    database=self._database,
+                                    local_block=last_block,
+                                    active_connections=self.node.get_connections(),
+                                    keypair=self._key,
+                                )
+                                await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS / 2)
+                                continue
+                            elif sync_status == ChainState.SYNCHRONIZED:
+                                logger.info("Local chain is synchronized.")
+                                self.node.sync_service.complete_sync(is_synced=True)
+
+                            continue
+                        else:
+                            self._has_proposed_block = True
+                            self.node.sync_service.complete_sync(is_synced=True)
 
                     block_events = self.node.consume_events(count=MAX_EVENTS_PER_BLOCK)
 
@@ -164,14 +218,14 @@ class Validator(Module):
                         if isinstance(invalid_event, StoreRequestEvent) and isinstance(exception, InvalidStorageRequestException):
                             invalid_event.event_params.approved = False
 
-                    signed_block = sign_data({"block_number": new_block_number, "events": [event.dict() for event in block_events]}, self._key)
                     block = Block(
                         block_number=new_block_number,
                         events=block_events,
-                        signed_block=signed_block.hex(),
-                        proposer_ss58_address=Ss58Address(self._key.ss58_address)
+                        proposer_ss58_address=Ss58Address(self._key.ss58_address),
+                        keypair=self._key,
+                        previous_hash=last_block.hash
                     )
-                    self._database.create_block(block)
+                    self._database.create_block(previous_hash=last_block.hash, block=block)
 
                     block_event = block_to_block_event(block)
                     body = MessageBody(
@@ -198,6 +252,8 @@ class Validator(Module):
                                 connection = ConnectionInfo(miner["connection"]["ip"], miner["connection"]["port"])
                                 miner_info = ModuleInfo(miner["uid"], miner["ss58_address"], connection)
                                 await remove_chunk_request(self._key, event.user_ss58_address, miner_info, miner["chunk_uuid"])
+                else:
+                    self._has_proposed_block = False
 
                 elapsed = time.monotonic() - start_step_time
                 sleep_time = max(0.0, self.BLOCK_INTERVAL_SECONDS - elapsed)
@@ -244,13 +300,14 @@ class Validator(Module):
             6. Continues to the next user and repeats the process.
             7. After processing all users, the function sleeps for the configured time before starting the process again.
         """
-        is_current_validator_proposer, _, validators = await get_proposer_validator(self._key, self.node.connection_pool.get_modules())
+        all_validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR, config_manager.config.testnet)
+        is_current_validator_proposer = self.node.sync_service.get_current_proposer() == self._key.ss58_address
 
         if is_current_validator_proposer:
             user_ss58_addresses = self._database.get_unique_user_ss58_addresses()
 
             for user_ss58_address in user_ss58_addresses:
-                total_stake = await get_stake_from_user(user_ss58_address=Ss58Address(user_ss58_address), validators=validators)
+                total_stake = await get_stake_from_user(user_ss58_address=Ss58Address(user_ss58_address), validators=all_validators)
                 total_size_stored_by_user = self._database.get_total_file_size_by_user(user_ss58_address=user_ss58_address, only_files=True)
                 available_storage_of_user = calculate_storage_capacity(total_stake)
 
@@ -312,7 +369,7 @@ if __name__ == "__main__":
 
         async def run_tasks():
             # Initial delay to allow active validators to load before request them
-            await asyncio.sleep(VALIDATOR_INACTIVITY_TIMEOUT_SECONDS)
+            await asyncio.sleep(validator.VALIDATOR_DELAY_SECONDS)
 
             await asyncio.gather(
                 periodic_version_check(),

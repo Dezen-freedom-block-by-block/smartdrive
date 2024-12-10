@@ -22,10 +22,12 @@
 
 import asyncio
 import random
+import time
 from typing import List
 
 from communex.balance import from_nano
 from communex.types import Ss58Address
+from substrateinterface import Keypair
 
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.commune.request import get_staketo
@@ -36,14 +38,35 @@ from smartdrive.utils import MINIMUM_STAKE, INITIAL_STORAGE, ADDITIONAL_STORAGE_
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.node.connection.connection_pool import Connection
 from smartdrive.validator.node.connection.utils.utils import send_message
+from smartdrive.validator.node.sync_service import SyncService
 from smartdrive.validator.node.util.message import MessageCode, MessageBody, Message
 
 
-def prepare_sync_blocks(start, keypair, end=None, active_connections=None):
+def prepare_sync_blocks(
+        start: int,
+        keypair: Keypair,
+        sync_service: SyncService,
+        active_connections,
+        end: int = None,
+        validator: str = None,
+        request_last_block_to_validators: bool = True
+):
+    if request_last_block_to_validators:
+        request_last_block(key=keypair, connections=active_connections)
+        time.sleep(10)
+
+    highest_validator, highest_block_number = sync_service.get_highest_block_validator()
+    expected_end = end if end else highest_block_number
+    highest_block_validator = validator if validator else highest_validator
+    connection = next((connection for connection in active_connections if connection.module.ss58_address == highest_block_validator), None)
+
+    if not connection:
+        connection = random.choice(active_connections)
+
     async def _prepare_sync_blocks():
-        if not active_connections:
+        if not connection:
             return
-        await get_synced_blocks(start, active_connections, keypair, end)
+        await get_synced_blocks(start, connection, keypair, expected_end)
 
     try:
         loop = asyncio.get_running_loop()
@@ -56,7 +79,7 @@ def prepare_sync_blocks(start, keypair, end=None, active_connections=None):
         asyncio.run(_prepare_sync_blocks())
 
 
-async def get_synced_blocks(start: int, connections: List[Connection], keypair, end: int = None):
+async def get_synced_blocks(start: int, connection, keypair, end: int = None):
     async def _get_synced_blocks(connection: Connection):
         try:
             body = MessageBody(
@@ -78,7 +101,6 @@ async def get_synced_blocks(start: int, connections: List[Connection], keypair, 
         except Exception:
             logger.error("Error getting synced blocks", exc_info=True)
 
-    connection = random.choice(connections)
     await _get_synced_blocks(connection)
 
 
@@ -124,3 +146,15 @@ def calculate_storage_capacity(stake: float) -> int:
 
     # Limit the total storage to MAXIMUM_STORAGE in bytes
     return int(min(total_storage_bytes, MAXIMUM_STORAGE))
+
+
+def request_last_block(key: Keypair, connections: List[Connection]):
+    for connection in connections:
+        body = MessageBody(code=MessageCode.MESSAGE_CODE_LAST_BLOCK)
+        body_sign = sign_data(body.dict(), key)
+        request_message = Message(
+            body=body,
+            signature_hex=body_sign.hex(),
+            public_key_hex=key.public_key.hex()
+        )
+        send_message(connection, request_message)
