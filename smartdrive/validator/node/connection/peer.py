@@ -189,6 +189,12 @@ class Peer(threading.Thread):
         if self._sync_service.is_syncing() or self._sync_service.is_fork_syncing() or self._sync_service.is_validator_suspicious(validator_ss58_address):
             return
 
+        current_proposer = self._sync_service.get_current_proposer()
+        if current_proposer and validator_ss58_address != current_proposer:
+            logger.warning(f"Block proposer {validator_ss58_address} is not the current proposer {current_proposer}. Marking as suspicious.")
+            self._sync_service.mark_as_suspicious(validator=validator_ss58_address)
+            return
+
         block_event = BlockEvent(
             block_number=message.body.data["block_number"],
             events=list(map(lambda event: MessageEvent.from_json(event["event"], Action(event["event_action"])), message.body.data["events"])),

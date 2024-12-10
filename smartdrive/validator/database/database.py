@@ -19,12 +19,15 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
+
 import json
 import os
 import sqlite3
 import time
 from sqlite3 import Cursor
 from typing import List, Optional, Union
+
+from communex.compat.key import classic_load_key
 
 from smartdrive.logging_config import logger
 from smartdrive.commune.models import ModuleInfo
@@ -55,6 +58,7 @@ class Database:
         """
         self._database_file_path = config_manager.config.database_file
         self._database_export_file_path = config_manager.config.database_export_file
+        self._key = classic_load_key(config_manager.config.key)
 
         if not self._database_exists():
             connection = sqlite3.connect(self._database_file_path)
@@ -180,15 +184,17 @@ class Database:
     def _migrate_to_version_2(self, cursor: Cursor):
         """
         Migration for version 2.
-        Adds 'previous_hash' and 'hash' fields to the 'block' table.
+        Adds 'previous_hash' and 'hash' fields to the 'block' table, clears all data
         """
         try:
             cursor.execute("ALTER TABLE block ADD COLUMN previous_hash TEXT")
             cursor.execute("ALTER TABLE block ADD COLUMN hash TEXT")
 
-            tables_to_clear = ["chunk", "file", "events", "block"]
+            tables_to_clear = ["chunk", "file", "events", "block", "sqlite_sequence"]
             for table in tables_to_clear:
                 cursor.execute(f"DELETE FROM {table}")
+
+            cursor.execute("DELETE FROM validation WHERE expiration_ms IS NULL AND created_at IS NULL")
 
             if os.path.exists("genesis_block.json"):
                 with open("genesis_block.json", 'r') as file:
@@ -936,7 +942,7 @@ class Database:
             )
 
             connection.commit()
-            logger.info(f"Block {block_number} and its associated data successfully removed.")
+            logger.debug(f"Block {block_number} and its associated data successfully removed.")
 
         except sqlite3.Error as e:
             if connection:
