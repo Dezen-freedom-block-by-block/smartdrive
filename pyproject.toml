@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "smartdrive"
-version = "0.4.0"
+version = "0.4.1"
 description = "SmartDrive subnet, a pioneering initiative designed to provide secure and distributed information storage solutions."
 authors = ["ghost-busterr", "naked-snake", "mkyts98"]
 readme = "README.md"
@@ -13,7 +13,7 @@ smartdrive = "smartdrive.cli.__main__:app"
 
 [tool.poetry.dependencies]
 python = "^3.10"
-communex = "0.1.34.5"
+communex = "0.1.36.1"
 typer = "0.9.0"
 tomli = "2.0.1"
 requests = "2.32.2"
