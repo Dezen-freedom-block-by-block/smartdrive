@@ -20,14 +20,21 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 
+import fcntl
 import os
+import random
 import re
 import subprocess
+import time
 from pathlib import Path
 import tomli
 import requests
 
 from smartdrive.logging_config import logger
+
+
+LOCK_FILE = "update.lock"
+UPDATE_DELAY_RANGE = (5, 30)
 
 
 def get_version() -> str:
@@ -80,14 +87,34 @@ def check_version():
 
     # If version in GitHub is greater, update module.
     if version_str_to_num(__version__) < version_str_to_num(latest_version) and latest_version is not None:
-        logger.info(f"Updating to the latest version ({latest_version})...")
+        lock_acquired = False
         try:
-            subprocess.run(["git", "reset", "--hard"], cwd=root_directory, check=True)
-            subprocess.run(["git", "pull"], cwd=root_directory, timeout=60, check=True)
-            subprocess.run(["pip", "install", "-e", "."], cwd=root_directory, timeout=60, check=True)
+            with open(LOCK_FILE, "w+") as lock_file:
+                try:
+                    fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    lock_acquired = True
+                    logger.info(f"Updating to the latest version ({latest_version})...")
+
+                    subprocess.run(["git", "reset", "--hard"], cwd=root_directory, check=True)
+                    subprocess.run(["git", "pull"], cwd=root_directory, timeout=60, check=True)
+                    subprocess.run(["pip", "install", "-e", "."], cwd=root_directory, timeout=60, check=True)
+                except BlockingIOError:
+                    while True:
+                        try:
+                            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                            break
+                        except BlockingIOError:
+                            time.sleep(5)
         except Exception as e:
-            logger.error(f"Unexpected error during installation: {e}")
-        else:
+            logger.error(f"Unexpected error during update: {e}")
+        finally:
+            if lock_acquired:
+                try:
+                    os.remove(LOCK_FILE)
+                except FileNotFoundError:
+                    pass
+
+            time.sleep(random.randint(*UPDATE_DELAY_RANGE))
             exit(0)
 
 
