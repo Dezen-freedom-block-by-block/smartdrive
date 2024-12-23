@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "smartdrive"
-version = "0.4.1"
+version = "0.4.2"
 description = "SmartDrive subnet, a pioneering initiative designed to provide secure and distributed information storage solutions."
 authors = ["ghost-busterr", "naked-snake", "mkyts98"]
 readme = "README.md"

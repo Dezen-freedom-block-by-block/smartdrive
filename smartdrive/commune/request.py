@@ -21,6 +21,7 @@
 #  SOFTWARE.
 
 import asyncio
+import queue
 from functools import wraps
 from typing import Dict, Any, List
 
@@ -174,6 +175,15 @@ def retry_on_failure(retries):
                 except Exception:
                     logger.debug("Retrying with another commune client", exc_info=True)
                     await asyncio.sleep(1)
+                finally:
+                    # This stop send_heartbeat function, since if we don't do it, it saturates the server
+                    if client:
+                        while True:
+                            try:
+                                conn = client._connection_queue.get(timeout=1)
+                                conn.stop_event.set()
+                            except queue.Empty:
+                                break
             raise Exception("Operation failed after several retries")
         return wrapper
     return decorator
