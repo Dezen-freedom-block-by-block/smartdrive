@@ -20,9 +20,8 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 
-from smartdrive.utils import MAXIMUM_STORAGE
-from smartdrive.validator.api.exceptions import FileHashMismatchException, FileSizeMismatchException, \
-    FileTooLargeException
+from smartdrive.config import MAXIMUM_STORAGE_PER_USER_PER_FILE
+from smartdrive.validator.api.exceptions import FileHashMismatchException, FileSizeMismatchException, FileTooLargeException
 
 
 async def check_file(file_hash: str, file_size: int, original_file_size: int, original_file_hash: str):
@@ -50,5 +49,5 @@ async def check_file(file_hash: str, file_size: int, original_file_size: int, or
     if original_file_size != file_size:
         raise FileSizeMismatchException
 
-    if file_size > MAXIMUM_STORAGE:
+    if file_size > MAXIMUM_STORAGE_PER_USER_PER_FILE:
         raise FileTooLargeException

@@ -25,8 +25,8 @@ import os
 from fastapi import FastAPI
 
 import smartdrive
-from smartdrive.validator.api.endpoints import PING_ENDPOINT, STORE_ENDPOINT, RETRIEVE_ENDPOINT, REMOVE_ENDPOINT, \
-    STORE_REQUEST_ENDPOINT, STORE_REQUEST_PERMISSION_ENDPOINT
+from smartdrive.validator.api.endpoints import PING_ENDPOINT, RETRIEVE_ENDPOINT, REMOVE_ENDPOINT, \
+    STORE_REQUEST_ENDPOINT, STORE_REQUEST_PERMISSION_ENDPOINT, STORE_APPROVAL_ENDPOINT
 from smartdrive.validator.api.middleware.api_middleware import APIMiddleware
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.api.retrieve_api import RetrieveAPI
@@ -51,8 +51,8 @@ class API:
 
         self._app.add_api_route(PING_ENDPOINT, self._ping_endpoint, methods=["POST"])
         self._app.add_api_route(STORE_REQUEST_ENDPOINT, self._store_api.store_request_endpoint, methods=["POST"])
-        self._app.add_api_route(STORE_REQUEST_PERMISSION_ENDPOINT, self._store_api.store_request_permission_endpoint, methods=["GET"])
-        self._app.add_api_route(STORE_ENDPOINT, self._store_api.store_endpoint, methods=["POST"])
+        self._app.add_api_route(STORE_REQUEST_PERMISSION_ENDPOINT, self._store_api.store_request_approval_endpoint, methods=["POST"])
+        self._app.add_api_route(STORE_APPROVAL_ENDPOINT, self._store_api.store_approval_endpoint, methods=["POST"])
         self._app.add_api_route(RETRIEVE_ENDPOINT, self._retrieve_api.retrieve_endpoint, methods=["GET"])
         self._app.add_api_route(REMOVE_ENDPOINT, self._remove_api.remove_endpoint, methods=["DELETE"])
 

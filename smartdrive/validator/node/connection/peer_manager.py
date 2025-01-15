@@ -137,7 +137,7 @@ class PeerManager(multiprocessing.Process):
 
                 validator_connection = next((validator for validator in validators if validator.ss58_address == ss58_address), None)
                 if not validator_connection:
-                    logger.info(f"Validator {ss58_address} is not valid")
+                    logger.debug(f"Validator {ss58_address} is not valid")
                     peer_socket.close()
                     return
 

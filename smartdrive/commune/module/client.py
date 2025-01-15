@@ -23,6 +23,8 @@
 import asyncio
 import json
 import os
+import time
+import uuid
 
 import aiofiles
 import aiohttp
@@ -32,7 +34,7 @@ from urllib3.exceptions import InsecureRequestWarning
 from substrateinterface import Keypair
 
 from ._protocol import create_method_endpoint, create_request_data
-from ..utils import calculate_hash
+from ...config import READ_FILE_SIZE
 
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
@@ -58,7 +60,7 @@ class ModuleClient:
         async def _store_streaming_response(response: ClientResponse, chunk_path: str) -> str:
             try:
                 async with aiofiles.open(chunk_path, 'wb') as f:
-                    async for chunk in response.content.iter_chunked(16384):
+                    async for chunk in response.content.iter_chunked(READ_FILE_SIZE):
                         await f.write(chunk)
 
                 return chunk_path
@@ -74,27 +76,31 @@ class ModuleClient:
             if content_type == 'application/json':
                 return await response.json()
             elif content_type == 'application/octet-stream':
-                chunk_path = os.path.join(user_path, f"chunk_{chunk_index}.part")
+                chunk_path = os.path.join(user_path, f"{int(time.time())}_{str(uuid.uuid4())}.chunk_{chunk_index}")
                 return await _store_streaming_response(response, chunk_path)
             else:
                 raise Exception(f"Unknown content type: {content_type}")
         try:
             async with ClientSession(timeout=aiohttp.ClientTimeout(connect=self.CONNECTION_TIMEOUT_SECONDS, sock_connect=self.CONNECTION_TIMEOUT_SECONDS, total=timeout)) as session:
                 if file:
-                    file_size = os.path.getsize(file["chunk"])
-                    file_hash = await calculate_hash(file["chunk"])
-                    _, headers = create_request_data(self.key, target_key, {"file_hash": file_hash, "file_size_bytes": file_size}, content_type="application/octet-stream")
-                    headers["X-File-Size"] = str(file_size)
-                    headers["X-File-Hash"] = file_hash
-                    headers["Folder"] = file['folder']
-                    headers["Target-Key"] = target_key
+                    _, headers = create_request_data(self.key, target_key, {"chunk_hash": file["chunk_hash"], "chunk_size_bytes": file["chunk_size"]}, content_type="application/octet-stream")
+                    event_uid = file.get("event_uuid", None)
+                    headers.update({
+                        "X-Chunk-Size": str(file["chunk_size"]),
+                        "X-Chunk-Hash": file["chunk_hash"],
+                        "Folder": file["folder"],
+                        "Target-Key": target_key
+                    })
+
+                    if event_uid is not None:
+                        headers["X-Event-UUID"] = event_uid
 
                     async with aiofiles.open(file["chunk"], 'rb') as f:
-                        multipartWriter = aiohttp.MultipartWriter("form-data")
-                        part = multipartWriter.append(f)
-                        part.set_content_disposition('form-data', name='chunk', filename='file')
-                        headers["Content-Type"] = f"multipart/form-data; boundary={multipartWriter.boundary}"
-                        async with session.post(url, data=multipartWriter, headers=headers, ssl=False) as response:
+                        async def file_stream():
+                            while chunk := await f.read(READ_FILE_SIZE):
+                                yield chunk
+
+                        async with session.post(url, data=file_stream(), headers=headers, ssl=False) as response:
                             return await _get_body(response)
                 else:
                     chunk_index = params.pop("chunk_index", "")

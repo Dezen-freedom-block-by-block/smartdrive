@@ -33,9 +33,9 @@ from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.request import get_filtered_modules
 from smartdrive.commune.utils import get_ss58_address_from_public_key
 from smartdrive.sign import verify_data_signature
-from smartdrive.utils import MINIMUM_STAKE
+from smartdrive.config import MINIMUM_STAKE
 from smartdrive.validator.utils import get_stake_from_user
-from smartdrive.validator.api.endpoints import PING_ENDPOINT, STORE_ENDPOINT, STORE_REQUEST_ENDPOINT
+from smartdrive.validator.api.endpoints import PING_ENDPOINT, STORE_REQUEST_ENDPOINT
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.models.models import ModuleType
 
@@ -92,7 +92,7 @@ class APIMiddleware(BaseHTTPMiddleware):
         if not ss58_address:
             return _error_response(401, "Not a valid public key provided")
 
-        if request.url.path in [STORE_REQUEST_ENDPOINT, STORE_ENDPOINT]:
+        if request.url.path == STORE_REQUEST_ENDPOINT:
             try:
                 validators = await get_filtered_modules(config_manager.config.netuid, ModuleType.VALIDATOR, config_manager.config.testnet, without_address=True)
             except CommuneNetworkUnreachable:
@@ -117,8 +117,6 @@ class APIMiddleware(BaseHTTPMiddleware):
                         body = await request.json()
                     except json.JSONDecodeError:
                         return _error_response(401, "Invalid JSON")
-            elif request.headers.get("X-File-Size", None):
-                body = {"file_hash": request.headers.get("X-File-Hash"), "file_size_bytes": int(request.headers.get("X-File-Size"))}
 
         is_verified_signature = verify_data_signature(body, signature, ss58_address)
         if not is_verified_signature:

@@ -30,9 +30,6 @@ from substrateinterface import Keypair
 from smartdrive.models.event import MessageEvent, parse_event, StoreEvent, RemoveEvent, StoreRequestEvent
 from smartdrive.sign import sign_data
 
-# TODO: REPLACE THIS WITH bytes
-MAX_EVENTS_PER_BLOCK = 100
-
 
 class Block(BaseModel):
     block_number: int

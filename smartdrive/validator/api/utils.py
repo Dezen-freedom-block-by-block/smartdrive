@@ -25,7 +25,7 @@ from substrateinterface import Keypair
 
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.commune.request import execute_miner_request
-from smartdrive.utils import MAXIMUM_STORAGE
+from smartdrive.config import MAXIMUM_STORAGE_PER_USER_PER_FILE
 from smartdrive.validator.utils import calculate_storage_capacity
 from smartdrive.validator.api.exceptions import StorageLimitException, FileTooLargeException
 from smartdrive.validator.database.database import Database
@@ -78,7 +78,7 @@ def validate_storage_capacity(database: Database, user_ss58_address: str, file_s
         StorageLimitException: If the user's total stored files plus the new file exceed their available storage capacity.
     """
 
-    if file_size_bytes > MAXIMUM_STORAGE:
+    if file_size_bytes > MAXIMUM_STORAGE_PER_USER_PER_FILE:
         raise FileTooLargeException
 
     total_size_stored_by_user = database.get_total_file_size_by_user(user_ss58_address=user_ss58_address, only_files=only_files)

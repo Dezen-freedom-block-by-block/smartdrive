@@ -31,7 +31,7 @@ from communex.compat.key import classic_load_key
 
 from smartdrive.logging_config import logger
 from smartdrive.commune.models import ModuleInfo
-from smartdrive.models.event import StoreEvent, Action, StoreParams, StoreInputParams, RemoveEvent, RemoveInputParams, \
+from smartdrive.models.event import StoreEvent, Action, StoreParams, RemoveEvent, RemoveInputParams, \
     EventParams, UserEvent, ChunkParams, ValidationEvent, StoreRequestEvent, StoreRequestInputParams, StoreRequestParams
 from smartdrive.models.block import Block
 from smartdrive.validator.config import config_manager
@@ -43,7 +43,7 @@ from communex.types import Ss58Address
 class Database:
     _database_file_path = None
     _database_export_file_path = None
-    LATEST_SCHEMA_VERSION = 2
+    LATEST_SCHEMA_VERSION = 3
 
     def __init__(self):
         """
@@ -149,7 +149,8 @@ class Database:
     def _run_migrations(self):
         migrations = {
             1: self._migrate_to_version_1,
-            2: self._migrate_to_version_2
+            2: self._migrate_to_version_2,
+            3: self._migrate_to_version_3
         }
 
         connection = sqlite3.connect(self._database_file_path)
@@ -216,6 +217,26 @@ class Database:
                 ))
         except sqlite3.Error:
             logger.error("Error during migration to version 2", exc_info=True)
+
+    def _migrate_to_version_3(self, cursor: Cursor):
+        """
+        Migration for version 3.
+        Adds a new table 'event_chunk_verifications' to store chunk details related to StoreRequest events (type 3).
+        """
+        try:
+            cursor.execute('''
+                CREATE TABLE event_chunk_verifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_uuid TEXT NOT NULL,
+                    chunk_index INTEGER NOT NULL,
+                    chunk_hash TEXT NOT NULL,
+                    chunk_size INTEGER NOT NULL,
+                    FOREIGN KEY (event_uuid) REFERENCES events(uuid) ON DELETE CASCADE
+                )
+            ''')
+
+        except sqlite3.Error:
+            logger.error("Error during migration to version 3", exc_info=True)
 
     def _get_current_version(self, cursor: Cursor) -> int:
         """
@@ -316,12 +337,12 @@ class Database:
             connection = sqlite3.connect(self._database_file_path)
             cursor = connection.cursor()
             cursor.execute(
-                "SELECT uuid, user_ss58_address, total_chunks FROM file WHERE file.uuid = ? AND file.user_ss58_address = ? AND removed = 0 ",
+                "SELECT uuid, user_ss58_address, total_chunks, file_size_bytes FROM file WHERE file.uuid = ? AND file.user_ss58_address = ? AND removed = 0 ",
                 (f'{file_uuid}', f'{user_ss58_address}')
             )
             row = cursor.fetchone()
             if row is not None:
-                result = File(user_owner_ss58address=row[1], total_chunks=row[2], file_uuid=row[0], chunks=[])
+                result = File(user_owner_ss58address=row[1], total_chunks=row[2], file_uuid=row[0], chunks=[], file_size_bytes=row[3])
             else:
                 result = None
         except sqlite3.Error:
@@ -601,44 +622,76 @@ class Database:
 
         return validation_events
 
-    def get_store_request_event_approvement(self, store_request_event_uuid: str) -> Union[bool, None]:
+    def get_store_request_event_approval(
+            self,
+            store_request_event_uuid: str,
+            user_ss58_address: str,
+            chunks: List[ChunkParams] = None,
+            final_file_hash: str = None,
+            final_file_size: int = None
+    ) -> Union[bool, None]:
         """
-        Retrieve a StoreRequestEvent from the database based on the given UUID.
-
-        This function attempts to retrieve a storage request event from a database using the provided event UUID.
-        If the event is found in the database, it is returned as a `StoreRequestEvent` object. If the event is not found
-        or a database error occurs, the function returns `None`.
+        Retrieve approval status and validate chunk details for a StoreRequestEvent,
+        Additionally validates the final file hash and size if provided.
 
         Args:
-            store_request_event_uuid (str): The UUID of the storage request event to be retrieved.
+            store_request_event_uuid (str): UUID of the storage request event to retrieve.
+            user_ss58_address (str): The SS58 address of the user whose event is to be retrieved.
+            chunks (List[ChunkParams], optional): List of chunks to validate.
+            final_file_hash (str, optional): Final hash of the complete file.
+            final_file_size (int, optional): Final size of the complete file in bytes.
 
         Returns:
-            Union[StoreRequestEvent, None]:
-                - An instance of `StoreRequestEvent` containing the event details if found.
-                - `None` if the event is not found or if a database error occurs.
+            Union[bool, None]:
+                - True if the event is approved and (if provided) all validations pass.
+                - False if the event exists but is not approved, or any validation fails.
+                - None if the event does not exist.
 
         Raises:
-            sqlite3.Error: If a database error occurs during the execution of the query.
+            sqlite3.Error: If a database error occurs during execution.
         """
         connection = None
         try:
             connection = sqlite3.connect(self._database_file_path)
             cursor = connection.cursor()
 
-            query = """
-                    SELECT approved
-                    FROM events
-                    WHERE uuid = ? AND event_type = ? AND expiration_at > ?
-                """
-
-            cursor.execute(query, (store_request_event_uuid, Action.STORE_REQUEST.value, int(time.time()),))
+            query_exists = """
+                SELECT approved, expiration_at, file_hash, file_size_bytes
+                FROM events
+                WHERE uuid = ? AND event_type = ? AND user_ss58_address = ?
+            """
+            cursor.execute(query_exists, (store_request_event_uuid, Action.STORE_REQUEST.value, user_ss58_address))
             row = cursor.fetchone()
-            if row:
-                return row[0] == 1
-            else:
+
+            if not row:
                 return None
+
+            approved, expiration_at, stored_file_hash, stored_file_size = row
+            if not approved or expiration_at <= int(time.time()):
+                return False
+
+            if final_file_hash and final_file_size:
+                if final_file_hash != stored_file_hash or final_file_size != stored_file_size:
+                    return False
+
+            if chunks:
+                for chunk in chunks:
+                    chunk_hash = chunk.chunk_hash
+                    chunk_size = chunk.chunk_size
+
+                    query_chunk = """
+                        SELECT 1
+                        FROM event_chunk_verifications
+                        WHERE event_uuid = ? AND chunk_hash = ? AND chunk_size = ?
+                    """
+                    cursor.execute(query_chunk, (store_request_event_uuid, chunk_hash, chunk_size))
+                    if not cursor.fetchone():
+                        return False
+
+            return True
+
         except sqlite3.Error:
-            logger.error("Database error", exc_info=True)
+            logger.error("Database error while validating store request event", exc_info=True)
             return None
         finally:
             if connection:
@@ -848,6 +901,7 @@ class Database:
             input_signed_params = event.input_signed_params
 
         if isinstance(event, StoreEvent):
+            user_ss58_address = event.user_ss58_address
             total_chunks_index = set()
             chunks = []
             for chunk in event.event_params.chunks_params:
@@ -865,12 +919,12 @@ class Database:
                 total_chunks=len(total_chunks_index),
                 file_uuid=event.event_params.file_uuid,
                 chunks=chunks,
-                file_size_bytes=event.input_params.file_size_bytes
+                file_size_bytes=event.event_params.file_size
             )
             self.insert_file(cursor=cursor, file=file, event_uuid=event.uuid)
 
-            file_hash = event.input_params.file_hash
-            file_size_bytes = event.input_params.file_size_bytes
+            file_hash = event.event_params.file_hash
+            file_size_bytes = event.event_params.file_size
 
         elif isinstance(event, StoreRequestEvent):
             file_hash = event.input_params.file_hash
@@ -888,6 +942,16 @@ class Database:
             ''',
             (event.uuid, validator_ss58_address, event_type, file_uuid, event_signed_params, user_ss58_address, file_hash, input_signed_params, block_id, file_size_bytes, expiration_at, approved)
         )
+
+        if isinstance(event, StoreRequestEvent):
+            for chunk in event.input_params.chunks:
+                cursor.execute(
+                    '''
+                    INSERT INTO event_chunk_verifications (event_uuid, chunk_index, chunk_hash, chunk_size)
+                    VALUES(?, ?, ?, ?)
+                    ''',
+                    (event.uuid, chunk["chunk_index"], chunk["chunk_hash"], chunk["chunk_size"])
+                )
 
     def remove_block(self, block_number: int):
         connection = None
@@ -918,6 +982,18 @@ class Database:
                 DELETE FROM file
                 WHERE uuid IN (
                     SELECT file_uuid
+                    FROM events
+                    WHERE block_id = ?
+                )
+                ''',
+                (block_number,)
+            )
+
+            cursor.execute(
+                '''
+                DELETE FROM event_chunk_verifications
+                WHERE event_uuid IN (
+                    SELECT uuid
                     FROM events
                     WHERE block_id = ?
                 )
@@ -988,13 +1064,15 @@ class Database:
                     e.id AS event_id, e.uuid AS event_uuid, e.validator_ss58_address, e.event_type, e.file_uuid,
                     e.event_signed_params, e.user_ss58_address, e.file_hash, e.input_signed_params, e.expiration_at, e.approved,
                     c.id AS chunk_id, c.uuid AS chunk_uuid, c.miner_ss58_address, c.chunk_index,
-                    f.id AS file_id, COALESCE(e.file_size_bytes, f.file_size_bytes) AS file_size_bytes
+                    f.id AS file_id, COALESCE(e.file_size_bytes, f.file_size_bytes) AS file_size_bytes,
+                    ecv.chunk_hash AS verification_chunk_hash, ecv.chunk_size AS verification_chunk_size, ecv.chunk_index AS verification_chunk_index
                 '''
                 base_query += '''
                 FROM block b
                 LEFT JOIN events e ON b.id = e.block_id
                 LEFT JOIN chunk c ON c.event_uuid = e.uuid
                 LEFT JOIN file f ON f.uuid = c.file_uuid
+                LEFT JOIN event_chunk_verifications ecv ON e.uuid = ecv.event_uuid
                 '''
             else:
                 base_query += '''
@@ -1022,7 +1100,8 @@ class Database:
                     base_query += ''',
                         e.id,
                         c.id,
-                        f.id
+                        f.id,
+                        ecv.id
                     '''
 
             if block_hash:
@@ -1054,10 +1133,17 @@ class Database:
                     event_uuid = row['event_uuid']
                     if event_uuid:
                         if event_uuid not in events:
-                            events[event_uuid] = self._build_event_from_row(row)
+                            events[event_uuid] = self._build_event_from_row(row=row)
                             blocks[block_id].events.append(events[event_uuid])
 
-                        if isinstance(events[event_uuid].event_params, StoreParams):
+                        if isinstance(events[event_uuid], StoreRequestEvent):
+                            chunk_verifications = {
+                                "chunk_index": row['verification_chunk_index'],
+                                "chunk_size": row['verification_chunk_size'],
+                                "chunk_hash": row['verification_chunk_hash']
+                            }
+                            events[event_uuid].input_params.chunks.append(chunk_verifications)
+                        elif isinstance(events[event_uuid], StoreEvent):
                             chunk = ChunkParams(
                                 uuid=row['chunk_uuid'],
                                 chunk_index=row['chunk_index'],
@@ -1217,11 +1303,14 @@ class Database:
             event = StoreEvent(
                 uuid=row['event_uuid'],
                 validator_ss58_address=row['validator_ss58_address'],
-                event_params=StoreParams(**event_params),
+                event_params=StoreParams(
+                    chunks_params=[],
+                    file_hash=row['file_hash'],
+                    file_size=row['file_size_bytes'],
+                    file_uuid=row['file_uuid']
+                ),
                 event_signed_params=row['event_signed_params'],
                 user_ss58_address=row['user_ss58_address'],
-                input_params=StoreInputParams(file_hash=row['file_hash'], file_size_bytes=row['file_size_bytes']),
-                input_signed_params=row['input_signed_params']
             )
         elif event_type == Action.REMOVE.value:
             event = RemoveEvent(
@@ -1240,7 +1329,7 @@ class Database:
                 event_params=StoreRequestParams(file_uuid=row['file_uuid'], expiration_at=row['expiration_at'], approved=row['approved']),
                 event_signed_params=row['event_signed_params'],
                 user_ss58_address=row['user_ss58_address'],
-                input_params=StoreRequestInputParams(file_hash=row['file_hash'], file_size_bytes=row['file_size_bytes']),
+                input_params=StoreRequestInputParams(file_hash=row['file_hash'], file_size_bytes=row['file_size_bytes'], chunks=[]),
                 input_signed_params=row['input_signed_params']
             )
         else:

@@ -23,7 +23,8 @@
 from typing import Optional
 from fastapi import HTTPException
 
-from smartdrive.utils import format_size, MAXIMUM_STORAGE
+from smartdrive.utils import format_size
+from smartdrive.config import MAXIMUM_STORAGE_PER_USER_PER_FILE
 
 
 class UnexpectedErrorException(HTTPException):
@@ -53,7 +54,7 @@ class FileNotAvailableException(HTTPException):
 
 
 class FileTooLargeException(HTTPException):
-    def __init__(self, detail: str = f"File size exceeds the maximum limit of {format_size(MAXIMUM_STORAGE)}"):
+    def __init__(self, detail: str = f"File size exceeds the maximum limit of {format_size(MAXIMUM_STORAGE_PER_USER_PER_FILE)}"):
         super().__init__(status_code=413, detail=detail)
 
 

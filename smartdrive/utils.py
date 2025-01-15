@@ -30,17 +30,7 @@ from smartdrive import logger
 from smartdrive.cli.errors import NoValidatorsAvailableException
 from smartdrive.commune.errors import CommuneNetworkUnreachable
 from smartdrive.commune.request import get_active_validators, EXTENDED_PING_TIMEOUT
-
-INITIAL_STORAGE = 50 * 1024 * 1024  # 50 MB
-MAXIMUM_STORAGE = 2 * 1024 * 1024 * 1024  # 2 GB
-ADDITIONAL_STORAGE_PER_COMAI = 0.1 * 1024 * 1024  # 0.1 MB
-MINIMUM_STAKE = 1  # 1 COMAI
-
-DEFAULT_MINER_PATH = "~/.smartdrive/miner"
-DEFAULT_VALIDATOR_PATH = "~/.smartdrive/validator"
-DEFAULT_CLIENT_PATH = "~/.smartdrive/client"
-
-INTERVAL_CHECK_VERSION_SECONDS = 30 * 60  # 30 min
+from smartdrive.config import INTERVAL_CHECK_VERSION_SECONDS
 
 
 def format_size(size_in_bytes: int) -> str:
@@ -62,6 +52,7 @@ def format_size(size_in_bytes: int) -> str:
 
 
 async def periodic_version_check():
+    # TODO: Investigate a solution for automatic updates in the future, since right now it blocks modules.
     while True:
         logger.info("Checking for updates...")
         smartdrive.check_version()

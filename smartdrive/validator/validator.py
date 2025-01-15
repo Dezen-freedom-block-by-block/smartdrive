@@ -35,10 +35,11 @@ from substrateinterface import Keypair
 import smartdrive
 from smartdrive.commune.models import ConnectionInfo, ModuleInfo
 from smartdrive.logging_config import logger
-from smartdrive.models.block import Block, MAX_EVENTS_PER_BLOCK, block_to_block_event
+from smartdrive.models.block import Block, block_to_block_event
 from smartdrive.models.event import RemoveEvent, EventParams, RemoveInputParams, StoreRequestEvent
 from smartdrive.models.utils import compile_miners_info_and_chunks
-from smartdrive.utils import DEFAULT_VALIDATOR_PATH, periodic_version_check
+from smartdrive.config import DEFAULT_VALIDATOR_PATH, SLEEP_TIME_CHECK_STAKE_SECONDS, VALIDATION_VOTE_INTERVAL_SECONDS, \
+    BLOCK_INTERVAL_SECONDS, VALIDATOR_DELAY_SECONDS, MAX_EVENTS_PER_BLOCK
 from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.config import Config, config_manager
 from smartdrive.validator.database.database import Database
@@ -92,11 +93,6 @@ def get_config() -> Config:
 
 
 class Validator(Module):
-    BLOCK_INTERVAL_SECONDS = 30
-    VALIDATION_VOTE_INTERVAL_SECONDS = 10 * 60  # 10 minutes
-    SLEEP_TIME_CHECK_STAKE_SECONDS = 1 * 60 * 60  # 1 hour
-    VALIDATOR_DELAY_SECONDS = 20
-
     _config = None
     _key: Keypair = None
     _database: Database = None
@@ -119,14 +115,14 @@ class Validator(Module):
             2. Ensures that user stakes remain active as long as storage is being requested.
             3. Proposes a new block if the current node is designated as the proposer.
         """
-        last_validation_vote_time = time.monotonic() - self.VALIDATION_VOTE_INTERVAL_SECONDS
-        last_check_stake_time = time.monotonic() - self.SLEEP_TIME_CHECK_STAKE_SECONDS
+        last_validation_vote_time = time.monotonic() - VALIDATION_VOTE_INTERVAL_SECONDS
+        last_check_stake_time = time.monotonic() - SLEEP_TIME_CHECK_STAKE_SECONDS
 
         while True:
             start_step_time = time.monotonic()
 
             try:
-                if start_step_time - last_validation_vote_time >= self.VALIDATION_VOTE_INTERVAL_SECONDS:
+                if start_step_time - last_validation_vote_time >= VALIDATION_VOTE_INTERVAL_SECONDS:
                     logger.info("Starting validation and voting task")
                     asyncio.create_task(self.validate_vote_task())
                     last_validation_vote_time = start_step_time
@@ -134,7 +130,7 @@ class Validator(Module):
                 logger.error("Error validating and voting", exc_info=True)
 
             try:
-                if start_step_time - last_check_stake_time >= self.SLEEP_TIME_CHECK_STAKE_SECONDS:
+                if start_step_time - last_check_stake_time >= SLEEP_TIME_CHECK_STAKE_SECONDS:
                     logger.info("Starting checking stake")
                     asyncio.create_task(self.check_stake_task())
                     last_check_stake_time = start_step_time
@@ -158,14 +154,14 @@ class Validator(Module):
                     if not self.node.sync_service.is_synced() or not self._has_proposed_block:
                         if self.node.sync_service.is_syncing() or self.node.sync_service.is_fork_syncing():
                             logger.debug("Synchronization already in progress, skipping new request.")
-                            await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS)
+                            await asyncio.sleep(BLOCK_INTERVAL_SECONDS)
                             continue
 
                         self._has_proposed_block = True
 
                         if active_validators:
                             request_last_block(key=self._key, connections=self.node.get_connections())
-                            await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS / 2)
+                            await asyncio.sleep(BLOCK_INTERVAL_SECONDS / 2)
 
                             sync_status = evaluate_local_chain(
                                 local_block=last_block,
@@ -174,6 +170,7 @@ class Validator(Module):
                                 database=self._database,
                                 local_validator_ss58_address=self._key.ss58_address
                             )
+
                             if sync_status == ChainState.OUT_OF_SYNC:
                                 logger.info("Out of sync. Starting synchronization process.")
                                 self.node.sync_service.start_sync()
@@ -188,7 +185,7 @@ class Validator(Module):
                                 except Exception:
                                     logger.error("Error starting synchronization process", exc_info=True)
 
-                                await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS / 2)
+                                await asyncio.sleep(BLOCK_INTERVAL_SECONDS / 2)
                                 continue
 
                             elif sync_status == ChainState.FORK_DETECTED:
@@ -200,7 +197,7 @@ class Validator(Module):
                                     active_connections=self.node.get_connections(),
                                     keypair=self._key,
                                 )
-                                await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS / 2)
+                                await asyncio.sleep(BLOCK_INTERVAL_SECONDS / 2)
                                 continue
                             elif sync_status == ChainState.SYNCHRONIZED:
                                 logger.info("Local chain is synchronized.")
@@ -256,13 +253,13 @@ class Validator(Module):
                     self._has_proposed_block = False
 
                 elapsed = time.monotonic() - start_step_time
-                sleep_time = max(0.0, self.BLOCK_INTERVAL_SECONDS - elapsed)
+                sleep_time = max(0.0, BLOCK_INTERVAL_SECONDS - elapsed)
                 logger.info(f"Sleeping for {sleep_time:.2f} seconds before trying to create the next block.")
                 await asyncio.sleep(sleep_time)
 
             except Exception:
                 logger.error("Error creating block", exc_info=True)
-                await asyncio.sleep(self.BLOCK_INTERVAL_SECONDS)
+                await asyncio.sleep(BLOCK_INTERVAL_SECONDS)
 
     async def validate_vote_task(self):
         miners = [
@@ -314,7 +311,7 @@ class Validator(Module):
                 if total_size_stored_by_user > available_storage_of_user:
                     excess_storage = total_size_stored_by_user - available_storage_of_user
                     user_files = self._database.get_files_by_user(user_ss58_address=user_ss58_address)
-                    user_files_sorted = sorted(user_files, key=lambda x: x.file_size_bytes)
+                    user_files_sorted = sorted(user_files, key=lambda x: x.chunk_size_bytes)
 
                     files_to_remove = None
                     for file in user_files_sorted:
@@ -325,7 +322,7 @@ class Validator(Module):
                     if not files_to_remove:
                         for r in range(1, len(user_files_sorted) + 1):
                             for combo in itertools.combinations(user_files_sorted, r):
-                                if sum(f.file_size_bytes for f in combo) >= excess_storage:
+                                if sum(f.chunk_size_bytes for f in combo) >= excess_storage:
                                     files_to_remove = list(combo)
                                     break
                             if files_to_remove:
@@ -369,10 +366,9 @@ if __name__ == "__main__":
 
         async def run_tasks():
             # Initial delay to allow active validators to load before request them
-            await asyncio.sleep(validator.VALIDATOR_DELAY_SECONDS)
+            await asyncio.sleep(VALIDATOR_DELAY_SECONDS)
 
             await asyncio.gather(
-                periodic_version_check(),
                 validator.api.run_server(),
                 validator.run_steps()
             )

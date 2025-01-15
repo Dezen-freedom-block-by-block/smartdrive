@@ -34,7 +34,7 @@ from smartdrive.commune.request import get_staketo
 
 from smartdrive.logging_config import logger
 from smartdrive.sign import sign_data
-from smartdrive.utils import MINIMUM_STAKE, INITIAL_STORAGE, ADDITIONAL_STORAGE_PER_COMAI, MAXIMUM_STORAGE
+from smartdrive.config import INITIAL_STORAGE_PER_USER, ADDITIONAL_STORAGE_PER_COMAI, MINIMUM_STAKE
 from smartdrive.validator.config import config_manager
 from smartdrive.validator.node.connection.connection_pool import Connection
 from smartdrive.validator.node.connection.utils.utils import send_message
@@ -126,26 +126,25 @@ async def get_stake_from_user(user_ss58_address: Ss58Address, validators: [Modul
 
 def calculate_storage_capacity(stake: float) -> int:
     """
-    Calculates the storage capacity based on the user's stake,
-    with a maximum limit of MAXIMUM_STORAGE.
+    Calculates the storage capacity based on the user's stake.
 
     Params:
         stake (float): The current user's stake in COMAI.
 
     Returns:
-        int: The total storage capacity in bytes, capped at MAXIMUM_STORAGE.
+        int: The total storage capacity in bytes.
     """
     if stake < MINIMUM_STAKE:
         return 0
 
-    total_storage_bytes = INITIAL_STORAGE
+    total_storage_bytes = INITIAL_STORAGE_PER_USER
 
     additional_comai = stake - MINIMUM_STAKE
     if additional_comai > 0:
         total_storage_bytes += additional_comai * ADDITIONAL_STORAGE_PER_COMAI
 
     # Limit the total storage to MAXIMUM_STORAGE in bytes
-    return int(min(total_storage_bytes, MAXIMUM_STORAGE))
+    return total_storage_bytes
 
 
 def request_last_block(key: Keypair, connections: List[Connection]):

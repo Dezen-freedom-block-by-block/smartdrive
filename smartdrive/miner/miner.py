@@ -29,6 +29,7 @@ import argparse
 import os
 
 import aiofiles
+import aiohttp
 import uvicorn
 from fastapi import Request, FastAPI
 from fastapi import HTTPException
@@ -39,12 +40,17 @@ from communex.module._rate_limiters.limiters import IpLimiterParams
 
 import smartdrive
 from smartdrive.check_file import check_file
+from smartdrive.commune.module._protocol import create_headers
+from smartdrive.commune.utils import get_ss58_address_from_public_key
 from smartdrive.logging_config import logger
-from smartdrive.commune.request import get_modules
+from smartdrive.commune.request import get_modules, get_filtered_modules
 from smartdrive.miner.config import config_manager, Config
 from smartdrive.miner.middleware.miner_middleware import MinerMiddleware
 from smartdrive.miner.utils import has_enough_space, get_directory_size, parse_body
-from smartdrive.utils import DEFAULT_MINER_PATH, periodic_version_check
+from smartdrive.sign import sign_data
+from smartdrive.utils import _get_validator_url_async
+from smartdrive.config import READ_FILE_SIZE, DEFAULT_MINER_PATH
+from smartdrive.validator.models.models import ModuleType
 
 
 def get_config() -> Config:
@@ -156,32 +162,50 @@ class Miner(Module):
         chunk_path = ""
         try:
             folder = request.headers.get("Folder")
-            original_file_size = int(request.headers.get("X-File-Size"))
-            original_file_hash = request.headers.get("X-File-Hash")
+            chunk_size = int(request.headers.get("X-Chunk-Size"))
+            chunk_hash = request.headers.get("X-Chunk-Hash")
+            event_uuid = request.headers.get("X-Event-UUID", None)
+            user_public_key = request.headers.get("X-Key")
+            user_ss58_address = get_ss58_address_from_public_key(user_public_key)
 
-            if not has_enough_space(original_file_size, config_manager.config.max_size, config_manager.config.data_path):
+            if not has_enough_space(chunk_size, config_manager.config.max_size, config_manager.config.data_path):
                 raise HTTPException(status_code=409, detail="Not enough space to store the file")
 
+            validators = await get_filtered_modules(
+                config_manager.config.netuid,
+                ModuleType.VALIDATOR,
+                config_manager.config.testnet
+            )
+            is_validator = user_ss58_address in {v.ss58_address for v in validators} and not event_uuid
+
+            if not is_validator and not await self._verify_store_permissions(
+                store_request_event_uuid=event_uuid,
+                user_ss58_address=folder,
+                chunk_hash=chunk_hash,
+                chunk_size=chunk_size
+            ):
+                raise HTTPException(status_code=403, detail="Permission denied to store the file")
+
             client_dir = os.path.join(config_manager.config.data_path, folder)
-            if not os.path.exists(client_dir):
-                os.makedirs(client_dir)
+            os.makedirs(client_dir, exist_ok=True)
 
             sha256 = hashlib.sha256()
             total_size = 0
             file_uuid = f"{int(time.time())}_{str(uuid.uuid4())}"
             chunk_path = os.path.join(client_dir, file_uuid)
-            form = await request.form()
-            chunk = form.get("chunk")
+
             async with aiofiles.open(chunk_path, 'wb') as chunk_file:
-                while True:
-                    chunk_data = await chunk.read(16384)
-                    if not chunk_data:
-                        break
+                async for chunk_data in request.stream():
                     total_size += len(chunk_data)
                     sha256.update(chunk_data)
                     await chunk_file.write(chunk_data)
 
-            await check_file(file_hash=sha256.hexdigest(), file_size=total_size, original_file_size=original_file_size, original_file_hash=original_file_hash)
+            await check_file(
+                file_hash=sha256.hexdigest(),
+                file_size=total_size,
+                original_file_size=chunk_size,
+                original_file_hash=chunk_hash
+            )
 
             return {"id": file_uuid}
         except Exception as e:
@@ -238,11 +262,10 @@ class Miner(Module):
             body = parse_body(body_bytes)
 
             chunk_path = os.path.join(config_manager.config.data_path, body["folder"], body["chunk_uuid"])
-
             def iterfile():
                 with open(chunk_path, 'rb') as chunk_file:
                     while True:
-                        data = chunk_file.read(16384)
+                        data = chunk_file.read(READ_FILE_SIZE)
                         if not data:
                             break
                         yield data
@@ -287,6 +310,37 @@ class Miner(Module):
         except Exception as e:
             raise HTTPException(status_code=409, detail=f"Error: {e}")
 
+    async def _verify_store_permissions(self, store_request_event_uuid: str, user_ss58_address: str, chunk_hash: str, chunk_size: int) -> bool:
+        """
+        Verifies if the client has permissions to store the file by consulting the validator.
+
+        Args:
+            store_request_event_uuid (str): The unique identifier of the event to validate.
+            user_ss58_address (str): The SS58 address of the user.
+            chunk_hash (str): The chunk hash.
+            chunk_size (int): The chunk size.
+
+        Returns:
+            bool: True if the client has permissions, False otherwise.
+        """
+        try:
+            input_params = {
+                "store_request_event_uuid": store_request_event_uuid,
+                "user_ss58_address": user_ss58_address,
+                "chunk_size": chunk_size,
+                "chunk_hash": chunk_hash,
+            }
+            signed_data = sign_data(input_params, key)
+            headers = create_headers(signed_data, key)
+            validator_url = await _get_validator_url_async(key=key, testnet=config_manager.config.testnet)
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(f"{validator_url}/store/check-approval", json=input_params, headers=headers, ssl=False) as response:
+                    return response.status == 200
+        except Exception as e:
+            logger.error(e)
+            return False
+
 
 if __name__ == "__main__":
     config = get_config()
@@ -304,7 +358,6 @@ if __name__ == "__main__":
 
         async def run_tasks():
             await asyncio.gather(
-                periodic_version_check(),
                 miner.run_server(config)
             )
 

@@ -8,6 +8,7 @@ from communex.balance import from_nano
 from communex.types import Ss58Address
 from substrateinterface.utils.ss58 import is_valid_ss58_address, ss58_encode
 
+from smartdrive.config import READ_FILE_SIZE
 from smartdrive.logging_config import logger
 from smartdrive.commune.models import ModuleInfo, ConnectionInfo
 from smartdrive.validator.constants import TRUTHFUL_STAKE_AMOUNT
@@ -110,7 +111,7 @@ async def calculate_hash(path: str) -> str:
 
     async with aiofiles.open(path, 'rb') as f:
         while True:
-            chunk = await f.read(16384)
+            chunk = await f.read(READ_FILE_SIZE)
             if not chunk:
                 break
             sha256.update(chunk)

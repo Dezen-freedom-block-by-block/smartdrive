@@ -19,29 +19,40 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
-import subprocess
-import sys
+
+import asyncio
+import random
 import os
 from pathlib import Path
 from getpass import getpass
+from typing import List, Dict
+
 import urllib3
 import requests
 import zstandard as zstd
+from communex.types import Ss58Address
 from substrateinterface import Keypair
 from nacl.exceptions import CryptoError
 
 from communex.compat.key import is_encrypted, classic_load_key
 
 import smartdrive
-from smartdrive.commune.utils import calculate_hash_sync
+from smartdrive.commune.models import ConnectionInfo, ModuleInfo
+from smartdrive.commune.request import get_filtered_modules, execute_miner_request
 from smartdrive.logging_config import logger
 from smartdrive.cli.errors import NoValidatorsAvailableException
 from smartdrive.cli.spinner import Spinner
-from smartdrive.cli.utils import compress_encrypt_and_save, decompress_decrypt_and_save
+from smartdrive.cli.utils import compress_encrypt_and_split_file, determine_chunk_size_and_semaphore_limit, \
+    decompress_decrypt_and_unify_file, determine_semaphore_limit
 from smartdrive.commune.module._protocol import create_headers
-from smartdrive.models.event import StoreInputParams, RetrieveInputParams, RemoveInputParams
+from smartdrive.models.event import RetrieveInputParams, RemoveInputParams, StoreRequestInputParams, \
+    ChunkParams, StoreParams, ValidationEvent
 from smartdrive.sign import sign_data
-from smartdrive.utils import MAXIMUM_STORAGE, format_size, _get_validator_url
+from smartdrive.utils import format_size, _get_validator_url, _get_validator_url_async
+from smartdrive.config import MAXIMUM_STORAGE_PER_USER_PER_FILE, REDUNDANCY_PER_CHUNK, MINER_STORE_TIMEOUT_SECONDS, \
+    DEFAULT_CLIENT_PATH, MAX_ENCODED_RANGE_SUB_CHUNKS, MINER_RETRIEVE_TIMEOUT_SECONDS
+from smartdrive.validator.api.exceptions import ChunkNotAvailableException, FileNotAvailableException, RedundancyException
+from smartdrive.validator.models.models import ModuleType
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -69,34 +80,36 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
     smartdrive.check_version()
 
     file_path = os.path.expanduser(file_path)
+    file_size = os.path.getsize(file_path)
 
     if not Path(file_path).is_file():
         logger.error(f"File {file_path} does not exist or is a directory.")
         return
 
-    if os.path.getsize(file_path) > MAXIMUM_STORAGE:
-        logger.error(f"Error: File size exceeds the maximum limit of {format_size(MAXIMUM_STORAGE)}")
+    if file_size > MAXIMUM_STORAGE_PER_USER_PER_FILE:
+        logger.error(f"Error: File size exceeds the maximum limit of {format_size(MAXIMUM_STORAGE_PER_USER_PER_FILE)}")
         return
 
     key = _get_key(key_name)
-
-    # Step 1: Compress the file
-    spinner = Spinner("Compressing and encrypting file")
-    spinner.start()
-
-    temp_file_path = ""
+    chunks = []
     try:
-        temp_file_path = compress_encrypt_and_save(file_path, key.private_key[:32])
-        file_hash = calculate_hash_sync(temp_file_path)
+        spinner = Spinner("Splitting file into chunks, compressing and encrypting")
+        spinner.start()
+        chunk_size, simultaneous_uploads = determine_chunk_size_and_semaphore_limit(file_size=file_size)
+        output_dir = os.path.expanduser(DEFAULT_CLIENT_PATH)
+        chunks, final_chunk_hash, final_chunk_size_bytes = compress_encrypt_and_split_file(file_path, key.private_key[:32], chunk_size, output_dir)
+
         spinner.stop_with_message("Done!")
 
-        file_size_bytes = os.path.getsize(temp_file_path)
-        input_params = StoreInputParams(file_hash=file_hash, file_size_bytes=file_size_bytes)
-        signed_data = sign_data(input_params.dict(), key)
-
-        # Step 3: Send the request
-        spinner = Spinner("Sending request")
+        spinner = Spinner("Sending store request")
         spinner.start()
+
+        filtered_chunks = [
+            {key: value for key, value in chunk.items() if key != "chunk_path"}
+            for chunk in chunks
+        ]
+        input_params = StoreRequestInputParams(file_hash=final_chunk_hash, file_size_bytes=final_chunk_size_bytes, chunks=filtered_chunks)
+        signed_data = sign_data(input_params.dict(), key)
 
         validator_url = _get_validator_url(key, testnet)
         headers = create_headers(signed_data, key, show_content_type=False)
@@ -105,7 +118,8 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
             url=f"{validator_url}/store/request",
             headers=headers,
             json=input_params.dict(),
-            verify=False
+            verify=False,
+            timeout=60
         )
 
         response.raise_for_status()
@@ -113,32 +127,39 @@ def store_handler(file_path: str, key_name: str = None, testnet: bool = False):
 
         file_uuid = message.get("file_uuid")
         store_request_event_uuid = message.get("store_request_event_uuid")
-        spinner.stop_with_message("Done!")
 
         if file_uuid and store_request_event_uuid:
-            logger.info(f"Your data will be stored soon in background. Your file UUID is: {file_uuid}")
-            subprocess.Popen(
-                [sys.executable, "smartdrive/cli/scripts/async_upload_file.py", temp_file_path, file_hash, str(file_size_bytes), store_request_event_uuid, key_name, str(testnet), file_uuid],
-                close_fds=True,
-                start_new_session=True
+            spinner.stop_with_message("Done!")
+
+            asyncio.run(
+                _check_store_permission(
+                    key=key,
+                    testnet=testnet,
+                    store_request_event_uuid=store_request_event_uuid,
+                    chunks=chunks,
+                    file_uuid=file_uuid,
+                    file_size=final_chunk_size_bytes,
+                    file_hash=final_chunk_hash,
+                    simultaneous_uploads=simultaneous_uploads
+                )
             )
+        else:
+            spinner.stop_with_message("Error, try again")
 
     except NoValidatorsAvailableException:
-        if temp_file_path and os.path.exists(temp_file_path):
-            os.remove(temp_file_path)
         spinner.stop_with_message("Error: No validators available")
     except requests.RequestException as e:
         try:
-            if temp_file_path and os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
             error_message = e.response.json().get('detail', 'Unknown error')
             spinner.stop_with_message(f"Error: {error_message}.")
         except ValueError:
             spinner.stop_with_message("Error: Network error.")
     except Exception as e:
-        if temp_file_path and os.path.exists(temp_file_path):
-            os.remove(temp_file_path)
         spinner.stop_with_message(f"Unexpected error. {e}")
+    finally:
+        if chunks:
+            for chunk in chunks:
+                os.remove(chunk["chunk_path"])
 
 
 def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testnet: bool = False):
@@ -175,20 +196,29 @@ def retrieve_handler(file_uuid: str, file_path: str, key_name: str = None, testn
         input_params = RetrieveInputParams(file_uuid=file_uuid)
         headers = create_headers(sign_data(input_params.dict(), key), key)
 
-        response = requests.get(f"{validator_url}/retrieve", params=input_params.dict(), headers=headers, verify=False, stream=True)
+        response = requests.get(f"{validator_url}/retrieve", params=input_params.dict(), headers=headers, verify=False)
 
         response.raise_for_status()
         spinner.stop_with_message("Done!")
 
+        message = response.json()
+
         # Step 2: Decompress and storing the file
-        spinner = Spinner("Decompressing and decrypting")
+        spinner = Spinner("Downloading, decrypting and decompressing chunks")
         spinner.start()
 
         try:
-            final_file_path = decompress_decrypt_and_save(response.raw, key.private_key[:32], file_path)
-
+            output_file = asyncio.run(
+                _download_decrypt_and_decompress_chunks(
+                    miner_with_chunks=message["miners_info"],
+                    file_size=message["file_size"],
+                    aes_key=key.private_key[:32],
+                    keypair=key,
+                    file_path=file_path
+                )
+            )
             spinner.stop_with_message("Done!")
-            logger.info(f"Data downloaded and decompressed successfully in {final_file_path}")
+            logger.info(f"File decrypted and decompressed successfully in {output_file}")
 
         except zstd.ZstdError:
             spinner.stop_with_message("Error: Decompression failed.")
@@ -285,3 +315,404 @@ def _get_key(key_name: str) -> Keypair:
         exit(1)
 
     return key
+
+
+async def _check_store_permission(key: Keypair, testnet: bool, store_request_event_uuid: str, chunks: List[Dict[str, str]], file_uuid: str, file_size: int, file_hash: str, simultaneous_uploads: int):
+    spinner = Spinner("Checking permission to store")
+    spinner.start()
+
+    for i in range(3):
+        try:
+            await asyncio.sleep(20)
+            input_params = {"store_request_event_uuid": store_request_event_uuid, "user_ss58_address": key.ss58_address}
+            signed_data = sign_data(input_params, key)
+            headers = create_headers(signed_data, key, show_content_type=False)
+            validator_url = await _get_validator_url_async(key=key, testnet=testnet)
+
+            response = requests.post(
+                url=f"{validator_url}/store/check-approval",
+                headers=headers,
+                json=input_params,
+                verify=False,
+                timeout=30
+            )
+
+            if response.status_code == requests.codes.ok:
+                spinner.stop_with_message("Done!")
+                try:
+                    await _store_chunks(
+                        chunks=chunks,
+                        keypair=key,
+                        testnet=testnet,
+                        file_uuid=file_uuid,
+                        file_hash=file_hash,
+                        file_size=file_size,
+                        event_uuid=store_request_event_uuid,
+                        simultaneous_uploads=simultaneous_uploads
+                    )
+                    return
+                except Exception:
+                    return
+            elif response.status_code != requests.codes.not_found:
+                spinner.stop_with_message(response.json().get("detail", "No permission to store"))
+                return
+        except Exception:
+            continue
+
+    spinner.stop_with_message("Error, try again.")
+
+
+async def _store_chunks(chunks: List[Dict[str, str]], file_uuid: str, file_hash: str, file_size: int, keypair: Keypair, testnet: bool, event_uuid: str, simultaneous_uploads: int):
+    """
+    Stores the prepared chunks concurrently into multiple miners with redundancy.
+
+    Args:
+        chunks (List[Dict[str, str]]): The chunks to be stored.
+        file_uuid (str): UUID of the parent file.
+        file_hash (str): SHA256 hash of the file.
+        file_size (int): Size of the file.
+        keypair (Keypair): Client's keypair for signing requests.
+        testnet (bool): Flag to indicate if the testnet should be used.
+        event_uuid (str): UUID of the event.
+        simultaneous_uploads (int): Number of simultaneous uploads.
+
+    Raises:
+        Exception: If any chunk fails to achieve sufficient redundancy.
+    """
+    logger.info(f"Uploading chunks, total {len(chunks)}...")
+
+    miners = await get_filtered_modules(
+        netuid=smartdrive.TESTNET_NETUID if testnet else smartdrive.NETUID,
+        module_type=ModuleType.MINER,
+        testnet=testnet,
+        ss58_address=keypair.ss58_address
+    )
+
+    validators = await get_filtered_modules(
+        netuid=smartdrive.TESTNET_NETUID if testnet else smartdrive.NETUID,
+        module_type=ModuleType.VALIDATOR,
+        testnet=testnet,
+        ss58_address=keypair.ss58_address
+    )
+
+    if not miners:
+        raise Exception("No miners available for storage.")
+
+    semaphore = asyncio.Semaphore(simultaneous_uploads)
+    successful_miners = []
+    validation_events_info = []
+
+    async def upload_chunk(chunk: Dict[str, str], miner):
+        """
+        Upload a single chunk to a specific miner.
+
+        Args:
+            chunk (dict): Metadata of the chunk.
+            miner: Miner to upload the chunk to.
+
+        Returns:
+            bool: True if upload is successful, False otherwise.
+        """
+        async with semaphore:
+            try:
+                success = await execute_miner_request(
+                    keypair,
+                    miner.connection,
+                    miner.ss58_address,
+                    "store",
+                    file={
+                        'folder': keypair.ss58_address,
+                        'chunk': chunk["chunk_path"],
+                        'event_uuid': event_uuid,
+                        'chunk_size': chunk["chunk_size"],
+                        'chunk_hash': chunk["chunk_hash"]
+                    },
+                    timeout=MINER_STORE_TIMEOUT_SECONDS
+                )
+                if success and success["id"]:
+                    successful_miners.append(
+                        ChunkParams(
+                            uuid=success["id"],
+                            miner_ss58_address=miner.ss58_address,
+                            chunk_index=chunk["chunk_index"],
+                            chunk_hash=chunk["chunk_hash"],
+                            chunk_size=chunk["chunk_size"],
+                            miner_connection=miner.connection.__dict__
+                        )
+                    )
+
+                    validation_events_info.append(
+                        {
+                            "chunk_path": chunk["chunk_path"],
+                            "chunk_uuid": success["id"],
+                            "miner_ss58_address": miner.ss58_address,
+                        }
+                    )
+
+                    return True
+            except Exception:
+                return False
+        return False
+
+    async def upload_chunk_with_redundancy(chunk: Dict[str, str]):
+        """
+        Uploads a chunk to multiple miners, ensuring redundancy.
+
+        Args:
+            chunk (dict): Metadata of the chunk.
+
+        Raises:
+            Exception: If redundancy cannot be achieved.
+        """
+        if len(miners) < REDUNDANCY_PER_CHUNK:
+            raise RedundancyException
+
+        miners_copy = miners.copy()
+        random.shuffle(miners_copy)
+
+        redundancy_count = 0
+
+        miner_iterator = iter(miners_copy)
+
+        while redundancy_count < REDUNDANCY_PER_CHUNK:
+            tasks = []
+            try:
+                for _ in range(REDUNDANCY_PER_CHUNK - redundancy_count):
+                    miner = next(miner_iterator, None)
+                    if not miner:
+                        break
+                    tasks.append(upload_chunk(chunk, miner))
+
+                if not tasks:
+                    break
+
+                results = await asyncio.gather(*tasks)
+                redundancy_count += sum(1 for result in results if result is True)
+
+            except StopIteration:
+                break
+
+            except Exception:
+                pass
+
+        if redundancy_count < REDUNDANCY_PER_CHUNK:
+            raise RedundancyException(f"Failed to achieve redundancy {REDUNDANCY_PER_CHUNK}")
+
+        logger.info(f"Chunk {int(chunk['chunk_index']) + 1} uploaded")
+
+    try:
+        tasks = [upload_chunk_with_redundancy(chunk) for chunk in chunks]
+        await asyncio.gather(*tasks)
+
+        # It is then used to build an object file.
+        event_params = StoreParams(
+            chunks_params=[
+                ChunkParams(
+                    **{**chunk.__dict__, "miner_connection": None, "chunk_hash": None, "chunk_size": None}
+                )
+                for chunk in successful_miners
+            ],
+            file_hash=file_hash,
+            file_size=file_size,
+            file_uuid=file_uuid
+        )
+
+        validation_events = generate_validation_events_per_validator(
+            stored_chunks=validation_events_info,
+            validators_len=len(validators) + 1,  # To include myself
+            user_ss58_address=keypair.ss58_address,
+            file_uuid=file_uuid
+        )
+
+        event_signed_params = sign_data(event_params.dict(), keypair)
+
+        # It is used to obtain all the chunk_params data to be able to approve the request later.
+        event_params.chunks_params = [
+            ChunkParams(
+                **{**chunk.__dict__, "miner_connection": None}
+            )
+            for chunk in successful_miners
+        ]
+        validation_events_serialized = [
+            [validation_event.dict() for validation_event in validator_events]
+            for validator_events in validation_events
+        ]
+
+        json = {"event_params": event_params.dict(), "event_signed_params": event_signed_params.hex(), "validation_events": validation_events_serialized}
+        signed_data = sign_data(json, keypair)
+
+        validator_url = await _get_validator_url_async(keypair, testnet)
+        headers = create_headers(signed_data, keypair, show_content_type=False)
+        headers.update({"X-Event-UUID": event_uuid})
+
+        response = requests.post(
+            url=f"{validator_url}/store/approve",
+            headers=headers,
+            json=json,
+            verify=False
+        )
+
+        if response.status_code == requests.codes.ok:
+            logger.info(f"All chunks stored successfully with redundancy! File UUID: {file_uuid}")
+        else:
+            await _cleanup_chunks(stored_chunks=successful_miners, keypair=keypair)
+            logger.error("Error storing chunks with redundancy")
+    except Exception as e:
+        logger.error(f"Error during chunk upload: {e}")
+        await _cleanup_chunks(stored_chunks=successful_miners, keypair=keypair)
+        raise
+
+
+async def _download_decrypt_and_decompress_chunks(
+        miner_with_chunks: Dict[int, List[Dict[str, str]]],
+        file_size: int,
+        aes_key: bytes,
+        keypair: Keypair,
+        file_path: str
+) -> str:
+    """
+    Download all chunks from miners, store them in a temporary directory,
+    then decrypt, decompress, and assemble them into the final file.
+
+    Args:
+        miner_with_chunks (Dict[int, List[Dict[str, str]]]): Mapping of chunk indices to miners holding those chunks.
+        file_size (int): Size of the file.
+        aes_key (bytes): AES key for decryption.
+        keypair (Keypair): Client's keypair for signing requests.
+        file_path (str): Path to the final directory.
+
+    Returns:
+        str: Path to the final file.
+
+    Raises:
+        FileNotAvailableException: If any chunk cannot be retrieved or processed.
+        Exception: For other unexpected errors.
+    """
+    client_dir = os.path.expanduser(DEFAULT_CLIENT_PATH)
+    os.makedirs(client_dir, exist_ok=True)
+    semaphore_limit = determine_semaphore_limit(file_size=file_size)
+    semaphore = asyncio.Semaphore(semaphore_limit)
+    chunk_paths = []
+
+    async def download_chunk(chunk_index: int, miners_info: List[Dict[str, str]]) -> str:
+        """
+        Download a single chunk from the available miners and save it to the temp directory.
+
+        Args:
+            chunk_index (int): Index of the chunk to download.
+            miners_info (List[Dict[str, str]]): Information about miners holding the chunk.
+
+        Returns:
+            str: Path to the downloaded chunk file.
+        """
+        async with semaphore:
+            for miner_info in miners_info:
+                connection = ConnectionInfo(
+                    miner_info["connection"]["ip"],
+                    miner_info["connection"]["port"]
+                )
+                miner = ModuleInfo(
+                    miner_info["uid"],
+                    miner_info["ss58_address"],
+                    connection
+                )
+                try:
+                    miner_response = await execute_miner_request(
+                        validator_key=keypair,
+                        connection=miner.connection,
+                        miner_key=miner.ss58_address,
+                        action="retrieve",
+                        params={
+                            "folder": keypair.ss58_address,
+                            "chunk_uuid": miner_info["chunk_uuid"],
+                            "chunk_index": chunk_index,
+                            "user_path": client_dir
+                        },
+                        timeout=MINER_RETRIEVE_TIMEOUT_SECONDS
+                    )
+
+                    if miner_response:
+                        return miner_response
+                except Exception:
+                    continue
+
+        raise ChunkNotAvailableException(f"Chunk {chunk_index} could not be retrieved from any miner.")
+
+    try:
+        chunk_paths = await asyncio.gather(*[
+            download_chunk(chunk_index, miners_info)
+            for chunk_index, miners_info in miner_with_chunks.items()
+        ])
+
+        chunk_paths = sorted(
+            chunk_paths,
+            key=lambda path: int(path.split("_")[-1].split(".")[0])
+        )
+
+        return decompress_decrypt_and_unify_file(aes_key=aes_key, chunk_paths=chunk_paths, file_path=file_path)
+
+    except Exception as e:
+        try:
+            if chunk_paths:
+                for chunk in chunk_paths:
+                    os.remove(chunk)
+        except FileNotFoundError:
+            pass
+        logger.error(f"Error during file download and reconstruction: {e}")
+        raise FileNotAvailableException("Failed to retrieve or process all chunks.")
+
+
+async def _cleanup_chunks(stored_chunks: List[ChunkParams], keypair: Keypair):
+    """
+    Cleans up partially stored chunks by sending delete requests to the corresponding miners.
+
+    Args:
+        stored_chunks (list): List of dictionaries containing chunk UUIDs and the miners storing them.
+    """
+    for chunk in stored_chunks:
+        try:
+            await execute_miner_request(
+                keypair, ConnectionInfo(ip=chunk.miner_connection["ip"], port=chunk.miner_connection["port"]),
+                Ss58Address(chunk.miner_ss58_address), "remove", {
+                    "folder": keypair.ss58_address,
+                    "chunk_uuid": chunk.uuid
+                }
+            )
+        except Exception:
+            continue
+
+
+def generate_validation_events_per_validator(stored_chunks: List[dict], validators_len: int, user_ss58_address: str, file_uuid: str) -> List[List[ValidationEvent]]:
+    validations_events_per_validator = []
+
+    for _ in range(validators_len):
+        validator_events = []
+        for chunk in stored_chunks:
+            chunk_path = chunk["chunk_path"]
+            chunk_uuid = chunk["chunk_uuid"]
+            miner_ss58_address = chunk["miner_ss58_address"]
+
+            with open(chunk_path, 'rb') as chunk_file:
+                file_size = os.path.getsize(chunk_path)
+                sub_chunk_start = random.randint(0, max(0, file_size - MAX_ENCODED_RANGE_SUB_CHUNKS))
+                sub_chunk_end = min(sub_chunk_start + MAX_ENCODED_RANGE_SUB_CHUNKS, file_size)
+
+                chunk_file.seek(sub_chunk_start)
+                sub_chunk = chunk_file.read(sub_chunk_end - sub_chunk_start)
+                sub_chunk_encoded = sub_chunk.hex()
+
+                validation_event = ValidationEvent(
+                    uuid=chunk_uuid,
+                    miner_ss58_address=miner_ss58_address,
+                    sub_chunk_start=sub_chunk_start,
+                    sub_chunk_end=sub_chunk_end,
+                    sub_chunk_encoded=sub_chunk_encoded,
+                    file_uuid=file_uuid,
+                    user_owner_ss58_address=user_ss58_address
+                )
+                validator_events.append(validation_event)
+
+        if validator_events:
+            validations_events_per_validator.append(validator_events)
+
+    return validations_events_per_validator

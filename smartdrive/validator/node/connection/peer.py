@@ -166,7 +166,7 @@ class Peer(threading.Thread):
                 self._process_message_sync_response(message=message, validator_ss58_address=ss58_address)
 
             elif message.body.code == MessageCode.MESSAGE_CODE_VALIDATION_EVENTS:
-                validation_events = [ValidationEvent(**validation_event) for validation_event in message.body.data["list"]]
+                validation_events = [ValidationEvent(**validation_event) for validation_event in message.body.data["validation_events"]]
                 if validation_events:
                     self._database.insert_validation_events(validation_events=validation_events)
 

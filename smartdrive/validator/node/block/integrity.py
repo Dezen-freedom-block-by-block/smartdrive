@@ -112,7 +112,7 @@ def verify_event_signatures(event: Union[StoreEvent, RemoveEvent, StoreRequestEv
     Verifies the signatures of an individual event.
 
     Parameters:
-        event Union[StoreEvent, RemoveEvent]: The specific Event object (StoreEvent, RemoveEvent).
+        event Union[StoreEvent, RemoveEvent, StoreRequestEvent]: The specific Event object (StoreEvent, RemoveEvent, StoreRequestEvent).
 
     Raises:
         InvalidSignatureException: If the signs are not valid.
@@ -125,7 +125,8 @@ def verify_event_signatures(event: Union[StoreEvent, RemoveEvent, StoreRequestEv
         if isinstance(event, RemoveEvent) and not input_params_verified:
             input_params_verified = verify_data_signature(event.input_params.dict(), event.input_signed_params, event.validator_ss58_address)
 
-    event_params_verified = verify_data_signature(event.event_params.dict(), event.event_signed_params, event.validator_ss58_address)
+    ss58_address = event.user_ss58_address if isinstance(event, StoreEvent) else event.validator_ss58_address
+    event_params_verified = verify_data_signature(event.event_params.dict(), event.event_signed_params, ss58_address)
 
     if not input_params_verified or not event_params_verified:
         raise InvalidSignatureException()

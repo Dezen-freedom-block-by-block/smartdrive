@@ -32,9 +32,8 @@ from smartdrive.commune.utils import calculate_hash
 from smartdrive.logging_config import logger
 from smartdrive.commune.models import ModuleInfo
 from smartdrive.models.event import ValidationEvent
-from smartdrive.sign import sign_data
-from smartdrive.utils import DEFAULT_VALIDATOR_PATH
-from smartdrive.validator.api.store_api import store_new_file
+from smartdrive.config import DEFAULT_VALIDATOR_PATH
+from smartdrive.validator.api.store_api import store_validation_file
 from smartdrive.validator.api.utils import remove_chunk_request
 from smartdrive.validator.api.validate_api import validate_chunk_request
 from smartdrive.validator.database.database import Database
@@ -119,29 +118,24 @@ async def validate(miners: List[ModuleInfo], database: Database, key: Keypair) -
         os.makedirs(path, exist_ok=True)
         validation_path = os.path.join(path, "validation.bin")
         file_path = generate_data(size_mb=5, file_path=validation_path)
-        file_size = os.path.getsize(file_path)
-        file_hash = await calculate_hash(file_path)
+        chunk_size = os.path.getsize(file_path)
+        chunk_hash = await calculate_hash(file_path)
 
-        input_params = {"file_hash": file_hash, "file_size_bytes": file_size}
-        input_signed_params = sign_data(input_params, key)
-        _, validations_events_per_validator = await store_new_file(
-            file=file_path,
+        validations_events = await store_validation_file(
+            chunk_path=file_path,
+            chunk_size=chunk_size,
+            chunk_hash=chunk_hash,
             miners=miners_to_store,
             validator_keypair=key,
-            user_ss58_address=Ss58Address(key.ss58_address),
-            input_signed_params=input_signed_params.hex(),
-            file_size_bytes=file_size,
-            file_hash=file_hash,
-            validators_len=1  # To include current validator
+            user_ss58_address=Ss58Address(key.ss58_address)
         )
 
-        if validations_events_per_validator:
-            current_validator_validation_events = validations_events_per_validator[0]
-            database.insert_validation_events(current_validator_validation_events)
+        if validations_events:
+            database.insert_validation_events(validations_events)
 
             # Check if there is no validation for each of the miners who stored the previously generated file. If there
             # is no validation, insert the generated one.
-            for validation_event in current_validator_validation_events:
+            for validation_event in validations_events:
                 if validation_event.miner_ss58_address not in miners_ss58_address_in_validation_events_not_expired:
                     miners_ss58_address_in_validation_events_not_expired.append(validation_event.miner_ss58_address)
                     validation_events_not_expired.append(validation_event)

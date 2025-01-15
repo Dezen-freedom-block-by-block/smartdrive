@@ -21,7 +21,7 @@
 #  SOFTWARE.
 
 from enum import Enum
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict
 from pydantic import BaseModel
 
 from communex.types import Ss58Address
@@ -46,19 +46,19 @@ class RetrieveInputParams(InputParams):
     file_uuid: str
 
 
-class StoreInputParams(InputParams):
+class StoreRequestInputParams(InputParams):
     file_hash: str
     file_size_bytes: int
-
-
-class StoreRequestInputParams(StoreInputParams):
-    pass
+    chunks: List[Dict[str, Union[int, str]]]
 
 
 class ChunkParams(BaseModel):
     uuid: Optional[str]
     miner_ss58_address: Optional[str]
     chunk_index: Optional[int] = None
+    miner_connection: Optional[dict] = None
+    chunk_hash: Optional[str] = None
+    chunk_size: Optional[int] = None
 
 
 class ValidationEvent(BaseModel):
@@ -78,8 +78,10 @@ class EventParams(BaseModel):
 
 
 class StoreParams(EventParams):
-    file_uuid: str
     chunks_params: List[ChunkParams]
+    file_hash: str
+    file_size: int
+    file_uuid: str
 
 
 class StoreRequestParams(EventParams):
@@ -119,9 +121,9 @@ class UserEvent(Event):
     input_signed_params: str
 
 
-class StoreEvent(UserEvent):
+class StoreEvent(Event):
+    user_ss58_address: Ss58Address
     event_params: StoreParams
-    input_params: StoreInputParams
 
 
 class RemoveEvent(UserEvent):
@@ -177,15 +179,13 @@ def parse_event(message_event: MessageEvent) -> Union[StoreEvent, RemoveEvent, S
         "uuid": uuid,
         "validator_ss58_address": validator_ss58_address,
         "event_params": event_params,
-        "event_signed_params": event_signed_params
+        "event_signed_params": event_signed_params,
     }
 
     if message_event.event_action == Action.STORE.value:
         return StoreEvent(
             **common_params,
             user_ss58_address=Ss58Address(message_event.event.user_ss58_address),
-            input_params=StoreInputParams(file_hash=message_event.event.input_params.file_hash, file_size_bytes=message_event.event.input_params.file_size_bytes),
-            input_signed_params=message_event.event.input_signed_params
         )
     elif message_event.event_action == Action.REMOVE.value:
         return RemoveEvent(
@@ -198,7 +198,7 @@ def parse_event(message_event: MessageEvent) -> Union[StoreEvent, RemoveEvent, S
         return StoreRequestEvent(
             **common_params,
             user_ss58_address=Ss58Address(message_event.event.user_ss58_address),
-            input_params=StoreRequestInputParams(file_hash=message_event.event.input_params.file_hash, file_size_bytes=message_event.event.input_params.file_size_bytes),
+            input_params=StoreRequestInputParams(file_hash=message_event.event.input_params.file_hash, file_size_bytes=message_event.event.input_params.file_size_bytes, chunks=message_event.event.input_params.chunks),
             input_signed_params=message_event.event.input_signed_params
         )
     else:
