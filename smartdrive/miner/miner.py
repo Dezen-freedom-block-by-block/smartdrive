@@ -174,7 +174,8 @@ class Miner(Module):
             validators = await get_filtered_modules(
                 config_manager.config.netuid,
                 ModuleType.VALIDATOR,
-                config_manager.config.testnet
+                config_manager.config.testnet,
+                without_address=True
             )
             is_validator = user_ss58_address in {v.ss58_address for v in validators} and not event_uuid
 
