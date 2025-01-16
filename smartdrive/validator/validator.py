@@ -138,7 +138,7 @@ class Validator(Module):
                 logger.error("Error checking stake", exc_info=True)
 
             try:
-                is_current_validator_proposer, active_validators, _ = await get_proposer_validator(
+                is_current_validator_proposer, active_validators = await get_proposer_validator(
                     keypair=self._key,
                     connected_modules=self.node.connection_pool.get_modules(),
                     sync_service=self.node.sync_service
@@ -311,7 +311,7 @@ class Validator(Module):
                 if total_size_stored_by_user > available_storage_of_user:
                     excess_storage = total_size_stored_by_user - available_storage_of_user
                     user_files = self._database.get_files_by_user(user_ss58_address=user_ss58_address)
-                    user_files_sorted = sorted(user_files, key=lambda x: x.chunk_size_bytes)
+                    user_files_sorted = sorted(user_files, key=lambda x: x.file_size_bytes)
 
                     files_to_remove = None
                     for file in user_files_sorted:
@@ -322,7 +322,7 @@ class Validator(Module):
                     if not files_to_remove:
                         for r in range(1, len(user_files_sorted) + 1):
                             for combo in itertools.combinations(user_files_sorted, r):
-                                if sum(f.chunk_size_bytes for f in combo) >= excess_storage:
+                                if sum(f.file_size_bytes for f in combo) >= excess_storage:
                                     files_to_remove = list(combo)
                                     break
                             if files_to_remove:

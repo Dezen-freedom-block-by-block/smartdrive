@@ -34,15 +34,13 @@ from smartdrive.validator.node.connection.connection_pool import INACTIVITY_TIME
 from smartdrive.validator.node.sync_service import SyncService
 
 
-async def get_proposer_validator(keypair: Keypair, connected_modules: List[ModuleInfo], sync_service: SyncService) -> Tuple[bool, List[ModuleInfo], List[ModuleInfo]]:
+async def get_proposer_validator(keypair: Keypair, connected_modules: List[ModuleInfo], sync_service: SyncService) -> Tuple[bool, List[ModuleInfo]]:
     """
     Determines the proposer validator based on the validators' stake.
 
     Returns:
         is_current_validator_proposer (bool): True if the current validator is the proposer, False otherwise.
         active_validators (List[ModuleInfo]): List of currently active validators.
-        all_validators (List[ModuleInfo]): List of all validators in the network.
-        sync_service (SyncService): SyncService instance to use.
     """
     # Retrieving all active validators is crucial, so we attempt it an optimal number of times.
     # Between each attempt, we wait VALIDATOR_INACTIVITY_TIMEOUT_SECONDS / 2,
@@ -66,7 +64,7 @@ async def get_proposer_validator(keypair: Keypair, connected_modules: List[Modul
         truthful_validators.append(own_validator)
 
     if len(truthful_validators) == 0 and len(all_validators) == 0:
-        return False, active_validators, []
+        return False, active_validators
 
     proposer_validator = max(truthful_validators or all_validators, key=lambda v: (v.stake or 0, v.ss58_address))
 
@@ -74,4 +72,4 @@ async def get_proposer_validator(keypair: Keypair, connected_modules: List[Modul
 
     sync_service.set_current_proposer(proposer_validator.ss58_address)
 
-    return is_current_validator_proposer, active_validators, all_validators
+    return is_current_validator_proposer, active_validators

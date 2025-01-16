@@ -139,14 +139,15 @@ def find_common_block_and_resolve_fork(
     common_block = None
     current_block = local_block
 
-    while current_block:
-        if current_block.block_number in validator_blocks and current_block.hash == validator_blocks[current_block.block_number]["hash"]:
-            common_block = current_block
-            break
-        if current_block.block_number == 1:
-            break
-        get_blocks = database.get_blocks(block_hash=current_block.previous_hash, include_events=False)
-        current_block = get_blocks[0] if get_blocks else None
+    if current_block.block_number in validator_blocks:
+        while current_block:
+            if current_block.hash == validator_blocks[current_block.block_number]["hash"]:
+                common_block = current_block
+                break
+            if current_block.block_number == 1:
+                break
+            get_blocks = database.get_blocks(block_hash=current_block.previous_hash, include_events=False)
+            current_block = get_blocks[0] if get_blocks else None
 
     if common_block:
         logger.info(f"Resolving fork starting, common block: {common_block.block_number}")
