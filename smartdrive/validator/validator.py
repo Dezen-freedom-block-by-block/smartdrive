@@ -277,6 +277,11 @@ class Validator(Module):
             score_dict = score_miners(result_miners=result_miners)
             if score_dict:
                 await set_weights(score_dict, self._key)
+        else:
+            score_dict = {}
+            for miner in miners:
+                score_dict[int(miner.uid)] = 0.0
+            await set_weights(score_dict, self._key)
 
     async def check_stake_task(self):
         """
